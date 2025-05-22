@@ -1,0 +1,48 @@
+# Pre-commit configuration for RecruiterRadar MVP
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # General/Universal hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Python Backend hooks
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        files: '^backend/.*\.py$'
+        language_version: python3
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.2.0
+    hooks:
+      - id: flake8
+        files: '^backend/.*\.py$'
+
+  # Frontend JavaScript/React hooks (using local installation)
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: bash -c 'cd frontend && npx prettier --write "$@"' --
+        language: system
+        files: '^frontend/.*\.(js|jsx|ts|tsx|json|css|md)$'
+        pass_filenames: true
+
+      - id: eslint
+        name: eslint
+        entry: bash -c 'cd frontend && npx eslint --fix . --ext .js,.jsx,.ts,.tsx'
+        language: system
+        files: '^frontend/.*\.(js|jsx|ts|tsx)$'
+        pass_filenames: false

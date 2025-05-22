@@ -3,4 +3,5 @@ uvicorn[standard]
 pydantic
 python-dotenv
 black
-flake8 
+flake8
+pre-commit
