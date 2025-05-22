@@ -1,5 +1,4 @@
 {
-  // Python Backend Settings
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.formatOnSave": true,
@@ -10,13 +9,6 @@
   "python.linting.flake8Enabled": true,
   "python.linting.pylintEnabled": false,
   "python.linting.enabled": true,
-  // Make sure your Python interpreter for the workspace is set to your .venv/ path.
-  // For Windows, it would be something like:
-  // "python.defaultInterpreterPath": ".\\backend\\.venv\\Scripts\\python.exe",
-  // For Linux/macOS:
-  // "python.defaultInterpreterPath": "./backend/.venv/bin/python",
-
-  // Frontend JavaScript/React Settings
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
@@ -51,4 +43,4 @@
     "typescript",
     "typescriptreact"
   ]
-} 
+}
