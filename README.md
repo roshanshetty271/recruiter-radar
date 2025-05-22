@@ -2,6 +2,9 @@
 
 RecruiterRadar MVP is an AI-powered talent search demonstration platform. It allows users to query a static pool of candidate profiles using natural language and generate personalized outreach message drafts. This project showcases the practical application of Retrieval-Augmented Generation (RAG) for talent discovery and LLM-powered message personalization.
 
+## Project Status
+
+Setting up initial project structure.
 
 **Live Demo (Stretch Goal):** [Link to be added if deployed]
 
