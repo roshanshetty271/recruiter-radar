@@ -171,3 +171,6 @@ Desktop.ini
 *.iml
 *.ipr
 *.iws
+
+# Feature explanations for learning (local documentation)
+feature explanations/
