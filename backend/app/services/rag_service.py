@@ -98,8 +98,8 @@ class RAGService:
     def _initialize_client(self) -> None:
         """Initialize the persistent ChromaDB client."""
         try:
-            # Ensure the ChromaDB directory exists
-            chroma_path = Path(settings.chroma_db_full_path)
+            # Use relative path when in backend directory, full path when in repo root
+            chroma_path = Path(settings.chroma_db_path)  # Use just the relative path
             chroma_path.mkdir(parents=True, exist_ok=True)
 
             # Initialize persistent client
@@ -174,7 +174,9 @@ class RAGService:
                 "chroma_client": "connected",
                 "collection_name": settings.chroma_collection_name,
                 "document_count": collection_count,
-                "chroma_db_path": str(settings.chroma_db_full_path),
+                "chroma_db_path": str(
+                    Path(settings.chroma_db_path)
+                ),  # Use relative path
                 "embedding_model": settings.embedding_model_name,
             }
 
