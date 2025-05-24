@@ -10,3 +10,4 @@ langchain-openai>=0.0.5
 black
 flake8
 pre-commit
+ 
