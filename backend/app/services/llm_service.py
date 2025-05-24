@@ -25,7 +25,7 @@ from openai import (
 )
 from fastapi import HTTPException, status
 
-from app.core.config import settings, Settings
+from backend.app.core.config import settings, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +268,7 @@ async def _test_llm_service():
     """
     try:
         # Ensure global settings are imported and used for instantiation
-        from app.core.config import settings as global_settings
+        from backend.app.core.config import settings as global_settings
 
         llm_service = LLMService(settings_obj=global_settings)
 
@@ -290,6 +290,6 @@ if __name__ == "__main__":
     import asyncio
 
     # Ensure settings are loaded if running directly for testing
-    from app.core.config import settings as global_settings_for_direct_run
+    from backend.app.core.config import settings as global_settings_for_direct_run
 
     asyncio.run(_test_llm_service())

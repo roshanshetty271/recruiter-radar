@@ -93,8 +93,3 @@ class ModelSettings(BaseSettings):
     @property
     def similarity_threshold(self) -> float:
         return self.model_similarity_threshold
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        # Use full environment variable names without prefix

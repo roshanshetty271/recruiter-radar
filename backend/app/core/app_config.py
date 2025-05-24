@@ -129,8 +129,3 @@ class AppSettings(BaseSettings):
     def effective_chroma_persist_directory(self) -> str:
         """Get the ChromaDB persist directory to use."""
         return self.app_chroma_persist_directory or self.app_chroma_db_path
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        # Use full environment variable names without prefix

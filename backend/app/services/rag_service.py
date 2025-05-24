@@ -20,8 +20,8 @@ from pathlib import Path
 # from chromadb.utils import embedding_functions # No longer needed here
 from fastapi import HTTPException, status  # Keep for get_rag_service DI function
 
-from app.core.config import settings  # For get_rag_service DI function
-from app.models.candidate import CandidateProfile  # For type hints if needed
+from backend.app.core.config import settings  # For get_rag_service DI function
+from backend.app.models.candidate import CandidateProfile  # For type hints if needed
 
 # Import the new connector and its exceptions
 from .chroma_connector import (
@@ -29,6 +29,10 @@ from .chroma_connector import (
     ChromaConnectionError,
     ChromaConfigError,
     ChromaCollectionError,
+)
+from backend.app.services.rag_operations.search_logic import (
+    execute_similarity_search,
+    SearchOperationError as OpsSearchOperationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -307,94 +311,49 @@ class RAGService:
     async def similarity_search(
         self,
         query_embedding: List[float],
-        n_results: int = 5,
+        k: int = 5,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Asynchronously performs a similarity search against the ChromaDB collection.
-        Uses asyncio.to_thread for the synchronous ChromaDB `query` operation.
-        Formats results into a more consumable list of dictionaries.
-
-        Args:
-            query_embedding: Pre-computed query embedding.
-            n_results: Number of top results to return.
-            filters: Optional metadata filter dictionary for ChromaDB's `where` clause.
-
-        Returns:
-            List of search result dictionaries from ChromaDB.
-            Each result typically includes 'ids', 'documents', 'metadatas', 'distances'.
-
-        Raises:
-            SearchOperationError: If the query operation fails.
-            ValueError: If query_embedding is invalid.
+        Performs similarity search by delegating to execute_similarity_search.
+        Handles exceptions from the underlying operation.
         """
-        if not query_embedding or len(query_embedding) == 0:
+        if not self.collection:
             logger.error(
-                "Invalid or empty query_embedding provided for similarity_search."
+                "RAGService: Collection not initialized for similarity_search."
             )
-            raise ValueError("query_embedding cannot be empty.")
+            # This should ideally be caught during RAGService initialization
+            raise SearchOperationError("Collection not initialized in RAGService.")
 
         logger.debug(
-            f"RAGService: Queueing similarity search in '{self.collection_name}' (n_results={n_results}, filters={filters}) (via thread)."
+            f"RAGService: Delegating similarity search. Query embedding type: {type(query_embedding)}"
         )
         try:
-            results = await asyncio.to_thread(
-                self.collection.query,
-                query_embeddings=[query_embedding],
-                n_results=n_results,
-                where=filters,
-                include=["metadatas", "documents", "distances", "data"],
+            return await execute_similarity_search(
+                collection=self.collection,
+                query_embedding=query_embedding,
+                k=k,
+                filters=filters,
             )
-            logger.info(
-                f"RAGService: Similarity search completed. Raw results keys: {results.keys() if results else 'None'}."
-            )
-
-            if not results or not results.get("ids") or not results["ids"][0]:
-                logger.info(
-                    f"RAGService: No results found for query in '{self.collection_name}'."
-                )
-                return []
-
-            formatted_results = []
-            res_ids = results["ids"][0]
-            res_docs = (
-                results["documents"][0]
-                if results.get("documents") and results["documents"]
-                else [None] * len(res_ids)
-            )
-            res_metadatas = (
-                results["metadatas"][0]
-                if results.get("metadatas") and results["metadatas"]
-                else [None] * len(res_ids)
-            )
-            res_distances = (
-                results["distances"][0]
-                if results.get("distances") and results["distances"]
-                else [None] * len(res_ids)
-            )
-
-            for i in range(len(res_ids)):
-                res_item = {
-                    "id": res_ids[i],
-                    "document": res_docs[i] if res_docs else None,
-                    "metadata": res_metadatas[i] if res_metadatas else None,
-                    "distance": res_distances[i] if res_distances else None,
-                }
-                formatted_results.append(res_item)
-
-            logger.info(
-                f"RAGService: Formatted {len(formatted_results)} results from search."
-            )
-            return formatted_results
-
-        except Exception as e:
+        except OpsSearchOperationError as e:  # Catching error from search_logic
             logger.error(
-                f"RAGService: Threaded similarity search failed in collection '{self.collection_name}': {e}",
+                f"RAGService: Search operation failed in search_logic: {e}",
                 exc_info=True,
             )
-            raise SearchOperationError(
-                f"Similarity search in '{self.collection_name}' failed: {e}"
-            ) from e
+            # Re-raise as RAGService's own SearchOperationError or a more general one
+            raise SearchOperationError(f"Search operation failed: {e}") from e
+        except ValueError as e:  # Catch ValueError from execute_similarity_search
+            logger.error(
+                f"RAGService: Invalid value during similarity search: {e}",
+                exc_info=True,
+            )
+            raise ValueError(f"Invalid value for search: {e}") from e  # Re-raise
+        except Exception as e:
+            logger.error(
+                f"RAGService: Unexpected error during similarity_search delegation: {e}",
+                exc_info=True,
+            )
+            raise RAGServiceError(f"Unexpected error during search: {e}") from e
 
     async def get_candidate_details_by_id(
         self, candidate_id: str

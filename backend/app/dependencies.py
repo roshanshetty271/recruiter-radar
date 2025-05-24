@@ -1,8 +1,8 @@
 from fastapi import Request
-from app.services.llm_service import LLMService
-from app.services.rag_service import RAGService
+from backend.app.services.llm_service import LLMService
+from backend.app.services.rag_service import RAGService
 
-# from app.services.chroma_connector import ChromaConnector # If needed directly
+# from backend.app.services.chroma_connector import ChromaConnector # If needed directly
 
 
 def get_llm_service(request: Request) -> LLMService:
