@@ -1,0 +1,85 @@
+FEATURE: BE-5 Data Ingestion Logic
+========================================
+
+OBJECTIVE:
+Create a standalone data ingestion script (backend/ingest_data.py) that loads candidate profiles from our JSON file, generates embeddings using the LLMService, and stores them in ChromaDB via the RAGService. This script serves as the bridge between our static candidate data and the searchable vector store.
+
+DEPENDENCIES:
+✅ BE-1: Configuration System (settings, paths, API keys)
+✅ BE-2: Pydantic Models (CandidateProfile schema)
+✅ BE-3: LLMService (embedding generation)
+✅ BE-4: RAGService (ChromaDB integration, add_candidate_to_collection method)
+✅ Static candidate data file with rich raw_resume_text fields
+
+CORE FUNCTIONALITY:
+1. Load candidate profiles from backend/app/data/candidate_profiles.json
+2. Parse and validate each candidate against CandidateProfile model
+3. Generate embeddings for each candidate's raw_resume_text using LLMService
+4. Prepare metadata dictionaries (name, skills, visa_status, location, etc.)
+5. Store candidates in ChromaDB using RAGService.add_candidate_to_collection()
+6. Provide detailed logging and progress tracking
+7. Handle errors gracefully (API failures, data issues, etc.)
+8. Support both full ingestion and incremental updates
+
+TECHNICAL APPROACH:
+- Standalone script that can be run manually: python backend/ingest_data.py
+- Uses async/await for non-blocking OpenAI API calls
+- Implements batch processing with configurable batch sizes
+- Provides comprehensive error handling and retry logic
+- Offers dry-run mode for validation without actual ingestion
+- Includes progress reporting and timing statistics
+
+KEY DESIGN DECISIONS:
+1. **Script vs Service**: Standalone script approach for MVP simplicity
+2. **Embedding Strategy**: Embed raw_resume_text (full resume content) for maximum search relevance
+3. **Metadata Strategy**: Store non-embedded fields as ChromaDB metadata for filtering/display
+4. **Error Handling**: Continue processing other candidates if individual failures occur
+5. **Progress Tracking**: Real-time progress updates for large datasets
+6. **Configuration**: Use existing Settings system for all configuration
+
+INPUTS:
+- backend/app/data/candidate_profiles.json (via settings.candidate_data_path)
+- Environment variables (OPENAI_API_KEY, model settings)
+- Command line arguments for batch size, dry-run mode, etc.
+
+OUTPUTS:
+- Populated ChromaDB collection with candidate embeddings + metadata
+- Detailed console logs showing progress and any errors
+- Summary statistics (total processed, successful, failed)
+- Optional JSON report file for audit trail
+
+INTEGRATION POINTS:
+- LLMService.get_embedding() for generating vector embeddings
+- RAGService.add_candidate_to_collection() for storing in ChromaDB
+- CandidateProfile model for data validation
+- Settings system for configuration management
+
+SUCCESS CRITERIA:
+✅ Successfully loads and parses all ~50 candidate profiles
+✅ Generates embeddings for all candidates without API errors
+✅ Stores all candidates in ChromaDB with proper metadata
+✅ Provides clear progress feedback and error reporting
+✅ Can be re-run safely (handles existing data appropriately)
+✅ Completes full ingestion in reasonable time (~2-5 minutes)
+
+FUTURE ENHANCEMENTS (Out of MVP Scope):
+- Incremental updates (detect changed candidates)
+- Multiple data source support (CSV, database)
+- Parallel processing for faster ingestion
+- Resume parsing from PDF/Word formats
+- Data validation and cleaning pipelines
+- Automated scheduling/cron job integration
+
+TESTING APPROACH:
+- Unit tests for individual functions (load_candidates, prepare_metadata)
+- Integration tests with mock LLMService/RAGService
+- End-to-end test with small dataset
+- Error handling tests (malformed data, API failures)
+- Performance tests with full dataset
+
+ESTIMATED EFFORT: 4-6 hours
+- Core script development: 2-3 hours
+- Error handling and logging: 1-2 hours
+- Testing and validation: 1 hour
+
+This feature is the critical bridge that transforms our static candidate data into a searchable, vector-enabled database ready for the RAG search functionality in BE-6/BE-7. 

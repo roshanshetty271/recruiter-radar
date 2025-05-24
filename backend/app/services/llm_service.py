@@ -25,7 +25,7 @@ from openai import (
 )
 from fastapi import HTTPException, status
 
-from app.core.config import settings
+from app.core.config import settings, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,18 @@ class LLMServiceError(Exception):
     def __init__(self, message: str, original_exception: Exception = None):
         super().__init__(message)
         self.original_exception = original_exception
+
+
+class EmbeddingGenerationError(LLMServiceError):
+    """Raised when embedding generation fails after retries or due to a non-transient API error."""
+
+    pass
+
+
+class OpenAIConfigError(LLMServiceError):
+    """Raised for OpenAI configuration issues (e.g., missing API key, invalid model name)."""
+
+    pass
 
 
 class LLMService:
@@ -52,45 +64,43 @@ class LLMService:
     - Additional model providers if needed
     """
 
-    def __init__(self, api_key: str = None, embedding_model_name: str = None):
+    def __init__(self, settings_obj: Settings):
         """
-        Initialize the LLMService with OpenAI client configuration.
+        Initialize the LLMService with OpenAI client configuration using settings object.
 
         Args:
-            api_key (str, optional): OpenAI API key. If None, uses settings.
-            embedding_model_name (str, optional): Embedding model name. If None, uses settings.
+            settings_obj: The application's global settings object.
 
         Raises:
-            ValueError: If API key is not provided or found in settings.
+            OpenAIConfigError: If essential OpenAI configurations are missing.
         """
-        # Use provided values or fall back to settings, but check for empty strings
-        if api_key is not None:
-            if not api_key.strip():
-                raise ValueError("OpenAI API key cannot be empty.")
-            self.api_key = api_key
-        else:
-            self.api_key = settings.openai_api_key
-
-        if embedding_model_name is not None:
-            if not embedding_model_name.strip():
-                raise ValueError("Embedding model name cannot be empty.")
-            self.embedding_model = embedding_model_name
-        else:
-            self.embedding_model = settings.embedding_model_name
+        self.settings = settings_obj
+        self.api_key = self.settings.openai_api_key
+        self.embedding_model = self.settings.embedding_model_name
+        self.chat_model = self.settings.chat_model_name
 
         if not self.api_key:
-            logger.error("OpenAI API key is not configured.")
-            raise ValueError("OpenAI API key is required for LLMService.")
+            logger.error("OpenAI API key is not configured in settings.")
+            raise OpenAIConfigError(
+                "OpenAI API key is required for LLMService. Please check configuration."
+            )
 
         if not self.embedding_model:
-            logger.error("Embedding model name is not configured.")
-            raise ValueError("Embedding model name is required for LLMService.")
+            logger.error("Embedding model name is not configured in settings.")
+            raise OpenAIConfigError(
+                "Embedding model name is required for LLMService. Please check configuration."
+            )
+
+        if not self.chat_model:
+            logger.warning(
+                "Chat model name is not configured in settings. Text generation features might fail."
+            )
 
         # Initialize the async OpenAI client
         self.client = AsyncOpenAI(api_key=self.api_key)
 
         logger.info(
-            f"LLMService initialized with embedding model: {self.embedding_model}"
+            f"LLMService initialized with embedding model: {self.embedding_model}, chat model: {self.chat_model}"
         )
 
     async def get_embedding(
@@ -123,6 +133,7 @@ class LLMService:
         # Input validation
         if not text or not text.strip():
             logger.warning("get_embedding called with empty or whitespace-only text.")
+            # For an invalid argument from the caller, ValueError is appropriate.
             raise ValueError("Input text for embedding cannot be empty.")
 
         # Log the request (with truncated text for privacy/readability)
@@ -150,9 +161,10 @@ class LLMService:
 
         except AuthenticationError as e:
             logger.error(f"OpenAI Authentication Error: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="OpenAI authentication failed. Please check API key configuration.",
+            # This is a configuration or setup issue.
+            raise OpenAIConfigError(
+                "OpenAI authentication failed. Please check API key configuration.",
+                original_exception=e,
             )
 
         except RateLimitError as e:
@@ -167,9 +179,13 @@ class LLMService:
                 await asyncio.sleep(backoff_delay)
                 return await self.get_embedding(text, attempt + 1, max_attempts)
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail="OpenAI API rate limit exceeded after multiple retries.",
+                logger.error(
+                    "OpenAI API rate limit exceeded after multiple retries.",
+                    exc_info=True,
+                )
+                raise EmbeddingGenerationError(
+                    "OpenAI API rate limit exceeded after multiple retries.",
+                    original_exception=e,
                 )
 
         except (APITimeoutError, APIConnectionError) as e:
@@ -184,33 +200,40 @@ class LLMService:
                 await asyncio.sleep(backoff_delay)
                 return await self.get_embedding(text, attempt + 1, max_attempts)
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                    detail="OpenAI API connection/timeout issue after multiple retries.",
+                logger.error(
+                    "OpenAI API connection/timeout issue after multiple retries.",
+                    exc_info=True,
+                )
+                raise EmbeddingGenerationError(
+                    "OpenAI API connection/timeout issue after multiple retries.",
+                    original_exception=e,
                 )
 
         except BadRequestError as e:
             logger.error(
-                f"OpenAI Bad Request Error (possibly input too long): {e}",
+                f"OpenAI Bad Request Error (possibly input too long or invalid model): {e}",
                 exc_info=True,
             )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid request to OpenAI API: {e.message if hasattr(e, 'message') else str(e)}",
+            # This could be due to bad input from the user of this service or an issue with the model.
+            # For ingest_data.py, this is a critical failure for that piece of text.
+            raise EmbeddingGenerationError(
+                f"Invalid request to OpenAI API: {e.message if hasattr(e, 'message') else str(e)}",
+                original_exception=e,
             )
 
-        except APIError as e:
+        except APIError as e:  # Catch other OpenAI API errors
             logger.error(f"Generic OpenAI API Error: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI API service temporarily unavailable.",
+            raise EmbeddingGenerationError(
+                f"OpenAI API service error: {e.message if hasattr(e, 'message') else str(e)}",
+                original_exception=e,
             )
 
-        except Exception as e:
+        except Exception as e:  # Catch any other unexpected errors
             logger.error(f"Unexpected error in get_embedding: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An unexpected error occurred while generating embeddings.",
+            # This is an unexpected internal error in this service.
+            raise LLMServiceError(
+                f"An unexpected error occurred while generating embeddings: {str(e)}",
+                original_exception=e,
             )
 
     # Future method placeholder for text generation
@@ -244,7 +267,10 @@ async def _test_llm_service():
     This function can be used for manual testing during development.
     """
     try:
-        llm_service = LLMService()
+        # Ensure global settings are imported and used for instantiation
+        from app.core.config import settings as global_settings
+
+        llm_service = LLMService(settings_obj=global_settings)
 
         # Test embedding generation
         test_text = "This is a test sentence for embedding generation."
@@ -262,5 +288,8 @@ async def _test_llm_service():
 # Allow running this module directly for testing
 if __name__ == "__main__":
     import asyncio
+
+    # Ensure settings are loaded if running directly for testing
+    from app.core.config import settings as global_settings_for_direct_run
 
     asyncio.run(_test_llm_service())
