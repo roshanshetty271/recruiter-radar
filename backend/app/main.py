@@ -5,17 +5,22 @@ from fastapi import (
 )  # , Request, HTTPException, status # Request, HTTPException, status not used directly here yet
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
-from app.services.llm_service import LLMService, OpenAIConfigError, LLMServiceError
-from app.services.chroma_connector import (
+from backend.app.core.config import settings
+from backend.app.services.llm_service import (
+    LLMService,
+    OpenAIConfigError,
+    LLMServiceError,
+)
+from backend.app.services.chroma_connector import (
     ChromaConnector,
     ChromaConfigError,
     ChromaConnectionError,
 )
-from app.services.rag_service import RAGService, RAGServiceError
+from backend.app.services.rag_service import RAGService, RAGServiceError
 
-# from app.api.routers import candidates as candidates_router # Placeholder
-# from app.api.routers import health_router # Placeholder
+from backend.app.api.routers import candidate_router  # Corrected import
+
+# from backend.app.api.routers import health_router # Placeholder, health is in main for now
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +33,7 @@ async def lifespan(app: FastAPI):
         app.state.settings = settings
 
         # Initialize LLMService
-        app.state.llm_service = LLMService(
-            api_key=settings.openai_api_key,
-            embedding_model_name=settings.embedding_model_name,
-            # chat_model_name will be used by its generate_text method later
-        )
+        app.state.llm_service = LLMService(settings_obj=settings)
         logger.info("LLMService initialized.")
 
         # Initialize ChromaConnector
@@ -108,8 +109,8 @@ async def health_check():
     return {"status": "ok", "message": "API is healthy"}
 
 
-# Placeholder for including API routers
-# app.include_router(candidates_router.router, prefix="/api/v1/candidates", tags=["Candidates"])
+# Include API routers
+app.include_router(candidate_router.router, prefix="/api/v1", tags=["Candidates"])
 # app.include_router(health_router.router, prefix="/health", tags=["Health"]) # if moved to its own router
 
 # Configure basic logging for the application

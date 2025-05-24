@@ -56,8 +56,3 @@ class APISettings(BaseSettings):
     def backend_cors_origins(self) -> List[str]:
         """Get CORS origins."""
         return self.api_backend_cors_origins
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        # Use full environment variable names without prefix

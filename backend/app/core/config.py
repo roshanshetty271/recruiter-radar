@@ -17,6 +17,8 @@ Usage:
     data_path = settings.candidate_data_path
 """
 
+from pathlib import Path
+
 from .api_config import APISettings
 from .model_config import ModelSettings
 from .app_config import AppSettings
@@ -31,7 +33,14 @@ class Settings(APISettings, ModelSettings, AppSettings):
     """
 
     class Config:
-        env_file = ".env"
+        # Construct path to .env file in the 'backend' directory, relative to this config file
+        # config.py is in backend/app/core/, .env is in backend/
+        # So, ../../.env from core/ should point to backend/.env
+        # Corrected: Path(__file__).resolve().parent.parent.parent / ".env"
+        # __file__ is config.py -> parent is core/ -> parent is app/ -> parent is backend/
+        env_file_path = Path(__file__).resolve().parent.parent.parent / ".env"
+        env_file = str(env_file_path)  # Pydantic expects a string path
+
         env_file_encoding = "utf-8"
         case_sensitive = False
 
