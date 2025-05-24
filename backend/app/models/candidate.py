@@ -6,7 +6,7 @@ for representing candidate information, skills, and resume data.
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, HttpUrl, validator
 
 
 class CandidateProfile(BaseModel):
@@ -25,48 +25,39 @@ class CandidateProfile(BaseModel):
         ..., description="Full name of the candidate", example="Alex Johnson"
     )
 
-    summary_text: str = Field(
-        ...,
-        description="Professional summary or bio text used for embeddings",
-        example="Senior Software Engineer with 5 years of experience...",
-    )
-
     raw_resume_text: str = Field(
         ...,
-        description="Complete raw resume content for detailed analysis",
-        example="Alex Johnson\nSenior Software Engineer\n\nExperience:\n...",
+        description="The full, raw text content of the candidate's resume, used for generating embeddings.",
     )
 
     skills: List[str] = Field(
         default_factory=list,
-        description="List of technical and professional skills",
-        example=["Python", "FastAPI", "React", "Machine Learning"],
+        description="List of key skills extracted or provided for the candidate.",
     )
 
-    experience_years: Optional[int] = Field(
-        None, description="Years of professional experience", ge=0, le=50, example=5
+    experience_years: int = Field(
+        ...,
+        ge=0,
+        le=60,  # Max 60 years, more realistic than 50
+        description="Total years of relevant professional experience.",
     )
 
-    education: Optional[str] = Field(
+    visa_status: Optional[str] = Field(
         None,
-        description="Educational background",
-        example="B.S. Computer Science, Stanford University",
+        description="Current US visa or work authorization status (e.g., H1B, Green Card, US Citizen, F-1 OPT).",
     )
 
     location: Optional[str] = Field(
         None,
-        description="Current location or preferred work location",
-        example="San Francisco, CA",
+        description="Current city and state of residence or preferred location (e.g., San Francisco, CA).",
     )
 
-    visa_status: Optional[str] = Field(
-        None, description="Work authorization status", example="US Citizen"
+    github_url: Optional[HttpUrl] = Field(
+        None, description="Optional URL to the candidate's GitHub profile."
     )
 
-    contact_info: Optional[str] = Field(
-        None,
-        description="Contact information (email, phone, etc.)",
-        example="alex.johnson@email.com",
+    linkedin_url: Optional[HttpUrl] = Field(
+        None, description="Optional URL to the candidate's LinkedIn profile."
     )
 
     @validator("skills")
@@ -74,7 +65,7 @@ class CandidateProfile(BaseModel):
         """Ensure skills list doesn't contain empty strings."""
         return [skill.strip() for skill in v if skill.strip()]
 
-    @validator("summary_text", "raw_resume_text")
+    @validator("raw_resume_text")
     def validate_text_fields_not_empty(cls, v):
         """Ensure critical text fields are not empty or just whitespace."""
         if not v or not v.strip():
@@ -86,15 +77,18 @@ class CandidateProfile(BaseModel):
 
         json_schema_extra = {
             "example": {
-                "id": "candidate_001",
-                "name": "Alex Johnson",
-                "summary_text": "Senior Software Engineer with 5 years of experience in full-stack development, specializing in Python, React, and cloud technologies. Led multiple high-impact projects and mentored junior developers.",
-                "raw_resume_text": "Alex Johnson\nSenior Software Engineer\n\nContact: alex.johnson@email.com | (555) 123-4567\n\nExperience:\n• Senior Software Engineer at TechCorp (2019-Present)\n• Software Engineer at StartupXYZ (2017-2019)\n\nSkills: Python, React, AWS, Docker, PostgreSQL",
-                "skills": ["Python", "FastAPI", "React", "AWS", "Docker", "PostgreSQL"],
+                "id": "c001",
+                "name": "Alex Chen",
+                "raw_resume_text": "ALEX CHEN\nSoftware Engineer...\n\nEXPERIENCE...",
+                "skills": ["Python", "React", "PostgreSQL", "Docker"],
                 "experience_years": 5,
-                "education": "B.S. Computer Science, Stanford University",
+                "visa_status": "H1B",
                 "location": "San Francisco, CA",
-                "visa_status": "US Citizen",
-                "contact_info": "alex.johnson@email.com",
+                "github_url": "https://github.com/alexchen",
+                "linkedin_url": "https://linkedin.com/in/alex-chen-dev",
             }
         }
+        # If we want to allow arbitrary user data (not recommended for strict models)
+        # extra = "allow"
+        # Forbid extra fields to ensure data conformity
+        extra = "forbid"
