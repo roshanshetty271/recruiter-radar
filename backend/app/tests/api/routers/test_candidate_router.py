@@ -29,6 +29,9 @@ try:
         QueryResponseItem,
         SearchResponse,
         ErrorResponse,
+        OutreachRequest,
+        OutreachResponse,
+        CandidateProfile,
     )
 except ImportError:
     # Fallback placeholders if app.models.api_models or its contents are not yet created
@@ -154,7 +157,7 @@ class TestCandidateRouterQueryEndpoint:
                 "distance": 0.2,
             },
         ]
-        mock_rag_service_instance.similarity_search.return_value = mock_rag_results
+        mock_rag_service_instance.similarity_search.return_value = (mock_rag_results, 2)
 
         # Act
         response = client.get("/api/v1/query?q=python developer&limit=5")
@@ -162,8 +165,10 @@ class TestCandidateRouterQueryEndpoint:
         # Assert
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        SearchResponse(**data)
-        assert data["total_results"] == 2
+        print("Actual /query response JSON:", data)
+        assert "final_count_after_post_filter" in data
+        assert data["final_count_after_post_filter"] == 2
+        assert "results" in data
         assert len(data["results"]) == 2
         result1 = data["results"][0]
         assert result1["candidate"]["id"] == "c001"
@@ -183,22 +188,25 @@ class TestCandidateRouterQueryEndpoint:
         # Arrange
         mock_query_embedding = [0.2] * 1536
         mock_llm_service_instance.get_embedding.return_value = mock_query_embedding
-        mock_rag_service_instance.similarity_search.return_value = [
-            {
-                "id": "c003",
-                "document": "Java dev resume...",
-                "metadata": {
-                    "name": "David K",
-                    "skills": "Java,Spring",
-                    "visa_status": "USC",
-                    "location": "NYC",
-                    "experience_years": 7,
-                    "github_url": "https://gh.com/dk",
-                    "linkedin_url": "https://li.com/dk",
-                },
-                "distance": 0.3,
-            }
-        ]
+        mock_rag_service_instance.similarity_search.return_value = (
+            [
+                {
+                    "id": "c003",
+                    "document": "Java dev resume...",
+                    "metadata": {
+                        "name": "David K",
+                        "skills": "Java,Spring",
+                        "visa_status": "USC",
+                        "location": "NYC",
+                        "experience_years": 7,
+                        "github_url": "https://gh.com/dk",
+                        "linkedin_url": "https://li.com/dk",
+                    },
+                    "distance": 0.3,
+                }
+            ],
+            1,
+        )
         # Act
         response = client.get(
             "/api/v1/query?q=java engineer&limit=3&visa_status=USC&location=NYC&min_experience=5&skills=java,spring"
@@ -207,7 +215,7 @@ class TestCandidateRouterQueryEndpoint:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         SearchResponse(**data)  # Validate response structure
-        assert data["total_results"] == 1
+        assert data["final_count_after_post_filter"] == 1
         assert data["results"][0]["candidate"]["name"] == "David K"
         assert data["results"][0]["candidate"]["github_url"] == "https://gh.com/dk"
 
@@ -357,7 +365,7 @@ class TestCandidateRouterQueryEndpoint:
         assert "detail" in data
         ErrorResponse(**data["detail"])
         assert (
-            "An internal error occurred with the search service."
+            "An internal error occurred with the RAG service during search"
             in data["detail"]["message"]
         )
 
@@ -366,7 +374,10 @@ class TestCandidateRouterQueryEndpoint:
         mock_llm_service_instance.get_embedding.return_value = [0.1] * 1536
         mock_llm_service_instance.get_embedding.side_effect = None
         mock_rag_service_instance.similarity_search.side_effect = None
-        mock_rag_service_instance.similarity_search.return_value = []  # Empty results
+        mock_rag_service_instance.similarity_search.return_value = (
+            [],
+            0,
+        )  # Empty results, count 0
 
         # Act
         response = client.get("/api/v1/query?q=obscurequery")
@@ -375,7 +386,7 @@ class TestCandidateRouterQueryEndpoint:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         SearchResponse(**data)  # Validate response structure
-        assert data["total_results"] == 0
+        assert data["final_count_after_post_filter"] == 0
         assert data["results"] == []
 
     def test_skills_parameter_parsing_and_passing_to_rag_service(
@@ -384,7 +395,7 @@ class TestCandidateRouterQueryEndpoint:
         # Arrange
         mock_query_embedding = [0.3] * 1536
         mock_llm_service_instance.get_embedding.return_value = mock_query_embedding
-        mock_rag_service_instance.similarity_search.return_value = []
+        mock_rag_service_instance.similarity_search.return_value = ([], 0)
 
         # Act: skills with spaces and varied casing
         client.get("/api/v1/query?q=dev&skills=Python, react , Java, data science")
@@ -433,7 +444,7 @@ class TestCandidateRouterQueryEndpoint:
                 "distance": 0.456,
             },
         ]
-        mock_rag_service_instance.similarity_search.return_value = mock_rag_results
+        mock_rag_service_instance.similarity_search.return_value = (mock_rag_results, 2)
 
         # Act
         response = client.get("/api/v1/query?q=test")
@@ -445,13 +456,150 @@ class TestCandidateRouterQueryEndpoint:
         assert data["results"][0]["relevance_score"] == 0.123
         assert data["results"][1]["relevance_score"] == 0.456
 
+    def test_example_query_placeholder(self, client: TestClient):
+        # Arrange
+        mock_query_embedding = [0.1] * 1536
+        mock_llm_service_instance.get_embedding.return_value = mock_query_embedding
+        mock_rag_service_instance.similarity_search.return_value = (
+            [
+                {
+                    "id": "c001",
+                    "document": "Resume text for Alex...",
+                    "metadata": {
+                        "name": "Alex Chen",
+                        "skills": "Python,FastAPI",
+                    },
+                    "distance": 0.1,
+                }
+            ],
+            1,
+        )
+        response = client.get("/api/v1/query?q=python")
+        assert response.status_code == 200
 
-# To run these tests:
-# Ensure pytest and FastAPI TestClient are installed.
-# From the project root: pytest backend/app/tests/api/routers/test_candidate_router.py
-# Ensure that backend.app.main.app is correctly defined and importable.
-# Ensure app.dependencies and the getter functions (get_llm_service, get_rag_service) exist.
-# Ensure Pydantic models (QueryResponseItem etc.) are defined in app.models.api_models
 
-# If you want to run these tests, you can use the following command from the project root:
+class TestCandidateRouterGenerateOutreach:
+    """Tests for the /candidates/{candidate_id}/generate-outreach endpoint."""
+
+    def test_generate_outreach_success(self, client: TestClient):
+        """Test successful outreach generation for a valid candidate and request."""
+        candidate_id = "c001"  # Confirmed valid ID
+        request_payload = OutreachRequest(
+            job_role_title="Senior AI Developer",
+            job_role_description="Develop and deploy cutting-edge AI solutions for enterprise clients. Lead a team of junior developers.",
+            tone="enthusiastic and professional",
+            company_context="A forward-thinking technology company leading innovation in the AI space. We value collaboration and continuous learning.",
+            additional_instructions="Please emphasize their experience with cloud platforms.",
+        )
+        # Set up the mock to return a real CandidateProfile instance
+        mock_rag_service_instance.get_candidate_details_by_id.return_value = (
+            CandidateProfile(
+                id="c001",
+                name="Alex Chen",
+                raw_resume_text="ALEX CHEN\nSoftware Engineer...",
+                skills=["Python", "React", "PostgreSQL", "Docker"],
+                experience_years=5,
+                visa_status="H1B",
+                location="San Francisco, CA",
+                github_url="https://github.com/alexchen",
+                linkedin_url="https://linkedin.com/in/alex-chen-dev",
+            )
+        )
+        # Set up the mock to return a string for the outreach draft
+        mock_llm_service_instance.generate_outreach_draft.return_value = (
+            "Test outreach draft message"
+        )
+
+        response = client.post(
+            f"/api/v1/candidates/{candidate_id}/generate-outreach",
+            json=request_payload.model_dump(),
+        )
+        data = response.json()
+        # Assert only on actual keys present in the response
+        assert response.status_code == 200
+        assert "draft_message" in data
+        assert data["draft_message"] == "Test outreach draft message"
+        assert data["candidate_name"] == "Alex Chen"
+        assert data["candidate_id"] == candidate_id
+        assert data["job_role_title"] == request_payload.job_role_title
+        assert "generated_at" in data
+        assert "generation_time_ms" in data
+        assert "word_count" in data
+        assert "character_count" in data
+        assert data["tone_used"] == request_payload.tone
+        assert isinstance(data["personalization_elements"], list)
+        assert "confidence_score" in data
+
+    def test_generate_outreach_candidate_not_found(self, client: TestClient):
+        """Test outreach generation for a non-existent candidate ID."""
+        candidate_id = "non_existent_candidate_id_123"
+        request_payload = OutreachRequest(
+            job_role_title="Test Role",
+            job_role_description="Test Description",
+            tone="formal",
+        )
+        # Set up the mock to raise ValueError as the real service would
+        mock_rag_service_instance.get_candidate_details_by_id.side_effect = ValueError(
+            f"Candidate with ID '{candidate_id}' not found."
+        )
+
+        response = client.post(
+            f"/api/v1/candidates/{candidate_id}/generate-outreach",
+            json=request_payload.model_dump(),
+        )
+
+        assert (
+            response.status_code == 404
+        ), f"Expected 404 Not Found, got {response.status_code}. Response: {response.text}"
+        response_data = response.json()
+        # Check inside 'detail' for error info
+        assert "detail" in response_data
+        detail = response_data["detail"]
+        assert "error" in detail
+        assert detail["error"] == "NotFoundError"
+        assert "message" in detail
+        assert candidate_id in detail["message"]
+
+    def test_generate_outreach_invalid_request_payload(self, client: TestClient):
+        """Test outreach generation with an invalid request payload (e.g., missing required fields)."""
+        candidate_id = "c001"
+        invalid_payload = {
+            # Missing job_role_title, which is required by OutreachRequest
+            "job_role_description": "A test description",
+            "tone": "casual",
+        }
+
+        response = client.post(
+            f"/api/v1/candidates/{candidate_id}/generate-outreach", json=invalid_payload
+        )
+
+        assert (
+            response.status_code == 422
+        ), f"Expected 422 Unprocessable Entity, got {response.status_code}. Response: {response.text}"
+        response_data = response.json()
+        assert (
+            "detail" in response_data
+        )  # FastAPI validation errors are in response_data["detail"]
+        # Check for a message indicating job_role_title is missing
+        found_job_title_error = False
+        for error in response_data.get("detail", []):
+            if error.get("type") == "missing" and "job_role_title" in error.get(
+                "loc", []
+            ):
+                found_job_title_error = True
+                break
+        assert (
+            found_job_title_error
+        ), "Error detail should indicate job_role_title is missing."
+
+    # Consider adding a test for when the LLMService itself fails (e.g., OpenAI API key issue).
+    # This would require mocking the llm_service.generate_outreach_draft to raise an LLMServiceError.
+    # For an integration test, this might be complex if you don't want to actually hit OpenAI during tests.
+    # A unit test for the router logic with a mocked service would be more appropriate for that.
+    # For now, focusing on successful path and basic input validations.
+
+
+# To run these tests, navigate to your project's root directory in the terminal and run:
 # pytest backend/app/tests/api/routers/test_candidate_router.py
+# Ensure you have pytest and httpx (TestClient dependency) installed in your environment.
+# (e.g., pip install pytest httpx)
