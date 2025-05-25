@@ -8,25 +8,48 @@ Manages AI model configurations including:
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import validator
+from pydantic import validator, Field
 
 
 class ModelSettings(BaseSettings):
     """Configuration for AI models and related parameters."""
 
     # OpenAI Model Configuration
-    model_embedding_model_name: str = "text-embedding-3-small"
-    model_chat_model_name: str = "gpt-4o-mini"
+    model_embedding_model_name: str = Field(
+        "text-embedding-3-small", description="OpenAI model name for text embeddings."
+    )
+    model_chat_model_name: str = Field(
+        "gpt-4o-mini", description="OpenAI model name for chat completions."
+    )
 
     # Model Parameters
-    model_embedding_dimensions: int = 1536  # Default for embedding model
-    model_chat_temperature: float = 0.7  # Balance creativity/consistency
-    model_chat_max_tokens: int = 1000  # Reasonable limit for outreach
+    model_embedding_dimensions: int = Field(
+        1536, description="Default dimensions for the embedding model."
+    )
+    model_chat_temperature: float = Field(
+        0.7, ge=0.0, le=2.0, description="Default temperature for chat completions."
+    )
+    model_chat_max_tokens: int = Field(
+        400, gt=0, description="Default max tokens for chat completion response."
+    )
+    resume_snippet_max_chars_for_prompt: int = Field(
+        2500,
+        gt=0,
+        description="Max characters of raw_resume_text to use in outreach prompt.",
+    )
 
     # Search Configuration
-    model_max_search_results: int = 5  # Number of candidates to return
-    model_similarity_threshold: float = (
-        0.0  # Minimum similarity score (0.0 = no filtering)
+    model_max_search_results: int = Field(
+        5,
+        gt=0,
+        le=20,
+        description="Default number of candidates to return in search results.",
+    )
+    model_similarity_threshold: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score for search results (0.0 = no filtering).",
     )
 
     @validator("model_embedding_model_name")
@@ -93,3 +116,7 @@ class ModelSettings(BaseSettings):
     @property
     def similarity_threshold(self) -> float:
         return self.model_similarity_threshold
+
+    @property
+    def resume_snippet_chars(self) -> int:
+        return self.resume_snippet_max_chars_for_prompt
