@@ -17,7 +17,7 @@ async def execute_similarity_search(
     query_embedding: List[float],
     k: int = 5,
     filters: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+) -> tuple[List[Dict[str, Any]], int]:
     """Core logic for similarity search, filtering, and skills post-filtering."""
     if not query_embedding:
         logger.error(
@@ -66,7 +66,7 @@ async def execute_similarity_search(
         logger.info(
             "execute_similarity_search: No initial results found from ChromaDB."
         )
-        return []
+        return [], 0
 
     res_ids = results["ids"][0]
 
@@ -112,8 +112,9 @@ async def execute_similarity_search(
         }
         formatted_results.append(formatted_res)
 
+    count_before_post_filter = len(formatted_results)
     logger.info(
-        f"execute_similarity_search: Retrieved {len(formatted_results)} candidates from ChromaDB before skills post-filtering."
+        f"execute_similarity_search: Retrieved {count_before_post_filter} candidates from ChromaDB before skills post-filtering."
     )
 
     if skills_to_post_filter and formatted_results:
@@ -146,4 +147,4 @@ async def execute_similarity_search(
             f"execute_similarity_search: {len(formatted_results)} candidates remaining after skills post-filtering."
         )
 
-    return formatted_results[:k]
+    return formatted_results[:k], count_before_post_filter

@@ -313,111 +313,207 @@ class RAGService:
         query_embedding: List[float],
         k: int = 5,
         filters: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], int]:
         """
-        Performs similarity search by delegating to execute_similarity_search.
-        Handles exceptions from the underlying operation.
+        Performs a similarity search against the ChromaDB collection.
+
+        Uses the core `execute_similarity_search` logic and handles potential
+        errors, re-raising them as RAGService-specific exceptions.
+
+        Args:
+            query_embedding: The embedding vector of the search query.
+            k: The number of top results to return after all filtering.
+            filters: Optional dictionary of metadata filters to apply.
+                     Expected to include `skills_query` if skills post-filtering is desired.
+
+        Returns:
+            A tuple containing:
+                - A list of candidate data dictionaries matching the search criteria, capped at k.
+                - An integer count of candidates retrieved before any post-filtering (e.g., skills) was applied.
+
+        Raises:
+            ValueError: If query_embedding is invalid.
+            SearchOperationError: If the underlying search operation fails.
+            RAGServiceError: For other RAG service issues (e.g., collection not available).
         """
         if not self.collection:
             logger.error(
-                "RAGService: Collection not initialized for similarity_search."
+                "RAGService.similarity_search: ChromaDB collection is not available."
             )
-            # This should ideally be caught during RAGService initialization
-            raise SearchOperationError("Collection not initialized in RAGService.")
+            raise RAGServiceError("ChromaDB collection not initialized or accessible.")
 
         logger.debug(
-            f"RAGService: Delegating similarity search. Query embedding type: {type(query_embedding)}"
+            f"RAGService: Initiating similarity search in collection '{self.collection_name}' with k={k}, filters={filters is not None}."
         )
         try:
-            return await execute_similarity_search(
+            # execute_similarity_search is already async
+            results, count_before_post_filter = await execute_similarity_search(
                 collection=self.collection,
                 query_embedding=query_embedding,
                 k=k,
                 filters=filters,
             )
-        except OpsSearchOperationError as e:  # Catching error from search_logic
+            logger.info(
+                f"RAGService: Similarity search completed. Candidates found (after post-filter, limited by k): {len(results)}. Candidates before post-filter: {count_before_post_filter}."
+            )
+            return results, count_before_post_filter
+        except OpsSearchOperationError as e:
             logger.error(
-                f"RAGService: Search operation failed in search_logic: {e}",
+                f"RAGService: Search operation failed in execute_similarity_search: {e}",
                 exc_info=True,
             )
-            # Re-raise as RAGService's own SearchOperationError or a more general one
-            raise SearchOperationError(f"Search operation failed: {e}") from e
-        except ValueError as e:  # Catch ValueError from execute_similarity_search
+            # Re-raise as a RAGService specific error, or let it propagate if it's already an HTTPException
+            raise SearchOperationError(
+                f"Similarity search failed due to an operation error: {e}"
+            ) from e
+        except ValueError as e:
             logger.error(
-                f"RAGService: Invalid value during similarity search: {e}",
+                f"RAGService: Invalid arguments for similarity search: {e}",
                 exc_info=True,
             )
-            raise ValueError(f"Invalid value for search: {e}") from e  # Re-raise
+            raise  # Re-raise ValueError as it's a client-side input issue
         except Exception as e:
             logger.error(
-                f"RAGService: Unexpected error during similarity_search delegation: {e}",
+                f"RAGService: Unexpected error during similarity search: {e}",
                 exc_info=True,
             )
-            raise RAGServiceError(f"Unexpected error during search: {e}") from e
+            raise RAGServiceError(
+                f"An unexpected error occurred during similarity search: {e}"
+            ) from e
 
-    async def get_candidate_details_by_id(
-        self, candidate_id: str
-    ) -> Optional[Dict[str, Any]]:
+    async def _load_candidates_cache(self) -> None:
+        """Load all candidate profiles from static JSON into memory cache."""
+        try:
+            import json
+
+            # from pathlib import Path # Already imported at the top level
+
+            # Get path from settings
+            candidates_path = Path(self.settings.candidate_data_full_path)
+
+            if not candidates_path.exists():
+                logger.error(f"Candidate data file not found: {candidates_path}")
+                raise FileNotFoundError(
+                    f"Candidate data file not found: {candidates_path}"
+                )
+
+            logger.info(f"Loading candidates from: {candidates_path}")
+
+            with open(candidates_path, "r", encoding="utf-8") as f:
+                candidates_data = json.load(f)
+
+            # Validate and cache each candidate
+            self._candidates_cache: Dict[str, CandidateProfile] = (
+                {}
+            )  # Initialize with type hint
+            load_errors = []
+
+            for idx, candidate_dict in enumerate(candidates_data):
+                try:
+                    candidate = CandidateProfile.model_validate(candidate_dict)
+                    self._candidates_cache[candidate.id] = candidate
+                except Exception as e:
+                    load_errors.append(
+                        f"Index {idx}, ID '{candidate_dict.get('id', 'N/A')}': {str(e)}"
+                    )
+                    logger.error(
+                        f"Failed to load/validate candidate at index {idx} (ID: '{candidate_dict.get('id', 'N/A')}'): {e}"
+                    )
+
+            logger.info(
+                f"Successfully loaded {len(self._candidates_cache)} out of {len(candidates_data)} candidates into cache."
+            )
+
+            if load_errors:
+                logger.warning(
+                    f"Failed to load {len(load_errors)} candidates due to validation/processing errors. Details: {load_errors}"
+                )
+                # Depending on strictness, could raise an error here if some failed, or just log.
+                # For now, we proceed with successfully loaded candidates.
+
+        except FileNotFoundError as e:  # Specifically catch FileNotFoundError
+            logger.error(f"Critical error loading candidates cache: {e}", exc_info=True)
+            self._candidates_cache = {}  # Ensure cache is empty
+            raise RAGServiceError(
+                f"Failed to initialize candidate data cache - File Not Found: {e}"
+            ) from e
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Critical error loading candidates cache - JSON decode error: {e}",
+                exc_info=True,
+            )
+            self._candidates_cache = {}  # Ensure cache is empty
+            raise RAGServiceError(
+                f"Failed to initialize candidate data cache - JSON Decode Error: {e}"
+            ) from e
+        except (
+            Exception
+        ) as e:  # Catch other RAGServiceError or Pydantic validation from model_validate if it bubbles up unexpectedly
+            logger.error(f"Critical error loading candidates cache: {e}", exc_info=True)
+            self._candidates_cache = {}  # Ensure cache is empty
+            raise RAGServiceError(
+                f"Failed to initialize candidate data cache: {e}"
+            ) from e
+
+    async def get_candidate_details_by_id(self, candidate_id: str) -> CandidateProfile:
         """
-        Asynchronously retrieves a document and its metadata by ID from ChromaDB.
-        Uses asyncio.to_thread for the synchronous ChromaDB `get` operation.
+        Retrieve full candidate profile by ID from memory cache.
 
         Args:
-            candidate_id: Unique identifier for the candidate.
+            candidate_id: Unique candidate identifier
 
         Returns:
-            A dictionary containing the id, document, and metadata if found, else None.
+            CandidateProfile object
 
         Raises:
-            SearchOperationError: If the get operation fails.
+            ValueError: If candidate_id is empty or candidate not found
+            RAGServiceError: If cache not initialized or loading failed
         """
+        # Validate input
         if not candidate_id or not candidate_id.strip():
-            logger.error(
-                "Invalid candidate_id provided for get_candidate_details_by_id."
+            logger.warning(
+                "get_candidate_details_by_id called with empty candidate_id."
             )
-            raise ValueError("candidate_id cannot be empty.")
+            raise ValueError("Candidate ID cannot be empty")
+
+        # Ensure cache is loaded
+        # hasattr check is good, also check if _candidates_cache is None or empty in some failure scenarios
+        if not hasattr(self, "_candidates_cache") or self._candidates_cache is None:
+            logger.info(
+                "First access to candidate cache or cache is None, loading data..."
+            )
+            try:
+                await self._load_candidates_cache()
+            except RAGServiceError as e:  # Catch specific RAGServiceError from loading
+                logger.error(
+                    f"Failed to load candidate cache during get_candidate_details_by_id: {e}"
+                )
+                raise  # Re-raise the RAGServiceError to indicate cache problem
+
+        # Retrieve candidate
+        # Ensure candidate_id is stripped for lookup, consistent with how it might be stored if IDs have whitespace
+        cleaned_candidate_id = candidate_id.strip()
+        candidate = self._candidates_cache.get(cleaned_candidate_id)
+
+        if not candidate:
+            logger.warning(
+                f"Candidate ID '{cleaned_candidate_id}' not found in cache of {len(self._candidates_cache)} candidates."
+            )
+            raise ValueError(f"Candidate with ID '{cleaned_candidate_id}' not found")
 
         logger.debug(
-            f"RAGService: Attempting to retrieve candidate ID '{candidate_id}' from '{self.collection_name}' (via thread)."
+            f"Retrieved candidate '{candidate.name}' (ID: {cleaned_candidate_id})"
         )
-        try:
-            result = await asyncio.to_thread(
-                self.collection.get,
-                ids=[candidate_id],
-                include=["metadatas", "documents"],
-            )
+        return candidate
 
-            if result and result.get("ids") and result["ids"]:
-                retrieved_data = {
-                    "id": result["ids"][0],
-                    "document": (
-                        result["documents"][0]
-                        if result.get("documents") and result["documents"]
-                        else None
-                    ),
-                    "metadata": (
-                        result["metadatas"][0]
-                        if result.get("metadatas") and result["metadatas"]
-                        else None
-                    ),
-                }
-                logger.info(
-                    f"RAGService: Successfully retrieved candidate ID '{candidate_id}'."
-                )
-                return retrieved_data
-            else:
-                logger.warning(
-                    f"RAGService: Candidate ID '{candidate_id}' not found in collection '{self.collection_name}'."
-                )
-                return None
-        except Exception as e:
-            logger.error(
-                f"RAGService: Threaded retrieval for ID '{candidate_id}' failed: {e}",
-                exc_info=True,
+    async def get_all_candidate_ids(self) -> List[str]:
+        """Get list of all available candidate IDs (useful for testing/validation)."""
+        if not hasattr(self, "_candidates_cache") or self._candidates_cache is None:
+            logger.info(
+                "Candidate cache not available for get_all_candidate_ids, loading data..."
             )
-            raise SearchOperationError(
-                f"Failed to retrieve candidate '{candidate_id}': {e}"
-            ) from e
+            await self._load_candidates_cache()
+        return list(self._candidates_cache.keys())
 
     async def reset_collection(self):
         """

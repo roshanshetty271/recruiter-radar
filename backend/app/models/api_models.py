@@ -11,115 +11,132 @@ from .candidate import CandidateProfile
 
 
 class OutreachRequest(BaseModel):
-    """
-    Request model for generating personalized outreach messages.
+    """Request model for generating personalized outreach messages."""
 
-    Used by the /generate_outreach endpoint to specify candidate and job details
-    for LLM-powered draft generation.
-    """
-
-    candidate_id: str = Field(
+    job_role_title: str = Field(
         ...,
-        description="Unique identifier of the candidate to generate outreach for",
-        example="candidate_001",
-    )
-
-    job_role: str = Field(
-        ...,
-        description="Target job role/position for the outreach",
+        min_length=1,
+        max_length=200,
+        description="Target job role/position title",
         example="Senior Python Developer",
     )
 
-    company_name: Optional[str] = Field(
-        None, description="Name of the hiring company", example="TechCorp Inc."
-    )
-
-    additional_context: Optional[str] = Field(
+    job_role_description: Optional[str] = Field(
         None,
-        description="Additional context or requirements for the outreach message",
-        example="Remote work opportunity, equity compensation",
+        max_length=1000,
+        description="Detailed description of the job role and key requirements",
+        example="Build scalable microservices using FastAPI, design RESTful APIs, mentor junior developers",
     )
 
-    tone: Optional[str] = Field(
-        "professional",
+    tone: str = Field(
+        "professional and friendly",
+        min_length=1,
+        max_length=50,
         description="Desired tone for the outreach message",
-        example="friendly",
+        example="enthusiastic and professional",
     )
 
-    @validator("job_role")
-    def validate_job_role_not_empty(cls, v):
-        """Ensure job role is not empty or just whitespace."""
+    company_context: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Context about the company/team culture",
+        example="Fast-growing AI startup in Boston with a casual, innovation-focused culture",
+    )
+
+    additional_instructions: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Additional instructions for personalization",
+        example="Emphasize remote work flexibility and equity compensation",
+    )
+
+    @validator("job_role_title")
+    def validate_job_role_title_not_empty(cls, v):
+        """Ensure job role title is meaningful."""
         if not v or not v.strip():
-            raise ValueError("Job role cannot be empty")
+            raise ValueError("Job role title cannot be empty")
         return v.strip()
 
     @validator("tone")
-    def validate_tone(cls, v):
-        """Validate tone is one of allowed values."""
-        if v:
-            allowed_tones = ["professional", "friendly", "casual", "formal"]
-            if v.lower() not in allowed_tones:
-                raise ValueError(f"Tone must be one of: {', '.join(allowed_tones)}")
-            return v.lower()
-        return "professional"
+    def validate_tone_not_empty(cls, v):
+        """Ensure tone is not empty."""
+        if not v or not v.strip():
+            raise ValueError("Tone cannot be empty")
+        return v.strip()
 
     class Config:
         """Pydantic configuration for OutreachRequest."""
 
         json_schema_extra = {
             "example": {
-                "candidate_id": "candidate_001",
-                "job_role": "Senior Python Developer",
-                "company_name": "TechCorp Inc.",
-                "additional_context": "Remote work opportunity with equity compensation",
-                "tone": "professional",
+                "job_role_title": "Senior Python Developer",
+                "job_role_description": "Looking for an experienced Python developer to lead our backend team, focusing on building scalable microservices using FastAPI and PostgreSQL. You will also be responsible for designing RESTful APIs and mentoring junior developers.",
+                "tone": "enthusiastic and professional",
+                "company_context": "We are a Series B startup revolutionizing the fintech space with a casual, innovation-focused culture.",
+                "additional_instructions": "Please emphasize their experience with cloud platforms and RAG systems, and mention our remote work flexibility and equity compensation.",
             }
         }
 
 
 class OutreachResponse(BaseModel):
-    """
-    Response model for generated outreach messages.
+    """Response model for generated outreach messages with rich metadata."""
 
-    Contains the AI-generated outreach draft and metadata about the generation process.
-    """
-
-    candidate_id: str = Field(
+    draft_message: str = Field(
         ...,
-        description="ID of the candidate the outreach was generated for",
-        example="candidate_001",
+        description="Generated personalized outreach message",
+        example="Hi Alex,\n\nI came across your profile and was truly impressed...",
     )
 
     candidate_name: str = Field(
         ..., description="Name of the candidate", example="Alex Johnson"
     )
 
-    job_role: str = Field(
+    candidate_id: str = Field(
+        ..., description="ID of the candidate", example="candidate_001"
+    )
+
+    job_role_title: str = Field(
         ...,
         description="Target job role used in generation",
         example="Senior Python Developer",
     )
 
-    outreach_draft: str = Field(
-        ...,
-        description="Generated personalized outreach message",
-        example="Hi Alex, I came across your profile and was impressed by your experience...",
-    )
-
-    key_highlights: List[str] = Field(
-        default_factory=list,
-        description="Key candidate highlights mentioned in the outreach",
-        example=[
-            "5 years Python experience",
-            "FastAPI expertise",
-            "Cloud technologies",
-        ],
-    )
-
     generated_at: str = Field(
+        ..., description="ISO timestamp of generation", example="2024-01-15T10:30:00Z"
+    )
+
+    generation_time_ms: float = Field(
         ...,
-        description="Timestamp when the outreach was generated (ISO format)",
-        example="2024-01-15T10:30:00Z",
+        description="Time taken to generate the message in milliseconds",
+        example=1250.5,
+    )
+
+    word_count: int = Field(
+        ..., description="Word count of the generated message", example=156
+    )
+
+    character_count: int = Field(
+        ..., description="Character count of the generated message", example=892
+    )
+
+    tone_used: str = Field(
+        ...,
+        description="The tone that was applied",
+        example="professional and friendly",
+    )
+
+    personalization_elements: List[str] = Field(
+        default_factory=list,
+        description="Key elements from candidate profile used in personalization",
+        example=["5 years Python experience", "FastAPI expertise", "Located in Boston"],
+    )
+
+    confidence_score: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score of the generation quality (future enhancement)",
+        example=0.92,
     )
 
     class Config:
@@ -127,16 +144,22 @@ class OutreachResponse(BaseModel):
 
         json_schema_extra = {
             "example": {
-                "candidate_id": "candidate_001",
+                "draft_message": "Dear Alex, your extensive background in Python, particularly with FastAPI, and your work on RAG systems at Innovate Solutions is precisely what we're seeking for our Senior Python Developer role. At TechCorp, a fast-growing AI startup in Boston with a casual, innovation-focused culture, you'd lead projects building scalable microservices. We offer remote work flexibility and equity compensation. Would you be open to discussing this further?",
                 "candidate_name": "Alex Johnson",
-                "job_role": "Senior Python Developer",
-                "outreach_draft": "Hi Alex,\n\nI hope this message finds you well. I came across your profile and was impressed by your 5 years of experience in Python development, particularly your expertise with FastAPI and cloud technologies. We have an exciting Senior Python Developer opportunity at TechCorp Inc. that I believe would be a great match for your background.\n\nWould you be interested in learning more about this role? I'd love to schedule a brief call to discuss the details.\n\nBest regards,\n[Your Name]",
-                "key_highlights": [
-                    "5 years Python experience",
-                    "FastAPI expertise",
-                    "Cloud technologies",
+                "candidate_id": "candidate_001",
+                "job_role_title": "Senior Python Developer",
+                "generated_at": "2024-07-05T14:30:00Z",
+                "generation_time_ms": 1250.5,
+                "word_count": 156,
+                "character_count": 892,
+                "tone_used": "enthusiastic and professional",
+                "personalization_elements": [
+                    "Python expertise",
+                    "FastAPI experience",
+                    "RAG systems knowledge",
+                    "Located in Boston",
                 ],
-                "generated_at": "2024-01-15T10:30:00Z",
+                "confidence_score": 0.92,
             }
         }
 
@@ -160,16 +183,13 @@ class QueryResponseItem(BaseModel):
         example=0.85,
     )
 
-    match_reasons: List[str] = Field(
-        default_factory=list,
-        description="Specific reasons why this candidate matched the query",
-        example=["Python expertise", "5 years experience", "FastAPI skills"],
-    )
-
-    highlighted_text: Optional[str] = Field(
+    # For MVP, raw_resume_text from candidate object will be used by frontend for context.
+    # Frontend will handle highlighting based on original_query_terms from SearchResponse.
+    # match_reasons and highlighted_text can be enhanced in V2 if backend logic is added.
+    match_context: Optional[str] = Field(  # Renaming/clarifying highlighted_text
         None,
-        description="Relevant text excerpt from candidate's profile",
-        example="Senior Software Engineer with 5 years of experience in Python...",
+        description="Full raw resume text for frontend display and highlighting.",
+        example="Alex Johnson\nSenior Software Engineer...",
     )
 
     class Config:
@@ -186,27 +206,28 @@ class QueryResponseItem(BaseModel):
                     "experience_years": 5,
                 },
                 "relevance_score": 0.85,
-                "match_reasons": [
-                    "Python expertise",
-                    "5 years experience",
-                    "FastAPI skills",
-                ],
-                "highlighted_text": "Senior Software Engineer with 5 years of experience in Python and FastAPI",
+                "match_context": "Alex Johnson\nSenior Software Engineer... (full text)",
             }
         }
 
 
 class SearchResponse(BaseModel):
     """
-    Complete response model for candidate search queries.
+    Response model for candidate search queries.
 
-    Contains search results, metadata, and query information.
+    Contains search results, metadata, query information, and search performance insights.
     """
 
     query: str = Field(
         ...,
-        description="Original search query submitted",
+        description="Original search query submitted by the user",
         example="Python developer with FastAPI experience",
+    )
+
+    original_query_terms: Optional[List[str]] = Field(
+        None,
+        description="Key terms extracted from the original query and skill filters, for frontend highlighting assist.",
+        example=["python", "fastapi", "senior developer"],
     )
 
     results: List[QueryResponseItem] = Field(
@@ -214,21 +235,41 @@ class SearchResponse(BaseModel):
         description="List of matching candidates ordered by relevance",
     )
 
-    total_results: int = Field(
-        ..., description="Total number of candidates found", ge=0, example=5
+    retrieved_count_before_post_filter: int = Field(
+        ...,
+        description="Number of candidates retrieved from vector store before any post-filtering (e.g., skills matching) was applied.",
+        ge=0,
+        example=15,
     )
 
-    search_time_ms: float = Field(
+    final_count_after_post_filter: int = Field(
         ...,
-        description="Time taken to execute the search in milliseconds",
+        description="Total number of candidates returned after all filtering.",
+        ge=0,
+        example=5,
+    )
+
+    processing_time_ms: float = Field(
+        ...,
+        description="Time taken to execute the search and process results in milliseconds",
         ge=0,
         example=245.7,
     )
 
+    query_interpretation_notes: Optional[str] = Field(
+        None,
+        description="Notes on how the query was interpreted or processed.",
+        example="Searching for candidates with skills: Python, FastAPI. Location: Remote.",
+    )
+
     filters_applied: Optional[Dict[str, Any]] = Field(
         None,
-        description="Any filters that were applied to the search",
-        example={"min_experience": 3, "skills": ["Python"]},
+        description="Filters applied to the search (e.g., visa_status, location, min_experience)",
+        example={
+            "min_experience": 3,
+            "skills_query": ["python", "fastapi"],
+            "location": "Remote",
+        },
     )
 
     suggestions: Optional[List[str]] = Field(
@@ -243,6 +284,7 @@ class SearchResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "query": "Python developer with FastAPI experience",
+                "original_query_terms": ["python", "fastapi", "senior developer"],
                 "results": [
                     {
                         "candidate": {
@@ -251,12 +293,18 @@ class SearchResponse(BaseModel):
                             "skills": ["Python", "FastAPI", "React"],
                         },
                         "relevance_score": 0.85,
-                        "match_reasons": ["Python expertise", "FastAPI skills"],
+                        "match_context": "Alex Johnson\nSenior Software Engineer... (full text)",
                     }
                 ],
-                "total_results": 1,
-                "search_time_ms": 245.7,
-                "filters_applied": None,
+                "retrieved_count_before_post_filter": 15,
+                "final_count_after_post_filter": 5,
+                "processing_time_ms": 245.7,
+                "query_interpretation_notes": "Searching for candidates with skills: Python, FastAPI. Location: Remote.",
+                "filters_applied": {
+                    "min_experience": 3,
+                    "skills_query": ["python", "fastapi"],
+                    "location": "Remote",
+                },
                 "suggestions": None,
             }
         }
