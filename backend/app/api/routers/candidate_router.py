@@ -6,7 +6,7 @@ import datetime  # For error timestamp
 from fastapi import APIRouter, Depends, Query, HTTPException, status, Path, Body
 
 # Import the official Pydantic models
-from backend.app.models.api_models import (
+from app.models.api_models import (
     QueryResponseItem,
     SearchResponse,
     ErrorResponse,
@@ -15,18 +15,18 @@ from backend.app.models.api_models import (
     OutreachResponse,  # Added for new endpoint
 )
 
-from backend.app.services.llm_service import (
+from app.services.llm_service import (
     LLMService,
     LLMServiceError,
     TextGenerationError,  # Assuming this is defined in llm_service
     OpenAIConfigError,  # Assuming this is defined in llm_service
 )
-from backend.app.services.rag_service import (
+from app.services.rag_service import (
     RAGService,
     SearchOperationError,
     RAGServiceError,
 )
-from backend.app.dependencies import get_llm_service, get_rag_service
+from app.dependencies import get_llm_service, get_rag_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -146,7 +146,6 @@ async def search_candidates(
     that match your query (match_context) and a relevance_score (0.0 to 1.0).
     """
 
-    # Start timing for metrics
     search_start_time = time.time()
 
     try:
@@ -456,7 +455,7 @@ async def generate_outreach(
             candidate_name=candidate.name,
             candidate_id=candidate_id,
             job_role_title=request.job_role_title,
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.datetime.utcnow(),
             generation_time_ms=round(generation_time_ms, 2),
             word_count=word_count,
             character_count=character_count,

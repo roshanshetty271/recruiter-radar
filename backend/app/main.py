@@ -8,23 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
 
-from backend.app.core.config import settings
-from backend.app.services.llm_service import (
+from app.core.config import settings
+from app.services.llm_service import (
     LLMService,
     OpenAIConfigError,
     LLMServiceError,
 )
-from backend.app.services.chroma_connector import (
+from app.services.chroma_connector import (
     ChromaConnector,
     ChromaConfigError,
     ChromaConnectionError,
 )
-from backend.app.services.rag_service import RAGService, RAGServiceError
-from backend.app.api.routers import candidate_router  # Corrected import
-from backend.app.models.api_models import ErrorResponse
+from app.services.rag_service import RAGService, RAGServiceError
+from app.api.routers import candidate_router  # Corrected import
+from app.models.api_models import ErrorResponse
 from datetime import datetime  # Added import
 
-# from backend.app.api.routers import health_router # Placeholder, health is in main for now
+# from app.api.routers import health_router # Placeholder, health is in main for now
 
 logger = logging.getLogger(__name__)
 
