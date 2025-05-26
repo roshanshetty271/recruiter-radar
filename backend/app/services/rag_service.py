@@ -15,13 +15,14 @@ import logging
 import asyncio  # Added for asyncio.to_thread
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import json
 
 # Removed direct chromadb imports, will come from connector or be internal to RAGService if needed
 # from chromadb.utils import embedding_functions # No longer needed here
 from fastapi import HTTPException, status  # Keep for get_rag_service DI function
 
-from backend.app.core.config import settings  # For get_rag_service DI function
-from backend.app.models.candidate import CandidateProfile  # For type hints if needed
+from app.core.config import settings  # For get_rag_service DI function
+from app.models.candidate import CandidateProfile  # For type hints if needed
 
 # Import the new connector and its exceptions
 from .chroma_connector import (
@@ -30,7 +31,7 @@ from .chroma_connector import (
     ChromaConfigError,
     ChromaCollectionError,
 )
-from backend.app.services.rag_operations.search_logic import (
+from app.services.rag_operations.search_logic import (
     execute_similarity_search,
     SearchOperationError as OpsSearchOperationError,
 )
@@ -382,13 +383,16 @@ class RAGService:
             ) from e
 
     async def _load_candidates_cache(self) -> None:
-        """Load all candidate profiles from static JSON into memory cache."""
+        """
+        Load candidate profiles from the JSON file into an in-memory cache.
+        This cache is used by get_candidate_details_by_id.
+        """
+        logger.info("Attempting to load candidates into cache...")
         try:
-            import json
-
-            # from pathlib import Path # Already imported at the top level
-
             # Get path from settings
+            logger.info(
+                f"RAGService._load_candidates_cache: self.settings.candidate_data_full_path = {self.settings.candidate_data_full_path}"
+            )
             candidates_path = Path(self.settings.candidate_data_full_path)
 
             if not candidates_path.exists():

@@ -11,7 +11,7 @@ Manages application-specific configurations including:
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
-from pydantic import validator
+from pydantic import validator, Field
 
 
 class AppSettings(BaseSettings):
@@ -29,6 +29,11 @@ class AppSettings(BaseSettings):
 
     # Data Configuration
     app_candidate_data_path: str = "app/data/candidate_profiles.json"
+
+    # ADDED: New field to capture the CANDIDATE_DATA_FULL_PATH environment variable
+    candidate_data_override_path: Optional[str] = Field(
+        None, env="OVERRIDE_CANDIDATE_DATA_FULL_PATH"
+    )
 
     # ChromaDB Configuration
     app_chroma_db_path: str = "app/data/chroma_db"
@@ -117,8 +122,23 @@ class AppSettings(BaseSettings):
 
     @property
     def candidate_data_full_path(self) -> Path:
-        """Get full path to candidate data file."""
-        return Path("backend") / self.app_candidate_data_path
+        """Get full path to candidate data file.
+        Prioritizes an absolute path from the CANDIDATE_DATA_FULL_PATH environment variable if set.
+        Otherwise, constructs a path relative to the 'backend' directory.
+        """
+        if self.candidate_data_override_path:
+            # Using path provided via CANDIDATE_DATA_FULL_PATH environment variable
+            override_path = Path(self.candidate_data_override_path)
+            # It's good practice to ensure it's absolute if an override is intended to be absolute.
+            # For this fix, we'll assume the user provides a correct, usable path.
+            return override_path
+        else:
+            # Fallback: Construct path relative to the 'backend' directory,
+            # assuming app_config.py is in backend/app/core/
+            # Path(__file__) is .../backend/app/core/app_config.py
+            # .parent.parent.parent gives the .../backend/ directory
+            backend_directory = Path(__file__).resolve().parent.parent.parent
+            return backend_directory / self.app_candidate_data_path
 
     @property
     def chroma_db_full_path(self) -> Path:

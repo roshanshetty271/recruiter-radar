@@ -29,6 +29,7 @@ async def execute_similarity_search(
     n_results_chroma = k * 3 if skills_to_post_filter else k
 
     collection_count = await asyncio.to_thread(collection.count)
+    logger.info(f"ChromaDB collection has {collection_count} total documents")
     n_results_chroma = min(
         n_results_chroma, collection_count if collection_count > 0 else k, 100
     )
@@ -39,8 +40,16 @@ async def execute_similarity_search(
         for key, value in filters.items():
             if key not in ["skills_query"] and value is not None:
                 current_filters[key] = value
+
         if current_filters:
-            chroma_where_clause = current_filters
+            # ChromaDB needs $and operator for multiple conditions
+            if len(current_filters) > 1:
+                chroma_where_clause = {
+                    "$and": [{key: value} for key, value in current_filters.items()]
+                }
+            else:
+                # Single filter doesn't need $and
+                chroma_where_clause = current_filters
 
     logger.debug(
         f"execute_similarity_search: ChromaDB query: n_results={n_results_chroma}, where_clause={chroma_where_clause}, "
