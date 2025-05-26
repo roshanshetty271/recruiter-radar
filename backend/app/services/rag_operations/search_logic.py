@@ -26,7 +26,8 @@ async def execute_similarity_search(
         raise ValueError("query_embedding cannot be empty.")
 
     skills_to_post_filter = filters.get("skills_query") if filters else None
-    n_results_chroma = k * 3 if skills_to_post_filter else k
+    location_to_post_filter = filters.get("location") if filters else None
+    n_results_chroma = k * 3 if (skills_to_post_filter or location_to_post_filter) else k
 
     collection_count = await asyncio.to_thread(collection.count)
     logger.info(f"ChromaDB collection has {collection_count} total documents")
@@ -38,7 +39,7 @@ async def execute_similarity_search(
     if filters:
         current_filters = {}
         for key, value in filters.items():
-            if key not in ["skills_query"] and value is not None:
+            if key not in ["skills_query", "location"] and value is not None:
                 current_filters[key] = value
 
         if current_filters:
@@ -154,6 +155,21 @@ async def execute_similarity_search(
         formatted_results = final_filtered_results
         logger.info(
             f"execute_similarity_search: {len(formatted_results)} candidates remaining after skills post-filtering."
+        )
+
+    # Location post-filtering (substring match)
+    if location_to_post_filter and formatted_results:
+        logger.debug(
+            f"execute_similarity_search: Applying post-retrieval location filter for: {location_to_post_filter}"
+        )
+        location_filtered_results: List[Dict[str, Any]] = []
+        for candidate_data in formatted_results:
+            candidate_location = candidate_data.get("metadata", {}).get("location", "")
+            if isinstance(candidate_location, str) and location_to_post_filter.lower() in candidate_location.lower():
+                location_filtered_results.append(candidate_data)
+        formatted_results = location_filtered_results
+        logger.info(
+            f"execute_similarity_search: {len(formatted_results)} candidates remaining after location post-filtering."
         )
 
     return formatted_results[:k], count_before_post_filter
