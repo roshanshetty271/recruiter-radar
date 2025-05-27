@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, Search, Users } from "lucide-react";
+import { APITest } from "@/lib/api-test";
+import { LocationHeatMap } from "@/components/custom/LocationHeatMap";
 
 export default function Home() {
   return (
@@ -27,6 +29,8 @@ export default function Home() {
           </p>
         </div>
 
+        <LocationHeatMap />
+
         <Card className="glass p-6 glow">
           <p>Welcome to the future of recruiting!</p>
           <div className="flex gap-4 mt-4">
@@ -40,6 +44,8 @@ export default function Home() {
             </Button>
           </div>
         </Card>
+
+        <APITest />
       </motion.div>
     </main>
   );
