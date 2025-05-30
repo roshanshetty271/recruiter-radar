@@ -26,6 +26,10 @@ from app.services.rag_service import (
     SearchOperationError,
     RAGServiceError,
 )
+from app.services.search_utils import (
+    extract_location_from_query,
+    enhance_search_query,
+)  # Import our new utility
 from app.dependencies import get_llm_service, get_rag_service
 
 logger = logging.getLogger(__name__)
@@ -149,34 +153,53 @@ async def search_candidates(
     search_start_time = time.time()
 
     try:
-        # Step 1: Generate embedding for the query
+        # 🧠 INTELLIGENT QUERY ENHANCEMENT
+        original_filters = {
+            "visa_status": visa_status,
+            "location": location,
+            "min_experience": min_experience,
+            "skills": skills,
+        }
+        query_enhancements = enhance_search_query(q, original_filters)
+        enhanced_filters = query_enhancements["enhanced_filters"]
+        embedding_query = query_enhancements["cleaned_query"]
+
         logger.info(
-            f"Processing search query: '{q}' with limit={limit}, filters: {{visa_status:'{visa_status}', location:'{location}', min_experience:{min_experience}, skills:'{skills}'}}"
+            f"🚀 ENHANCED search processing: "
+            f"Original: '{q}' → Cleaned: '{embedding_query}' | "
+            f"Enhanced filters: {enhanced_filters}"
         )
-        query_embedding = await llm_service.get_embedding(q)
 
-        # Step 2: Parse skills filter if provided
+        # Generate embedding for the cleaned query
+        query_embedding = await llm_service.get_embedding(embedding_query)
+
+        # Parse enhanced skills filter
         skills_list = None
-        if skills:
-            skills_list = [s.strip().lower() for s in skills.split(",") if s.strip()]
-            logger.debug(f"Parsed skills filter: {skills_list}")
+        if enhanced_filters.get("skills"):
+            skills_list = [
+                s.strip().lower()
+                for s in enhanced_filters["skills"].split(",")
+                if s.strip()
+            ]
 
-        # Step 3: Build metadata filters for ChromaDB
+        # Build metadata filters using enhanced values
         metadata_filters = {}
-        if visa_status:
-            metadata_filters["visa_status"] = visa_status
-        if location:
-            metadata_filters["location"] = location
-        if min_experience is not None:
-            metadata_filters["experience_years"] = {"$gte": min_experience}
+        if enhanced_filters.get("visa_status"):
+            metadata_filters["visa_status"] = enhanced_filters["visa_status"]
+        if enhanced_filters.get("location"):
+            metadata_filters["location"] = enhanced_filters["location"]
+        if enhanced_filters.get("min_experience") is not None:
+            metadata_filters["experience_years"] = {
+                "$gte": enhanced_filters["min_experience"]
+            }
         if skills_list:
             metadata_filters["skills_query"] = skills_list
 
-        # Step 4: Perform similarity search
         # RAGService.similarity_search is expected to return a tuple:
         # (list_of_candidate_data_dicts, count_before_post_filter)
         raw_results_tuples, count_before_filter = await rag_service.similarity_search(
             query_embedding=query_embedding,
+            query_text=embedding_query,
             k=limit,  # The RAG service will handle fetching more if needed for post-filtering
             filters=metadata_filters,
         )
@@ -184,67 +207,63 @@ async def search_candidates(
         # Step 5: Transform results to API response format
         candidates = []
         for result_dict in raw_results_tuples:
-            # Extract metadata
             metadata = result_dict.get("metadata", {})
-
-            # Calculate relevance score from distance (ChromaDB returns smaller distances for better matches)
-            distance = result_dict.get(
-                "distance", 1.0
-            )  # Default to 1.0 (0 relevance) if not present
-            relevance_score = max(
-                0.0, 1.0 - float(distance)
-            )  # Ensure float conversion and 0-1 range
-
-            # Parse skills from comma-separated string in metadata
+            distance = result_dict.get("distance", 1.0)
+            relevance_score = max(0.0, 1.0 - float(distance))
             skills_str = metadata.get("skills", "")
             candidate_skills_list = (
                 [s.strip() for s in skills_str.split(",") if s.strip()]
                 if isinstance(skills_str, str)
                 else []
             )
-
             candidates.append(
                 QueryResponseItem(
-                    id=str(result_dict.get("id", "")),  # Ensure ID is string
-                    name=str(metadata.get("name", "Unknown")),  # Ensure name is string
+                    id=str(result_dict.get("id", "")),
+                    name=str(metadata.get("name", "Unknown")),
                     skills=candidate_skills_list,
-                    experience_years=int(
-                        metadata.get("experience_years", 0)
-                    ),  # Ensure int
-                    location=str(
-                        metadata.get("location", "Not specified")
-                    ),  # Ensure string
-                    visa_status=str(
-                        metadata.get("visa_status", "Not specified")
-                    ),  # Ensure string
-                    match_context=str(
-                        result_dict.get("document", "")
-                    ),  # raw_resume_text from ChromaDB
-                    relevance_score=relevance_score,  # Already validated by QueryResponseItem
-                    github_url=metadata.get("github_url"),  # Already optional str
-                    linkedin_url=metadata.get("linkedin_url"),  # Already optional str
+                    experience_years=int(metadata.get("experience_years", 0)),
+                    location=str(metadata.get("location", "Not specified")),
+                    visa_status=str(metadata.get("visa_status", "Not specified")),
+                    match_context=str(result_dict.get("document", "")),
+                    relevance_score=relevance_score,
+                    github_url=metadata.get("github_url"),
+                    linkedin_url=metadata.get("linkedin_url"),
                 )
             )
 
-        # Calculate search time
         search_time_ms = (time.time() - search_start_time) * 1000
 
-        # Build response with enhanced metadata
         response = SearchResponse(
             results=candidates,
-            total_results=len(
-                candidates
-            ),  # This should be final_count_after_post_filter from RAG if available
-            # For now, it's just the length of the processed list
+            total_results=len(candidates),
             search_time_ms=round(search_time_ms, 2),
-            # Future enhancements - set to None for MVP
-            query_interpretation=f"Searched for: '{q}' with filters: {metadata_filters if metadata_filters else 'None'}",
-            suggested_filters=None,  # TODO: Add smart filter suggestions
-            search_metadata={"retrieved_before_filter": count_before_filter},
+            query_interpretation=(
+                f"Intelligent search: '{embedding_query}'"
+                + (
+                    f" (location: {query_enhancements['extracted_location']})"
+                    if query_enhancements["extracted_location"]
+                    else ""
+                )
+                + (
+                    f" (skills: {', '.join(query_enhancements['extracted_skills'])})"
+                    if query_enhancements["extracted_skills"]
+                    else ""
+                )
+                + (
+                    f" (experience: {query_enhancements['extracted_experience']['level']})"
+                    if query_enhancements["extracted_experience"]
+                    else ""
+                )
+            ),
+            suggested_filters=None,
+            search_metadata={
+                "retrieved_before_filter": count_before_filter,
+                "intelligence_enhancements": query_enhancements,
+            },
         )
 
         logger.info(
-            f"Search completed: {len(candidates)} results in {search_time_ms:.2f}ms. Count before filter: {count_before_filter}"
+            f"🎯 Intelligent search completed: {len(candidates)} results in {search_time_ms:.2f}ms"
         )
         return response
 

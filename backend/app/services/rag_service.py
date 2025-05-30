@@ -312,6 +312,7 @@ class RAGService:
     async def similarity_search(
         self,
         query_embedding: List[float],
+        query_text: str,
         k: int = 5,
         filters: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[Dict[str, Any]], int]:
@@ -323,6 +324,7 @@ class RAGService:
 
         Args:
             query_embedding: The embedding vector of the search query.
+            query_text: The original query string (for logging and context).
             k: The number of top results to return after all filtering.
             filters: Optional dictionary of metadata filters to apply.
                      Expected to include `skills_query` if skills post-filtering is desired.
@@ -351,6 +353,7 @@ class RAGService:
             results, count_before_post_filter = await execute_similarity_search(
                 collection=self.collection,
                 query_embedding=query_embedding,
+                query_text=query_text,
                 k=k,
                 filters=filters,
             )
