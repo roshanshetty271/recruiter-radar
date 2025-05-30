@@ -7,6 +7,7 @@ openai>=1.52.0
 chromadb>=0.4.22
 langchain>=0.1.0
 langchain-openai>=0.0.5
+numpy<2.0
 black
 flake8
 pre-commit
