@@ -1,27 +1,36 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MetricsBar } from "@/src/components/metrics-bar";
-import { HeroSection } from "@/src/components/hero-section";
-import { SearchInterface } from "@/src/components/search-interface";
-import { TalentHeatMap } from "@/src/components/talent-heat-map";
-import { CandidateGrid } from "@/src/components/candidate-grid";
-import { CommandPalette } from "@/src/components/command-palette";
-import { AnimatedBackground } from "@/src/components/animated-background";
-// Import our new services
-import { apiService } from "../../services/apiService";
+import { MetricsBar } from "@/components/metrics-bar";
+import { HeroSection } from "@/components/hero-section";
+import { SearchInterface } from "@/components/search-interface";
+import { TalentHeatMap } from "@/components/talent-heat-map";
+import { CandidateGrid } from "@/components/candidate-grid";
+import { CommandPalette } from "@/components/command-palette";
+import { AnimatedBackground } from "@/components/animated-background";
+import { OutreachModal } from "@/components/custom/outreach-modal"; // FE-6 IMPORT
+// Import our services
+import { api } from "../lib/api";
 import {
   mapBackendCandidatesToFrontend,
   getSearchMetrics,
-} from "../../services/helpers";
-import { toast } from "@/src/hooks/use-toast";
-import type { FrontendCandidate } from "../../services/types";
+} from "../services/helpers";
+import { toast } from "@/hooks/use-toast";
+import type { FrontendCandidate } from "../lib/types";
 
 // Define SearchMetrics type locally
 interface SearchMetrics {
   totalResults: number;
   searchTimeMs: number;
   queryInterpretation: string | null;
+}
+
+// Session metrics interface
+interface SessionMetrics {
+  totalSearches: number;
+  candidatesViewed: number;
+  outreachGenerated: number;
+  timeSpent: number;
 }
 
 export default function Dashboard() {
@@ -35,6 +44,19 @@ export default function Dashboard() {
     totalResults: 0,
     searchTimeMs: 0,
     queryInterpretation: null,
+  });
+
+  // FE-6: Outreach modal state
+  const [isOutreachModalOpen, setIsOutreachModalOpen] = useState(false);
+  const [selectedCandidateForOutreach, setSelectedCandidateForOutreach] =
+    useState<FrontendCandidate | null>(null);
+
+  // Session metrics state
+  const [sessionMetrics, setSessionMetrics] = useState<SessionMetrics>({
+    totalSearches: 0,
+    candidatesViewed: 0,
+    outreachGenerated: 0,
+    timeSpent: 0,
   });
 
   // Track active filters
@@ -64,7 +86,7 @@ export default function Dashboard() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // 🔥 NEW: Handler for generating outreach messages
+  // FE-6: Updated handler for generating outreach messages
   const handleGenerateOutreach = async (candidateId: string) => {
     try {
       // Find the candidate details
@@ -74,34 +96,35 @@ export default function Dashboard() {
         throw new Error("Candidate not found");
       }
 
+      // Set selected candidate and open modal
+      setSelectedCandidateForOutreach(candidate);
+      setIsOutreachModalOpen(true);
+
       toast({
         title: "🚀 AI Outreach Generator",
         description: `Opening intelligent outreach generator for ${candidate.name}`,
       });
-
-      // TODO: Open outreach modal when FE-6 is implemented
-      console.log("Generate outreach for candidate:", {
-        id: candidateId,
-        name: candidate.name,
-        title: candidate.title,
-        skills: candidate.skills,
-      });
-
-      // Show additional AI processing toast
-      setTimeout(() => {
-        toast({
-          title: "🧠 AI Analysis Complete",
-          description: `Ready to generate personalized outreach for ${candidate.name} - ${candidate.title}`,
-        });
-      }, 1000);
     } catch (error) {
       console.error("Outreach generation error:", error);
       toast({
         title: "Error",
-        description: "Failed to generate outreach. Please try again.",
+        description: "Failed to open outreach generator. Please try again.",
         variant: "destructive",
       });
     }
+  };
+
+  // FE-6: Handle outreach success
+  const handleOutreachSuccess = () => {
+    setSessionMetrics((prev) => ({
+      ...prev,
+      outreachGenerated: prev.outreachGenerated + 1,
+    }));
+
+    toast({
+      title: "🎉 Outreach Generated!",
+      description: "Your AI-powered message is ready to send",
+    });
   };
 
   const handleSearch = async (
@@ -113,9 +136,15 @@ export default function Dashboard() {
     setErrorMessage(""); // Clear error on new search
     setIsLoading(true);
 
+    // Update session metrics
+    setSessionMetrics((prev) => ({
+      ...prev,
+      totalSearches: prev.totalSearches + 1,
+    }));
+
     try {
       // Call the API service with the query and filters
-      const searchResults = await apiService.searchCandidates(query, {
+      const searchResults = await api.searchCandidates(query, {
         ...activeFilters,
         ...filters,
       });
@@ -124,21 +153,27 @@ export default function Dashboard() {
       const mappedCandidates = mapBackendCandidatesToFrontend(searchResults);
       setCandidates(mappedCandidates);
 
-      // Extract and set search metrics
+      // Extract and set search metrics with defaults
       const metrics = getSearchMetrics(searchResults);
-      setSearchMetrics(metrics);
+      setSearchMetrics({
+        totalResults: metrics.totalResults || 0,
+        searchTimeMs: metrics.searchTimeMs || 0,
+        queryInterpretation: metrics.queryInterpretation || null,
+      });
 
       setIsLoading(false);
 
       // Show success toast if there are results
       if (mappedCandidates.length > 0) {
+        const timeStr = metrics.searchTimeMs
+          ? `${metrics.searchTimeMs.toFixed(2)}ms`
+          : "lightning fast";
+
         toast({
           title: "🎯 AI Search Complete",
           description: `Found ${
-            metrics.totalResults
-          } candidates in ${metrics.searchTimeMs.toFixed(
-            2
-          )}ms with intelligent matching`,
+            metrics.totalResults || mappedCandidates.length
+          } candidates in ${timeStr} with intelligent matching`,
         });
       } else {
         toast({
@@ -192,9 +227,10 @@ export default function Dashboard() {
           </div>
         )}
         <MetricsBar
-          totalSearches={hasSearched ? 1 : 0}
+          totalSearches={sessionMetrics.totalSearches}
           totalResults={searchMetrics.totalResults}
           searchTimeMs={searchMetrics.searchTimeMs}
+          outreachGenerated={sessionMetrics.outreachGenerated}
         />
 
         <main className="container mx-auto px-4 pt-20">
@@ -234,6 +270,17 @@ export default function Dashboard() {
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onSearch={handleSearch}
+      />
+
+      {/* FE-6: Outreach Modal */}
+      <OutreachModal
+        isOpen={isOutreachModalOpen}
+        onClose={() => {
+          setIsOutreachModalOpen(false);
+          setSelectedCandidateForOutreach(null);
+        }}
+        candidate={selectedCandidateForOutreach}
+        onSuccess={handleOutreachSuccess}
       />
     </div>
   );

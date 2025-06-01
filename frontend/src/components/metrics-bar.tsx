@@ -3,13 +3,30 @@
 import type React from "react";
 
 import { useState, useEffect } from "react";
-import { Zap, Clock, Target, TrendingUp, Users, Star } from "lucide-react";
+import {
+  Zap,
+  Clock,
+  Target,
+  TrendingUp,
+  Users,
+  Star,
+  MessageSquare,
+  Sparkles,
+} from "lucide-react";
+
+interface MetricsBarProps {
+  totalSearches?: number;
+  totalResults?: number;
+  searchTimeMs?: number;
+  outreachGenerated?: number; // 🔥 NEW PROP
+}
 
 export function MetricsBar({
   totalSearches = 0,
   totalResults = 0,
   searchTimeMs = 0,
-}) {
+  outreachGenerated = 0, // 🔥 NEW PROP
+}: MetricsBarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [sessionTime, setSessionTime] = useState(0);
   const [metrics, setMetrics] = useState({
@@ -17,6 +34,7 @@ export function MetricsBar({
     timeSaved: 0,
     efficiencyRank: 0,
     activeSearches: 0,
+    outreachMessages: 0, // 🔥 NEW METRIC
   });
 
   useEffect(() => {
@@ -34,6 +52,7 @@ export function MetricsBar({
       ...prev,
       candidatesFound: totalResults || prev.candidatesFound,
       activeSearches: totalSearches || prev.activeSearches,
+      outreachMessages: outreachGenerated || prev.outreachMessages, // 🔥 NEW
       // Assume each manual search would take 15 minutes (0.25 hours)
       timeSaved:
         totalSearches > 0 ? (totalSearches * 0.25).toFixed(1) : prev.timeSaved,
@@ -43,7 +62,7 @@ export function MetricsBar({
           ? Math.min(99, Math.max(70, 100 - searchTimeMs / 100))
           : prev.efficiencyRank,
     }));
-  }, [totalSearches, totalResults, searchTimeMs]);
+  }, [totalSearches, totalResults, searchTimeMs, outreachGenerated]); // 🔥 UPDATED DEPS
 
   useEffect(() => {
     // Animate metrics on load if no real metrics exist yet
@@ -54,6 +73,7 @@ export function MetricsBar({
           timeSaved: 23.5,
           efficiencyRank: 94,
           activeSearches: 8,
+          outreachMessages: 42, // 🔥 NEW DEMO VALUE
         });
       }, 500);
 
@@ -125,6 +145,15 @@ export function MetricsBar({
               label="Searches"
               value={metrics.activeSearches.toString()}
             />
+
+            {/* 🔥 NEW OUTREACH METRIC */}
+            <MetricItem
+              icon={<MessageSquare className="w-4 h-4 text-purple-400" />}
+              label="Outreach"
+              value={metrics.outreachMessages.toString()}
+              animate={outreachGenerated > 0}
+              sparkle={outreachGenerated > 0}
+            />
           </div>
         </div>
 
@@ -149,6 +178,7 @@ function MetricItem({
   animate = false,
   glow = false,
   lightning = false,
+  sparkle = false, // 🔥 NEW PROP
 }: {
   icon: React.ReactNode;
   label: string;
@@ -156,23 +186,33 @@ function MetricItem({
   animate?: boolean;
   glow?: boolean;
   lightning?: boolean;
+  sparkle?: boolean; // 🔥 NEW PROP
 }) {
   return (
     <div
-      className={`flex items-center space-x-2 group cursor-pointer ${
-        glow ? "text-green-400" : "text-gray-300"
+      className={`flex items-center space-x-2 group cursor-pointer relative ${
+        glow ? "text-green-400" : sparkle ? "text-purple-400" : "text-gray-300"
       }`}
     >
+      {/* 🔥 NEW: Sparkle effect for outreach */}
+      {sparkle && (
+        <div className="absolute -top-1 -right-1">
+          <Sparkles className="w-3 h-3 text-purple-400 animate-pulse" />
+        </div>
+      )}
+
       <div
         className={`${animate ? "animate-pulse" : ""} ${
           lightning ? "animate-bounce" : ""
-        }`}
+        } ${sparkle ? "animate-pulse" : ""}`}
       >
         {icon}
       </div>
       <div className="text-sm">
         <div className="text-xs opacity-60">{label}</div>
-        <div className="font-semibold">{value}</div>
+        <div className="font-semibold group-hover:scale-110 transition-transform">
+          {value}
+        </div>
       </div>
     </div>
   );
