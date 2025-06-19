@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import chromadb  # For type hinting collection: chromadb.api.models.Collection.Collection
 from ..search_utils import skills_match_fuzzy, boost_relevance_score
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,20 @@ async def execute_similarity_search(
 
     skills_to_post_filter = filters.get("skills_query") if filters else None
     location_to_post_filter = filters.get("location") if filters else None
+    post_filter_threshold_multiplier = 3
     n_results_chroma = (
-        k * 3 if (skills_to_post_filter or location_to_post_filter) else k
+        k * post_filter_threshold_multiplier
+        if (skills_to_post_filter or location_to_post_filter)
+        else k
     )
+
+    # If chunking is enabled, increase results to account for multiple chunks per candidate
+    if settings.enable_smart_chunking:
+        logger.debug("Smart chunking enabled, adjusting n_results for search.")
+        chunk_multiplier = (
+            5 if (skills_to_post_filter or location_to_post_filter) else 3
+        )
+        n_results_chroma = k * chunk_multiplier
 
     collection_count = await asyncio.to_thread(collection.count)
     logger.info(f"ChromaDB collection has {collection_count} total documents")
@@ -190,5 +202,49 @@ async def execute_similarity_search(
         logger.info(
             f"execute_similarity_search: {len(formatted_results)} candidates remaining after location post-filtering."
         )
+
+    if formatted_results and (skills_to_post_filter or location_to_post_filter):
+        logger.info(f"Post-filtering {len(formatted_results)} results...")
+        filtered_results = formatted_results
+        logger.info(f"Post-filtering complete: {len(filtered_results)} results remain.")
+        formatted_results = filtered_results
+
+    # If smart chunking is enabled, deduplicate results by parent_id
+    if settings.enable_smart_chunking and formatted_results:
+        logger.debug("Deduplicating chunked results by parent_id")
+
+        # Group results by parent_id, keeping the best scoring chunk
+        parent_results: Dict[str, Dict[str, Any]] = {}
+        for result in formatted_results:
+            # Assuming metadata is present and contains parent_id or id
+            metadata = result.get("metadata", {})
+            parent_id = metadata.get("parent_id", result.get("id"))
+
+            if not parent_id:
+                continue
+
+            current_score = result.get("relevance_score", 0.0)
+
+            # If this is the first chunk from this parent, or it has a better score
+            if parent_id not in parent_results or current_score > parent_results[
+                parent_id
+            ].get("relevance_score", 0.0):
+                # Update the ID to be the parent ID for consistent display
+                result["id"] = parent_id
+                parent_results[parent_id] = result
+
+        # Convert back to list maintaining score order
+        # Sort by the score of the best chunk we kept for each parent
+        final_results = sorted(
+            parent_results.values(),
+            key=lambda x: x.get("relevance_score", 0.0),
+            reverse=True,
+        )
+
+        logger.info(
+            f"Deduplicated to {len(final_results)} unique candidates "
+            f"from chunked search results."
+        )
+        formatted_results = final_results
 
     return formatted_results[:k], count_before_post_filter

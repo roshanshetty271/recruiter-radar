@@ -206,6 +206,56 @@ class RAGService:
                 f"Failed to add/update candidate '{candidate_id}' in collection: {e}"
             ) from e
 
+    async def delete_candidate_if_exists(
+        self, candidate_id: str, session_id: str
+    ) -> bool:
+        """
+        Delete a candidate from the collection if it exists.
+
+        This is used to implement "update" behavior - delete the old version
+        before adding the new version.
+
+        Args:
+            candidate_id: The candidate ID to delete
+            session_id: Session ID for scoping the deletion
+
+        Returns:
+            True if candidate was found and deleted, False if not found
+
+        Raises:
+            DocumentStorageError: If deletion fails
+        """
+        try:
+            # First check if candidate exists
+            results = await asyncio.to_thread(
+                self.collection.get,
+                where={"candidate_id": candidate_id, "session_id": session_id},
+                include=["metadatas"],
+            )
+
+            if not results or not results.get("ids"):
+                logger.debug(f"Candidate {candidate_id} not found for deletion")
+                return False
+
+            # Delete all matching records (handles chunking case where multiple vectors exist)
+            ids_to_delete = results["ids"]
+            logger.info(
+                f"Deleting {len(ids_to_delete)} existing records for candidate {candidate_id}"
+            )
+
+            await asyncio.to_thread(self.collection.delete, ids=ids_to_delete)
+
+            logger.info(f"Successfully deleted existing candidate {candidate_id}")
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Failed to delete candidate {candidate_id}: {e}", exc_info=True
+            )
+            raise DocumentStorageError(
+                f"Failed to delete existing candidate '{candidate_id}': {e}"
+            ) from e
+
     async def batch_add_candidates(
         self, candidates_data: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -561,6 +611,183 @@ class RAGService:
             raise CollectionManagementError(
                 f"Unexpected error resetting collection '{self.collection_name}': {e}"
             ) from e
+
+    async def get_parent_candidate_ids(self, chunk_ids: List[str]) -> List[str]:
+        """
+        Get unique parent candidate IDs from chunk IDs.
+
+        Used for deduplicating search results when multiple chunks
+        from the same resume match a query.
+
+        Args:
+            chunk_ids: List of chunk IDs from search results
+
+        Returns:
+            List of unique parent candidate IDs
+        """
+        parent_ids = []
+        seen = set()
+
+        for chunk_id in chunk_ids:
+            # Extract parent ID from chunk ID
+            # Format: "upload_session_hash" or "upload_session_hash_chunk_0"
+            if "_chunk_" in chunk_id:
+                parent_id = chunk_id.split("_chunk_")[0]
+            else:
+                parent_id = chunk_id
+
+            # Add only unique parent IDs maintaining order
+            if parent_id not in seen:
+                seen.add(parent_id)
+                parent_ids.append(parent_id)
+
+        logger.debug(
+            f"Deduplicated {len(chunk_ids)} chunk IDs to "
+            f"{len(parent_ids)} unique parent candidates"
+        )
+
+        return parent_ids
+
+    def _metadata_matches(self, metadata: Dict[str, Any], flt: Dict[str, Any]) -> bool:
+        """Recursively evaluate a filter dictionary against a single metadata dict."""
+        import re
+
+        if "$and" in flt:
+            return all(self._metadata_matches(metadata, sub) for sub in flt["$and"])
+        if "$or" in flt:
+            return any(self._metadata_matches(metadata, sub) for sub in flt["$or"])
+
+        # leaf-level conditions
+        for field, cond in flt.items():
+            value = metadata.get(field)
+            if isinstance(cond, dict):
+                for op, op_val in cond.items():
+                    if op == "$contains":
+                        if value is None or op_val.lower() not in str(value).lower():
+                            return False
+                    elif op == "$regex":
+                        if value is None or not re.search(
+                            op_val, str(value), re.IGNORECASE
+                        ):
+                            return False
+                    elif op == "$gte":
+                        if value is None or not (float(value) >= float(op_val)):
+                            return False
+                    elif op == "$lte":
+                        if value is None or not (float(value) <= float(op_val)):
+                            return False
+                    else:  # unsupported op treated as fail
+                        return False
+            else:
+                # equality check (case-insensitive for strings)
+                if isinstance(cond, str):
+                    if str(value).lower() != cond.lower():
+                        return False
+                else:
+                    if value != cond:
+                        return False
+        return True
+
+    async def search_resumes_by_filters(
+        self,
+        session_id: str,
+        filters: Dict[str, Any],
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve resumes for session and apply advanced filters in Python."""
+        try:
+            # Step 1: get all candidates for session (reasonable small set in MVP)
+            results = await asyncio.to_thread(
+                self.collection.get,
+                where={"session_id": session_id},
+                include=["metadatas", "documents"],
+                limit=100,
+            )
+
+            if not results or not results["ids"]:
+                return []
+
+            candidates = []
+            seen_candidate_ids = set()  # Deduplication by candidate_id
+
+            for idx, vector_id in enumerate(results["ids"]):
+                metadata = results["metadatas"][idx]
+
+                # Apply filter if provided
+                if filters and not self._metadata_matches(metadata, filters):
+                    continue
+
+                # Get the candidate_id for deduplication
+                candidate_id = metadata.get("candidate_id", vector_id)
+
+                # Skip if we've already seen this candidate
+                if candidate_id in seen_candidate_ids:
+                    continue
+                seen_candidate_ids.add(candidate_id)
+
+                candidate = {
+                    "id": candidate_id,
+                    "name": metadata.get("name", "Unknown"),
+                    "title": metadata.get("title", ""),
+                    "skills": (
+                        metadata.get("skills", "").split(",")
+                        if metadata.get("skills")
+                        else []
+                    ),
+                    "location": metadata.get("location", ""),
+                    "experience_years": metadata.get("experience_years", 0),
+                    "email": metadata.get("email"),
+                    "phone": metadata.get("phone"),
+                    "summary": metadata.get("summary"),
+                    "visa_status": metadata.get("visa_status"),
+                    "filename": metadata.get("filename"),
+                    "relevance_score": 1.0,
+                }
+                doc_list = results.get("documents")
+                if doc_list and idx < len(doc_list) and doc_list[idx]:
+                    candidate["match_context"] = doc_list[idx][:200] + "..."
+                candidates.append(candidate)
+                if len(candidates) >= limit:
+                    break
+            return candidates
+        except Exception as e:
+            logger.error(f"Error filtering resumes: {e}", exc_info=True)
+            return []
+
+    async def get_all_unique_skills(self, session_id: str) -> List[str]:
+        """
+        Get all unique skills from uploaded resumes for a given session.
+
+        Used to provide context for chat query parsing.
+        """
+        try:
+            # Using .get() is more efficient for retrieving all items based on metadata
+            # than .query() without a query vector.
+            results = await asyncio.to_thread(
+                self.collection.get,
+                where={"session_id": session_id},
+                include=["metadatas"],  # We only need metadata to extract skills
+            )
+
+            all_skills = set()
+            if results and results["metadatas"]:
+                for metadata in results["metadatas"]:
+                    skills_str = metadata.get("skills", "")
+                    if skills_str and isinstance(skills_str, str):
+                        skills = {s.strip() for s in skills_str.split(",") if s.strip()}
+                        all_skills.update(skills)
+
+            logger.info(
+                f"Found {len(all_skills)} unique skills for session {session_id}."
+            )
+            return sorted(list(all_skills))
+
+        except Exception as e:
+            logger.error(
+                f"Error getting unique skills for session {session_id}: {e}",
+                exc_info=True,
+            )
+            return []
 
 
 # Dependency Injection for FastAPI

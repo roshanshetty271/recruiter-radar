@@ -1,6 +1,7 @@
 from fastapi import Request
 from app.services.llm_service import LLMService
 from app.services.rag_service import RAGService
+from app.services.session_service import SessionService
 
 # from app.services.chroma_connector import ChromaConnector # If needed directly
 
@@ -24,3 +25,10 @@ def get_rag_service(request: Request) -> RAGService:
 # Dependency to get the ChromaConnector instance from the application state.
 # """
 #     return request.app.state.chroma_connector
+
+
+def get_session_service(request: Request) -> SessionService:
+    """
+    Dependency to get the SessionService instance from the application state.
+    """
+    return request.app.state.session_service
