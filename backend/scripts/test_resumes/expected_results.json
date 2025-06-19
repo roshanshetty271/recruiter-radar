@@ -1,0 +1,149 @@
+[
+  {
+    "file": "standard\\software_engineer_clean.pdf",
+    "expected": {
+      "name": "Amanda Wilson",
+      "title": "Full Stack Developer",
+      "skills": [
+        "TypeScript",
+        "Vue.js",
+        "FastAPI",
+        "Node.js",
+        "PostgreSQL",
+        "DynamoDB",
+        "MongoDB"
+      ],
+      "location": "Seattle, WA",
+      "experience_years": 15,
+      "email": "amanda.wilson@email.com",
+      "phone": "(473) 913-1307",
+      "summary": "Experienced Full Stack Developer with 15 years of experience"
+    }
+  },
+  {
+    "file": "standard\\data_scientist_simple.pdf",
+    "expected": {
+      "name": "Michael Chen",
+      "title": "Machine Learning Engineer",
+      "skills": [
+        "JavaScript",
+        "Django",
+        "MongoDB",
+        "Redis",
+        "REST APIs",
+        "Jenkins",
+        "NumPy"
+      ],
+      "location": "Los Angeles, CA",
+      "experience_years": 5,
+      "email": "michael.chen@email.com",
+      "phone": "(406) 469-3294",
+      "summary": "Experienced Machine Learning Engineer with 5 years of experience"
+    }
+  },
+  {
+    "file": "standard\\product_manager_standard.pdf",
+    "expected": {
+      "name": "Alex Brown",
+      "title": "Full Stack Developer",
+      "skills": [
+        "TypeScript",
+        "Flask",
+        "React",
+        "Cassandra",
+        "MongoDB",
+        "PostgreSQL",
+        "GraphQL"
+      ],
+      "location": "Austin, TX",
+      "experience_years": 8,
+      "email": "alex.brown@email.com",
+      "phone": "(389) 354-9624",
+      "summary": "Experienced Full Stack Developer with 8 years of experience"
+    }
+  },
+  {
+    "file": "challenging\\two_column_designer.pdf",
+    "expected": {
+      "name": "Amanda Williams",
+      "title": "DevOps Engineer",
+      "skills": [
+        "Go",
+        "Scala",
+        "Django",
+        "Angular",
+        "MySQL",
+        "Git",
+        "GraphQL"
+      ],
+      "location": "New York, NY",
+      "experience_years": 12,
+      "email": "amanda.williams@email.com",
+      "phone": "(585) 645-8536",
+      "summary": "Experienced DevOps Engineer with 12 years of experience"
+    }
+  },
+  {
+    "file": "challenging\\complex_formatted.pdf",
+    "expected": {
+      "name": "Jessica Williams",
+      "title": "Solutions Architect",
+      "skills": [
+        "Java",
+        "JavaScript",
+        "TypeScript",
+        "Vue.js",
+        "MongoDB",
+        "DynamoDB",
+        "Cassandra"
+      ],
+      "location": "Boston, MA",
+      "experience_years": 6,
+      "email": "jessica.williams@email.com",
+      "phone": "(754) 572-8759",
+      "summary": "Experienced Solutions Architect with 6 years of experience"
+    }
+  },
+  {
+    "file": "edge_cases\\minimal_info.pdf",
+    "expected": {
+      "name": "James Johnson",
+      "title": "Full Stack Developer",
+      "skills": [
+        "Rust",
+        "Go",
+        "Node.js",
+        "Angular",
+        "Redis",
+        "DynamoDB",
+        "PostgreSQL"
+      ],
+      "location": "San Francisco, CA",
+      "experience_years": 7,
+      "email": null,
+      "phone": null,
+      "summary": "Experienced Full Stack Developer with 7 years of experience"
+    }
+  },
+  {
+    "file": "edge_cases\\unusual_format.pdf",
+    "expected": {
+      "name": "Michael Brown",
+      "title": "Machine Learning Engineer",
+      "skills": [
+        "Java",
+        "Scala",
+        "TypeScript",
+        "Angular",
+        "Flask",
+        "MySQL",
+        "Cassandra"
+      ],
+      "location": "Los Angeles, CA",
+      "experience_years": 8,
+      "email": "michael.brown@email.com",
+      "phone": "(743) 626-8004",
+      "summary": "Experienced Machine Learning Engineer with 8 years of experience"
+    }
+  }
+]

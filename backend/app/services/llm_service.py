@@ -248,9 +248,147 @@ class LLMService:
 
         except Exception as e:  # Catch any other unexpected errors
             logger.error(f"Unexpected error in get_embedding: {e}", exc_info=True)
-            # This is an unexpected internal error in this service.
+            # Re-raise as a service-specific error to be handled by the caller.
+            raise EmbeddingGenerationError(
+                f"An unexpected error occurred during embedding generation: {str(e)}",
+                original_exception=e,
+            )
+
+    async def extract_structured_resume_data(
+        self, text: str, prompt_version: str = "V2"
+    ) -> Optional["ExtractedResumeData"]:  # Forward reference ExtractedResumeData
+        """
+        Extract structured data from resume text using LLM.
+
+        Uses validated prompts from Phase 0 testing to extract
+        candidate information in a structured format.
+
+        Args:
+            text: Resume text (already truncated if needed)
+            prompt_version: Which prompt version to use (V1, V2, or V3)
+
+        Returns:
+            ExtractedResumeData if successful, None if extraction fails
+        """
+        # Import here to avoid circular dependency at module level
+        # and allow forward reference in type hint
+        from app.core.prompts import (
+            EXTRACTION_PROMPT_V1,
+            EXTRACTION_PROMPT_V2,
+            EXTRACTION_PROMPT_V3,
+            EXTRACTION_PROMPT_ACTIVE,
+        )
+        from app.models.upload_models import ExtractedResumeData
+
+        try:
+            # Get the appropriate prompt based on version
+            prompt_map = {
+                "V1": EXTRACTION_PROMPT_V1,
+                "V2": EXTRACTION_PROMPT_V2,
+                "V3": EXTRACTION_PROMPT_V3,
+            }
+
+            # Use specified version or fall back to active version
+            # Ensure EXTRACTION_PROMPT_ACTIVE is one of the keys in prompt_map or handle separately
+            chosen_prompt_key = (
+                prompt_version if prompt_version in prompt_map else "V2"
+            )  # Default to V2 if ACTIVE is not in map
+            prompt_template = prompt_map.get(
+                chosen_prompt_key, EXTRACTION_PROMPT_V2
+            )  # Fallback to V2
+
+            if prompt_version not in prompt_map and prompt_version != "ACTIVE":
+                logger.warning(
+                    f"Prompt version '{prompt_version}' not found, defaulting to '{chosen_prompt_key}'. Available: {list(prompt_map.keys())}"
+                )
+            elif prompt_version == "ACTIVE":
+                prompt_template = EXTRACTION_PROMPT_ACTIVE
+
+            # Format prompt with resume text
+            prompt = prompt_template.replace("{text}", text)
+
+            logger.info(
+                f"Extracting resume data using prompt version: {chosen_prompt_key}"
+            )
+
+            # Call OpenAI with structured output
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a resume parsing assistant. Extract information and return valid JSON only.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,  # Low temperature for consistent extraction
+                max_tokens=1024,  # Increased max_tokens for potentially larger JSON
+                response_format={"type": "json_object"},  # Force JSON response
+            )
+
+            # Parse response
+            content = response.choices[0].message.content
+            if not content:
+                logger.error("Empty response from LLM for resume extraction")
+                return None
+
+            # Parse JSON
+            try:
+                import json  # Keep import local if only used here
+
+                data = json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM JSON response: {e}")
+                logger.debug(f"Raw response: {content[:500]}...")  # Log first 500 chars
+                return None
+
+            # Create and validate Pydantic model
+            try:
+                extracted = ExtractedResumeData(**data)
+                logger.info(
+                    f"Successfully extracted data for: {extracted.name if extracted.name else 'Unknown'}"
+                )
+                return extracted
+            except (
+                Exception
+            ) as e:  # Catch Pydantic ValidationError specifically if possible
+                logger.error(
+                    f"Failed to validate extracted data with Pydantic model: {e}"
+                )
+                logger.debug(f"Invalid data structure from LLM: {data}")
+                return None
+
+        except RateLimitError as e:
+            logger.warning(f"OpenAI rate limit hit during extraction: {e}")
+            # For critical extraction, might not want to return None immediately.
+            # Could re-raise or return a specific status/error object.
+            return None  # Or raise TextGenerationError("Rate limit hit", e)
+        except (APITimeoutError, APIConnectionError) as e:
+            logger.error(f"OpenAI connection error during extraction: {e}")
+            return None  # Or raise TextGenerationError("Connection error", e)
+        except BadRequestError as e:
+            logger.error(
+                f"OpenAI Bad Request Error during extraction (check prompt/model compatibility or input size): {e}",
+                exc_info=True,
+            )
+            return None  # Or raise TextGenerationError("Bad request to OpenAI", e)
+        except AuthenticationError as e:  # Ensure this is handled as it's critical
+            logger.error(
+                f"OpenAI Authentication Error during extraction: {e}", exc_info=True
+            )
+            raise OpenAIConfigError(
+                "OpenAI authentication failed. Check API key.", original_exception=e
+            )
+        except APIError as e:
+            logger.error(
+                f"Generic OpenAI API Error during extraction: {e}", exc_info=True
+            )
+            return None  # Or raise TextGenerationError("OpenAI API service error", e)
+        except Exception as e:
+            logger.error(f"Unexpected error in resume extraction: {e}", exc_info=True)
+            # For unexpected errors, re-raising as a service error is good practice.
             raise LLMServiceError(
-                f"An unexpected error occurred while generating embeddings: {str(e)}",
+                f"An unexpected error occurred during resume data extraction: {str(e)}",
                 original_exception=e,
             )
 
@@ -604,6 +742,233 @@ class LLMService:
                 f"Unexpected error during text generation: {str(e)}",
                 original_exception=e,
             )
+
+    async def parse_chat_query(
+        self, message: str, available_skills: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Parse natural language chat query into structured filters.
+
+        Converts queries like "Python developers with 5+ years" into
+        ChromaDB-compatible filter dictionaries.
+
+        Args:
+            message: Natural language query from user
+            available_skills: List of known skills for better matching (optional)
+
+        Returns:
+            Dictionary of filters ready for ChromaDB query
+        """
+        try:
+            # Import prompt from centralized location
+            from app.core.prompts import CHAT_QUERY_PARSING_PROMPT_V1
+
+            # Build context about available filters
+            filter_context = """
+Available filters:
+- skills: List of technical skills (e.g., Python, React, AWS)
+- experience_years: Integer years of experience
+- location: City, State format
+- visa_status: Work authorization status
+- title: Job title keywords
+
+Return a JSON object with the appropriate filters based on the user's query.
+Use MongoDB-style operators where needed: $gte, $lte, $regex, $contains
+"""
+
+            # Add available skills context if provided
+            if available_skills:
+                skills_sample = ", ".join(available_skills[:20])  # First 20 as example
+                filter_context += f"\n\nKnown skills in database: {skills_sample}..."
+
+            # Create prompt
+            prompt = f"""{CHAT_QUERY_PARSING_PROMPT_V1}
+
+{filter_context}
+
+User Query: "{message}"
+
+Parsed Filters JSON:"""
+
+            logger.info(f"Parsing chat query: '{message[:100]}...'")
+
+            # Call OpenAI
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a query parsing assistant. Convert natural language queries into database filters.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=self.settings.chat_temperature,
+                max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+
+            # Parse response
+            content = response.choices[0].message.content
+            if not content:
+                logger.error("Empty response from LLM for query parsing")
+                return {}
+
+            try:
+                import json
+
+                filters = json.loads(content)
+                logger.info(f"Parsed filters: {filters}")
+                return filters
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse filter JSON: {e}")
+                return {}
+
+        except RateLimitError as e:
+            logger.warning(f"Rate limit hit during query parsing: {e}")
+            # Return basic keyword search as fallback
+            return {"$text": message}
+        except Exception as e:
+            logger.error(f"Error parsing chat query: {e}", exc_info=True)
+            return {}
+
+    async def generate_chat_response_text(
+        self,
+        original_query: str,
+        num_candidates_found: int,
+        candidates_preview: Optional[List[str]] = None,
+        error: Optional[str] = None,
+    ) -> str:
+        """
+        Generate conversational AI response for chat interface.
+
+        Creates friendly, helpful responses that acknowledge the query
+        and provide context about results.
+
+        Args:
+            original_query: The user's original message
+            num_candidates_found: Number of matching candidates
+            candidates_preview: Optional list of candidate names for preview
+            error: Optional error message to incorporate
+
+        Returns:
+            Conversational response text
+        """
+        try:
+            # Build context for response
+            if error:
+                context = f"An error occurred: {error}"
+            elif num_candidates_found == 0:
+                context = "No candidates were found matching the criteria."
+            elif num_candidates_found == 1:
+                context = "I found 1 candidate matching your criteria."
+            else:
+                context = (
+                    f"I found {num_candidates_found} candidates matching your criteria."
+                )
+
+            # Add preview if available
+            if candidates_preview and num_candidates_found > 0:
+                preview_text = ", ".join(candidates_preview[:3])
+                if num_candidates_found > 3:
+                    preview_text += f", and {num_candidates_found - 3} more"
+                context += f" The matches include: {preview_text}."
+
+            prompt = f"""Generate a brief, friendly response for a recruiter chat interface.
+
+User Query: "{original_query}"
+Context: {context}
+
+Guidelines:
+- Be conversational and helpful
+- Keep it concise (1-2 sentences)
+- Acknowledge what they asked for
+- If no results, suggest adjusting the search
+- Sound enthusiastic about good matches
+
+Response:"""
+
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful AI recruiting assistant. Be friendly and professional.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=self.settings.chat_response_temperature,
+                max_tokens=150,
+            )
+
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"Error generating chat response: {e}")
+            # Fallback response
+            if error:
+                return f"I encountered an issue: {error}"
+            elif num_candidates_found == 0:
+                return "I couldn't find any candidates matching that criteria. Try adjusting your search!"
+            else:
+                return f"I found {num_candidates_found} candidates for you!"
+
+    async def generate_query_suggestions(
+        self, current_query: str, num_results: int
+    ) -> List[str]:
+        """
+        Generate smart follow-up query suggestions.
+
+        Args:
+            current_query: The current search query
+            num_results: Number of results found
+
+        Returns:
+            List of 2-3 suggested queries
+        """
+        if not self.settings.enable_query_suggestions:
+            return []
+
+        try:
+            prompt = f"""Generate 2-3 follow-up search suggestions based on this recruiter query.
+
+Current Query: "{current_query}"
+Results Found: {num_results}
+
+Make suggestions that:
+- Build on the current search
+- Add useful filters
+- Are short and clear
+- Start with "Try: "
+
+Return as a simple JSON array of strings.
+
+Example: ["Try: 'with React experience'", "Try: 'in New York'"]
+
+Suggestions:"""
+
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=100,
+                response_format={"type": "json_object"},
+            )
+
+            import json
+
+            content = response.choices[0].message.content
+            # Extract array from potential JSON object
+            data = json.loads(content)
+            if isinstance(data, dict) and "suggestions" in data:
+                return data["suggestions"][:3]
+            elif isinstance(data, list):
+                return data[:3]
+            else:
+                return []
+
+        except Exception as e:
+            logger.error(f"Error generating suggestions: {e}")
+            return []
 
 
 async def _test_llm_service():

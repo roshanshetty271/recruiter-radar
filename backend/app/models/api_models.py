@@ -313,3 +313,87 @@ class SearchQueryParams(BaseModel):
                 "skills_filter": ["Python", "FastAPI"],
             }
         }
+
+
+# ============= Chat Models (NEW) =============
+
+
+class ChatRequest(BaseModel):
+    """Request model for chat endpoint."""
+
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="User's chat message/query",
+        example="Show me Python developers with 5+ years experience",
+    )
+
+    session_id: str = Field(
+        ..., description="Session identifier", example="device_123abc"
+    )
+
+    # For future V2 - conversation history
+    conversation_history: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="Previous messages in conversation (V2 feature)",
+        example=[
+            {"role": "user", "content": "Show me Python developers"},
+            {"role": "assistant", "content": "I found 5 Python developers..."},
+        ],
+    )
+
+
+class ChatResponse(BaseModel):
+    """Response model for chat endpoint."""
+
+    ai_message: str = Field(
+        ...,
+        description="AI's conversational response",
+        example="I found 3 Python developers with 5+ years of experience. Here are the top matches:",
+    )
+
+    candidates: List[Dict[str, Any]] = Field(
+        ...,
+        description="List of matching candidates with full details",
+        example=[
+            {
+                "id": "upload_device123_abc",
+                "name": "Sarah Chen",
+                "title": "Senior Python Developer",
+                "skills": ["Python", "Django", "AWS"],
+                "location": "San Francisco, CA",
+                "experience_years": 6,
+                "match_context": "Strong Python background with Django expertise...",
+                "relevance_score": 0.95,
+            }
+        ],
+    )
+
+    query_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata about how the query was processed",
+        example={
+            "parsed_filters": {"skills": ["Python"], "experience_years": {"$gte": 5}},
+            "candidates_found": 3,
+            "search_type": "filtered",
+        },
+    )
+
+    remaining_messages: int = Field(
+        ..., ge=0, description="Remaining chat messages for this session", example=7
+    )
+
+    processing_time_ms: int = Field(
+        ..., ge=0, description="Time taken to process the chat request", example=1234
+    )
+
+    suggestions: Optional[List[str]] = Field(
+        None,
+        description="Suggested follow-up queries",
+        example=[
+            "Try: 'with Django experience'",
+            "Try: 'in San Francisco'",
+            "Try: 'who know AWS'",
+        ],
+    )
