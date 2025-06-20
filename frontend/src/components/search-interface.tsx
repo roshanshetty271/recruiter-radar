@@ -11,10 +11,10 @@ import {
   Zap,
   Target,
 } from "lucide-react";
-import { Button } from "@/src/components/ui/button";
-import { Input } from "@/src/components/ui/input";
-import { Badge } from "@/src/components/ui/badge";
-import { Progress } from "@/src/components/ui/progress";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Badge } from "./ui/badge";
+import { Progress } from "./ui/progress";
 import { AdvancedFilters } from "./advanced-filters";
 import { motion, AnimatePresence } from "framer-motion";
 

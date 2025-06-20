@@ -107,3 +107,35 @@ export interface SearchMetrics {
   searchTimeMs: number;
   queryInterpretation: string | null;
 }
+
+// ===== Upload & Chat Types (V3 backend alignment) =====
+
+export interface UploadStatusResponse {
+  filename: string;
+  status:
+    | "pending"
+    | "processing"
+    | "success"
+    | "pdf_error"
+    | "extraction_error"
+    | "partial_success";
+  message: string;
+  extracted_name?: string;
+  candidate_id?: string;
+  processing_time_ms: number;
+  operation_type?: "add" | "update";
+}
+
+export interface ChatRequestBody {
+  message: string;
+  session_id: string;
+}
+
+export interface ChatResponse {
+  ai_message: string;
+  candidates: any[]; // Using 'any' for now; consider mapping to FrontendCandidate later
+  query_metadata: Record<string, any>;
+  remaining_messages: number;
+  processing_time_ms: number;
+  suggestions?: string[];
+}

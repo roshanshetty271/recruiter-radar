@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Search, Sparkles, Users, MapPin, Code } from "lucide-react";
-import { Button } from "@/src/components/ui/button";
+import { Button } from "./ui/button";
 
 const VALUE_PROPS = [
   "Find top talent in seconds",

@@ -1,22 +1,28 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MetricsBar } from "@/components/metrics-bar";
-import { HeroSection } from "@/components/hero-section";
-import { SearchInterface } from "@/components/search-interface";
-import { TalentHeatMap } from "@/components/talent-heat-map";
-import { CandidateGrid } from "@/components/candidate-grid";
-import { CommandPalette } from "@/components/command-palette";
-import { AnimatedBackground } from "@/components/animated-background";
-import { OutreachModal } from "@/components/custom/outreach-modal"; // FE-6 IMPORT
+import { Upload } from "lucide-react";
+import { MetricsBar } from "../components/metrics-bar";
+import { HeroSection } from "../components/hero-section";
+import { SearchInterface } from "../components/search-interface";
+import { TalentHeatMap } from "../components/talent-heat-map";
+import { CandidateGrid } from "../components/candidate-grid";
+import { CommandPalette } from "../components/command-palette";
+import { AnimatedBackground } from "../components/animated-background";
+import { OutreachModal } from "../components/custom/outreach-modal"; // FE-6 IMPORT
+import { UploadModal } from "../components/upload/UploadModal";
+import { Button } from "../components/ui/button";
 // Import our services
 import { api } from "../lib/api";
 import {
   mapBackendCandidatesToFrontend,
   getSearchMetrics,
 } from "../services/helpers";
-import { toast } from "@/hooks/use-toast";
+import { apiService } from "../services/apiService";
+import { useSession } from "../contexts/SessionContext";
+import { toast } from "../hooks/use-toast";
 import type { FrontendCandidate } from "../lib/types";
+import type { UploadStatusResponse } from "../services/types";
 
 // Define SearchMetrics type locally
 interface SearchMetrics {
@@ -34,6 +40,7 @@ interface SessionMetrics {
 }
 
 export default function Dashboard() {
+  const { session, incrementUpload, remainingUploads } = useSession();
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] =
@@ -50,6 +57,12 @@ export default function Dashboard() {
   const [isOutreachModalOpen, setIsOutreachModalOpen] = useState(false);
   const [selectedCandidateForOutreach, setSelectedCandidateForOutreach] =
     useState<FrontendCandidate | null>(null);
+
+  // Step 3: Upload modal state
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadStatuses, setUploadStatuses] = useState<UploadStatusResponse[]>(
+    []
+  );
 
   // Session metrics state
   const [sessionMetrics, setSessionMetrics] = useState<SessionMetrics>({
@@ -125,6 +138,92 @@ export default function Dashboard() {
       title: "🎉 Outreach Generated!",
       description: "Your AI-powered message is ready to send",
     });
+  };
+
+  // Step 3: Handle file uploads
+  const handleUpload = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Create initial status entries
+    const initialStatuses: UploadStatusResponse[] = files.map((file) => ({
+      filename: file.name,
+      status: "pending",
+      message: "Queued for processing...",
+      processing_time_ms: 0,
+    }));
+
+    setUploadStatuses((prev) => [...prev, ...initialStatuses]);
+
+    // Process each file
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      // Update status to processing
+      setUploadStatuses((prev) =>
+        prev.map((status) =>
+          status.filename === file.name && status.status === "pending"
+            ? {
+                ...status,
+                status: "processing",
+                message: "Extracting candidate data...",
+              }
+            : status
+        )
+      );
+
+      try {
+        const result = await apiService.uploadResume(file, session.id);
+
+        // Update with result
+        setUploadStatuses((prev) =>
+          prev.map((status) =>
+            status.filename === file.name && status.status === "processing"
+              ? result
+              : status
+          )
+        );
+
+        // Increment session upload count
+        incrementUpload();
+
+        // Show success toast
+        if (result.status === "success") {
+          toast({
+            title: "✅ Upload Successful",
+            description: `${
+              result.extracted_name || file.name
+            } processed successfully`,
+          });
+        } else if (result.status === "partial_success") {
+          toast({
+            title: "⚠️ Partial Success",
+            description: result.message,
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        // Update with error
+        setUploadStatuses((prev) =>
+          prev.map((status) =>
+            status.filename === file.name && status.status === "processing"
+              ? {
+                  ...status,
+                  status: "pdf_error",
+                  message:
+                    error instanceof Error ? error.message : "Upload failed",
+                  processing_time_ms: 0,
+                }
+              : status
+          )
+        );
+
+        toast({
+          title: "❌ Upload Failed",
+          description: `Failed to process ${file.name}`,
+          variant: "destructive",
+        });
+      }
+    }
   };
 
   const handleSearch = async (
@@ -210,6 +309,18 @@ export default function Dashboard() {
     <div className="min-h-screen relative overflow-hidden">
       <AnimatedBackground />
 
+      {/* Fixed Upload Button */}
+      <div className="fixed top-4 right-4 z-40">
+        <Button
+          onClick={() => setIsUploadModalOpen(true)}
+          className="bg-purple-600/90 hover:bg-purple-500/90 backdrop-blur-sm border border-purple-500/30 shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+          size="sm"
+        >
+          <Upload className="w-4 h-4 mr-2" />
+          Upload ({remainingUploads})
+        </Button>
+      </div>
+
       <div className="relative z-10">
         {errorMessage && (
           <div
@@ -270,6 +381,14 @@ export default function Dashboard() {
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onSearch={handleSearch}
+      />
+
+      {/* Upload Modal */}
+      <UploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        uploadStatuses={uploadStatuses}
+        onUpload={handleUpload}
       />
 
       {/* FE-6: Outreach Modal */}

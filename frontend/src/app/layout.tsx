@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Toaster } from "@/src/components/ui/toaster";
+import { Toaster } from "../components/ui/toaster";
+import { SessionProvider } from "../contexts/SessionContext";
 
 export const metadata: Metadata = {
   title: "v0 App",
@@ -16,8 +17,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {children}
-        <Toaster />
+        <SessionProvider>
+          {children}
+          <Toaster />
+        </SessionProvider>
       </body>
     </html>
   );

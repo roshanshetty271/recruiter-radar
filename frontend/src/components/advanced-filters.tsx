@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { MapPin, Globe, Clock, Code, X } from "lucide-react";
-import { Input } from "@/src/components/ui/input";
-import { Button } from "@/src/components/ui/button";
-import { Slider } from "@/src/components/ui/slider";
+import { Input } from "./ui/input";
+import { Button } from "./ui/button";
+import { Slider } from "./ui/slider";
 
 export function AdvancedFilters({
   onFiltersChange,

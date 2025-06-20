@@ -6,6 +6,9 @@ import {
   BackendSearchResponse,
   OutreachRequestBody,
   OutreachResponse,
+  UploadStatusResponse,
+  ChatRequestBody,
+  ChatResponse,
 } from "./types";
 import { parseLocationFromQuery, normalizeSkills } from "./searchUtils";
 import { config } from "./config";
@@ -189,6 +192,149 @@ class RecruiterRadarAPI {
         errorMessage = String(error);
       }
       console.error("Outreach generation error:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Upload a resume PDF for processing
+   */
+  async uploadResume(
+    file: File,
+    sessionId: string
+  ): Promise<UploadStatusResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/upload/resume`,
+        {
+          method: "POST",
+          body: formData,
+          headers: {
+            "X-Session-ID": sessionId,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+        throw new Error(
+          errorData.detail || errorData.message || `Error: ${response.status}`
+        );
+      }
+
+      return (await response.json()) as UploadStatusResponse;
+    } catch (error) {
+      let errorMessage = "Unknown error";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      console.error("Resume upload error:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Send a chat query to backend and receive candidates & AI response
+   */
+  async chat(message: string, sessionId: string): Promise<ChatResponse> {
+    const body: ChatRequestBody = {
+      message,
+      session_id: sessionId,
+    };
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/chat`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+        throw new Error(
+          errorData.detail || errorData.message || `Error: ${response.status}`
+        );
+      }
+
+      return (await response.json()) as ChatResponse;
+    } catch (error) {
+      let errorMessage = "Unknown error";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      console.error("Chat API error:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Get session status from backend
+   */
+  async getSessionStatus(sessionId: string): Promise<any> {
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/session/status?session_id=${encodeURIComponent(
+          sessionId
+        )}`
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+        throw new Error(
+          errorData.detail || errorData.message || `Error: ${response.status}`
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      let errorMessage = "Unknown error";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      console.error("Session status error:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Get example chat queries to help users get started
+   */
+  async getChatExamples(): Promise<any> {
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/chat/examples`
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+        throw new Error(
+          errorData.detail || errorData.message || `Error: ${response.status}`
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      let errorMessage = "Unknown error";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      console.error("Chat examples error:", errorMessage);
       throw new Error(errorMessage);
     }
   }
