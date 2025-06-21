@@ -79,7 +79,7 @@ export function HeroSection({
   }, [currentPropIndex, isTyping]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative">
+    <div className="min-h-[60vh] flex items-center justify-center relative">
       {/* Code rain effect */}
       <div className="absolute inset-0 overflow-hidden opacity-5">
         <div className="absolute animate-pulse">
@@ -99,14 +99,14 @@ export function HeroSection({
         </div>
       </div>
 
-      <div className="text-center space-y-8 max-w-4xl mx-auto px-4">
+      <div className="text-center space-y-6 max-w-4xl mx-auto px-4">
         <div className="space-y-4">
-          <h1 className="text-6xl md:text-7xl font-black bg-gradient-to-r from-white via-purple-200 to-blue-200 bg-clip-text text-transparent animate-pulse">
+          <h1 className="text-5xl md:text-6xl font-black bg-gradient-to-r from-white via-purple-200 to-blue-200 bg-clip-text text-transparent animate-pulse">
             Recruiter Radar
           </h1>
 
-          <div className="h-16 flex items-center justify-center">
-            <p className="text-xl md:text-2xl text-gray-300">
+          <div className="h-12 flex items-center justify-center">
+            <p className="text-lg md:text-xl text-gray-300">
               {displayText}
               <span className="animate-pulse">|</span>
             </p>
@@ -136,14 +136,6 @@ export function HeroSection({
             </button>
           ))}
         </div>
-
-        <Button
-          onClick={() => onSearch("Senior Full Stack Developer")}
-          className="px-8 py-4 text-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 border-0 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
-        >
-          <Search className="w-5 h-5 mr-2" />
-          Start Searching
-        </Button>
       </div>
     </div>
   );

@@ -309,18 +309,6 @@ export default function Dashboard() {
     <div className="min-h-screen relative overflow-hidden">
       <AnimatedBackground />
 
-      {/* Fixed Upload Button */}
-      <div className="fixed top-4 right-4 z-40">
-        <Button
-          onClick={() => setIsUploadModalOpen(true)}
-          className="bg-purple-600/90 hover:bg-purple-500/90 backdrop-blur-sm border border-purple-500/30 shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
-          size="sm"
-        >
-          <Upload className="w-4 h-4 mr-2" />
-          Upload ({remainingUploads})
-        </Button>
-      </div>
-
       <div className="relative z-10">
         {errorMessage && (
           <div
@@ -345,16 +333,23 @@ export default function Dashboard() {
         />
 
         <main className="container mx-auto px-4 pt-20">
-          {!hasSearched ? (
-            <HeroSection onSearch={handleSearch} />
-          ) : (
-            <div className="space-y-8">
-              <SearchInterface
-                onSearch={handleSearch}
-                initialQuery={searchQuery}
-                onFilterChange={handleFilterChange}
-              />
+          {/* Always show compact hero section */}
+          <HeroSection onSearch={handleSearch} />
 
+          {/* Always show search interface prominently */}
+          <div className="mt-8 mb-8">
+            <SearchInterface
+              onSearch={handleSearch}
+              initialQuery={searchQuery}
+              onFilterChange={handleFilterChange}
+              onUploadClick={() => setIsUploadModalOpen(true)}
+              remainingUploads={remainingUploads}
+            />
+          </div>
+
+          {/* Show results only after search */}
+          {hasSearched && (
+            <div className="space-y-8">
               <div className="grid lg:grid-cols-4 gap-8">
                 <div className="lg:col-span-1">
                   <TalentHeatMap />

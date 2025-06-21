@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Zap,
   Target,
+  Upload,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -30,10 +31,14 @@ export function SearchInterface({
   onSearch,
   initialQuery = "",
   onFilterChange = () => {},
+  onUploadClick,
+  remainingUploads = 10,
 }: {
   onSearch: (query: string, filters?: any) => void;
   initialQuery?: string;
   onFilterChange?: (filters: any) => void;
+  onUploadClick?: () => void;
+  remainingUploads?: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [isSearching, setIsSearching] = useState(false);
@@ -289,20 +294,33 @@ export function SearchInterface({
               )}
             </div>
 
-            <Button
-              onClick={handleSearch}
-              disabled={!query.trim() || isSearching}
-              className="px-6 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg"
-            >
-              {isSearching ? (
-                "Searching..."
-              ) : (
-                <div className="flex items-center space-x-2">
-                  <Zap className="w-4 h-4" />
-                  <span>Search</span>
-                </div>
+            <div className="flex items-center space-x-2">
+              {onUploadClick && (
+                <Button
+                  onClick={onUploadClick}
+                  variant="outline"
+                  className="px-4 py-2 border-purple-400/30 bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 hover:text-purple-200 rounded-lg"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload ({remainingUploads})
+                </Button>
               )}
-            </Button>
+
+              <Button
+                onClick={handleSearch}
+                disabled={!query.trim() || isSearching}
+                className="px-6 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg"
+              >
+                {isSearching ? (
+                  "Searching..."
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Zap className="w-4 h-4" />
+                    <span>Search</span>
+                  </div>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
 
