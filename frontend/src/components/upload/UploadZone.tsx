@@ -1,326 +1,331 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
+import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  Upload,
+  FileText,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+} from "lucide-react";
 import { Button } from "../ui/button";
+import { Progress } from "@/components/ui/progress";
+import { useSession } from "@/contexts/SessionContext";
+import { apiService } from "@/services/apiService";
+import { UploadStatusResponse } from "@/services/types";
 
 interface UploadZoneProps {
-  onUpload: (files: File[]) => void;
+  sessionId: string;
+  onUploadStart: () => void;
+  onUploadProgress: (result: UploadStatusResponse) => void;
+  onUploadComplete: (allResults: UploadStatusResponse[]) => void;
   disabled?: boolean;
-  remainingUploads: number;
+  maxFiles?: number;
 }
 
-type DropZoneState = "idle" | "dragging" | "dropped" | "processing";
-
-export function UploadZone({
-  onUpload,
+export default function UploadZone({
+  sessionId,
+  onUploadStart,
+  onUploadProgress,
+  onUploadComplete,
   disabled = false,
-  remainingUploads,
+  maxFiles = 10,
 }: UploadZoneProps) {
-  const [state, setState] = useState<DropZoneState>("idle");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [isDragActive, setIsDragActive] = useState(false);
+  const { incrementUpload } = useSession();
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    [filename: string]: number;
+  }>({});
+  const [uploadQueue, setUploadQueue] = useState<File[]>([]);
 
-  // File validation
-  const validateFiles = useCallback(
-    (files: File[]) => {
-      const errors: string[] = [];
-
-      // Check file count
-      if (files.length > remainingUploads) {
-        errors.push(`Too many files. You can upload ${remainingUploads} more.`);
-      }
-
-      // Check each file
-      files.forEach((file, index) => {
-        // Check file type
-        if (file.type !== "application/pdf") {
-          errors.push(`File ${index + 1}: Only PDF files are allowed`);
-        }
-
-        // Check file size (10MB limit)
-        if (file.size > 10 * 1024 * 1024) {
-          errors.push(`File ${index + 1}: File size must be less than 10MB`);
-        }
-
-        // Check filename
-        if (!file.name.toLowerCase().endsWith(".pdf")) {
-          errors.push(`File ${index + 1}: File must have .pdf extension`);
-        }
-      });
-
-      return errors;
-    },
-    [remainingUploads]
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragActive(false);
-      setState("idle");
-      setValidationError(null);
-
-      const files = Array.from(e.dataTransfer.files);
-
-      // Validate files
-      const validationErrors = validateFiles(files);
-      if (validationErrors.length > 0) {
-        setValidationError(validationErrors.join("; "));
-        return;
-      }
-
-      // Process files
-      setState("dropped");
-      setTimeout(() => {
-        setState("processing");
-        onUpload(files);
-
-        // Reset state after a short delay
-        setTimeout(() => {
-          setState("idle");
-        }, 500);
-      }, 300);
-    },
-    [onUpload, validateFiles]
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-  }, []);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(true);
-    setState("dragging");
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    // Only set to false if we're leaving the drop zone entirely
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setIsDragActive(false);
-      setState("idle");
-    }
-  }, []);
-
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []);
-
-      // Validate files
-      const validationErrors = validateFiles(files);
-      if (validationErrors.length > 0) {
-        setValidationError(validationErrors.join("; "));
-        return;
-      }
-
-      // Process files
-      setState("dropped");
-      setTimeout(() => {
-        setState("processing");
-        onUpload(files);
-
-        // Reset state after a short delay
-        setTimeout(() => {
-          setState("idle");
-        }, 500);
-      }, 300);
-
-      // Reset input
-      e.target.value = "";
-    },
-    [onUpload, validateFiles]
-  );
-
-  // Determine zone appearance
-  const getZoneClasses = () => {
-    if (disabled) {
-      return "border-gray-600 bg-gray-800/30 cursor-not-allowed";
+  const validateFile = (file: File): string | null => {
+    // Check file type
+    if (file.type !== "application/pdf") {
+      return "Only PDF files are allowed";
     }
 
-    if (validationError) {
-      return "border-red-500 bg-red-500/10 border-dashed animate-pulse";
+    // Check file size (10MB limit)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return "File size must be less than 10MB";
     }
 
-    if (isDragActive || state === "dragging") {
-      return "border-purple-400 bg-purple-500/10 border-dashed scale-105";
+    // Check filename
+    if (file.name.length > 100) {
+      return "Filename is too long";
     }
 
-    if (state === "dropped") {
-      return "border-green-400 bg-green-500/10 border-solid";
-    }
-
-    if (state === "processing") {
-      return "border-blue-400 bg-blue-500/10 border-dashed";
-    }
-
-    return "border-gray-500 bg-gray-800/20 hover:border-purple-400 hover:bg-purple-500/5";
+    return null;
   };
 
-  const getIconAndText = () => {
-    if (disabled) {
+  const uploadSingleFile = async (
+    file: File
+  ): Promise<UploadStatusResponse> => {
+    try {
+      // Simulate progress updates
+      setUploadProgress((prev) => ({ ...prev, [file.name]: 0 }));
+
+      // Start upload
+      const result = await apiService.uploadResume(file, sessionId);
+
+      // Complete progress
+      setUploadProgress((prev) => ({ ...prev, [file.name]: 100 }));
+
+      // Increment session upload count if successful
+      if (result.status === "success") {
+        incrementUpload();
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Upload failed:", error);
       return {
-        icon: <AlertCircle className="w-12 h-12 text-gray-500" />,
-        title: "Upload Limit Reached",
-        subtitle: "You've reached the maximum uploads for this session",
+        filename: file.name,
+        status: "pdf_error",
+        message: error instanceof Error ? error.message : "Upload failed",
+        processing_time_ms: 0,
       };
     }
-
-    if (state === "processing") {
-      return {
-        icon: (
-          <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin" />
-        ),
-        title: "Processing...",
-        subtitle: "Your files are being uploaded",
-      };
-    }
-
-    if (state === "dropped") {
-      return {
-        icon: <CheckCircle2 className="w-12 h-12 text-green-400" />,
-        title: "Files Ready!",
-        subtitle: "Starting upload process...",
-      };
-    }
-
-    if (isDragActive) {
-      return {
-        icon: <Upload className="w-12 h-12 text-purple-400 animate-bounce" />,
-        title: "Drop your files here",
-        subtitle: "Release to start uploading",
-      };
-    }
-
-    return {
-      icon: <FileText className="w-12 h-12 text-gray-400" />,
-      title: "Drag & drop PDF resumes",
-      subtitle: `Or click to browse • ${remainingUploads} uploads remaining`,
-    };
   };
 
-  const { icon, title, subtitle } = getIconAndText();
+  const handleUpload = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setIsUploading(true);
+    setUploadQueue(files);
+    onUploadStart();
+
+    const results: UploadStatusResponse[] = [];
+
+    // Process files sequentially to avoid overwhelming the server
+    for (const file of files) {
+      try {
+        // Validate file
+        const validationError = validateFile(file);
+        if (validationError) {
+          const errorResult: UploadStatusResponse = {
+            filename: file.name,
+            status: "pdf_error",
+            message: validationError,
+            processing_time_ms: 0,
+          };
+          results.push(errorResult);
+          onUploadProgress(errorResult);
+          continue;
+        }
+
+        // Upload file
+        const result = await uploadSingleFile(file);
+        results.push(result);
+        onUploadProgress(result);
+
+        // Small delay between uploads
+        if (files.indexOf(file) < files.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      } catch (error) {
+        const errorResult: UploadStatusResponse = {
+          filename: file.name,
+          status: "pdf_error",
+          message: "Unexpected error during upload",
+          processing_time_ms: 0,
+        };
+        results.push(errorResult);
+        onUploadProgress(errorResult);
+      }
+    }
+
+    setIsUploading(false);
+    setUploadQueue([]);
+    setUploadProgress({});
+    onUploadComplete(results);
+  };
+
+  const onDrop = useCallback(
+    (acceptedFiles: File[], rejectedFiles: any[]) => {
+      // Handle rejected files
+      if (rejectedFiles.length > 0) {
+        console.warn("Some files were rejected:", rejectedFiles);
+      }
+
+      // Limit number of files
+      const filesToUpload = acceptedFiles.slice(0, maxFiles);
+      if (acceptedFiles.length > maxFiles) {
+        console.warn(`Only uploading first ${maxFiles} files`);
+      }
+
+      if (filesToUpload.length > 0) {
+        handleUpload(filesToUpload);
+      }
+    },
+    [maxFiles]
+  );
+
+  const {
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    isDragAccept,
+    isDragReject,
+  } = useDropzone({
+    onDrop,
+    accept: {
+      "application/pdf": [".pdf"],
+    },
+    maxFiles,
+    disabled: disabled || isUploading,
+    multiple: true,
+  });
+
+  // Determine zone state
+  const getZoneState = () => {
+    if (disabled) return "disabled";
+    if (isUploading) return "uploading";
+    if (isDragReject) return "reject";
+    if (isDragAccept) return "accept";
+    if (isDragActive) return "active";
+    return "idle";
+  };
+
+  const zoneState = getZoneState();
+
+  // Zone styling based on state
+  const getZoneStyles = () => {
+    const baseStyles =
+      "border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 cursor-pointer";
+
+    switch (zoneState) {
+      case "disabled":
+        return `${baseStyles} border-muted bg-muted/20 cursor-not-allowed opacity-50`;
+      case "uploading":
+        return `${baseStyles} border-primary bg-primary/5 cursor-wait`;
+      case "reject":
+        return `${baseStyles} border-red-500 bg-red-500/5 animate-pulse`;
+      case "accept":
+        return `${baseStyles} border-green-500 bg-green-500/5 scale-[1.02]`;
+      case "active":
+        return `${baseStyles} border-primary bg-primary/5 scale-[1.01]`;
+      default:
+        return `${baseStyles} border-muted-foreground/25 hover:border-primary hover:bg-primary/5`;
+    }
+  };
 
   return (
     <div className="space-y-4">
-      {/* Drop Zone */}
       <motion.div
-        className={`
-          relative border-2 rounded-xl p-8 text-center cursor-pointer
-          transition-all duration-300 ease-out
-          ${getZoneClasses()}
-        `}
-        whileHover={!disabled ? { scale: 1.02 } : {}}
-        whileTap={!disabled ? { scale: 0.98 } : {}}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onClick={() =>
-          !disabled && document.getElementById("file-input")?.click()
-        }
+        {...getRootProps()}
+        className={getZoneStyles()}
+        whileHover={!disabled && !isUploading ? { scale: 1.01 } : {}}
+        whileTap={!disabled && !isUploading ? { scale: 0.99 } : {}}
       >
-        {/* Hidden file input */}
-        <input
-          id="file-input"
-          type="file"
-          multiple
-          accept=".pdf,application/pdf"
-          onChange={handleFileSelect}
-          className="hidden"
-          disabled={disabled}
-        />
+        <input {...getInputProps()} />
 
-        {/* Ripple Effect on Hover */}
-        {isDragActive && (
-          <motion.div
-            className="absolute inset-0 rounded-xl bg-purple-400/20"
-            initial={{ scale: 0, opacity: 0.8 }}
-            animate={{ scale: 1.5, opacity: 0 }}
-            transition={{ duration: 0.6, repeat: Infinity }}
-          />
-        )}
-
-        <div className="relative z-10 space-y-4">
+        <div className="space-y-4">
           {/* Icon */}
-          <motion.div
-            key={state}
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.2 }}
-            className="flex justify-center"
-          >
-            {icon}
-          </motion.div>
+          <div className="flex justify-center">
+            {isUploading ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                className="p-3 bg-primary/10 rounded-full"
+              >
+                <Loader2 className="w-8 h-8 text-primary" />
+              </motion.div>
+            ) : zoneState === "reject" ? (
+              <div className="p-3 bg-red-500/10 rounded-full">
+                <AlertCircle className="w-8 h-8 text-red-500" />
+              </div>
+            ) : (
+              <motion.div
+                animate={isDragActive ? { scale: [1, 1.1, 1] } : {}}
+                transition={{
+                  duration: 0.5,
+                  repeat: isDragActive ? Infinity : 0,
+                }}
+                className="p-3 bg-primary/10 rounded-full"
+              >
+                <Upload className="w-8 h-8 text-primary" />
+              </motion.div>
+            )}
+          </div>
 
           {/* Text */}
           <div className="space-y-2">
-            <motion.h3
-              key={`title-${state}`}
-              initial={{ y: 10, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.2, delay: 0.1 }}
-              className="text-lg font-semibold text-white"
-            >
-              {title}
-            </motion.h3>
-            <motion.p
-              key={`subtitle-${state}`}
-              initial={{ y: 10, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.2, delay: 0.15 }}
-              className="text-sm text-gray-400"
-            >
-              {subtitle}
-            </motion.p>
+            {isUploading ? (
+              <>
+                <h3 className="text-lg font-medium">Processing uploads...</h3>
+                <p className="text-sm text-muted-foreground">
+                  {uploadQueue.length} file{uploadQueue.length !== 1 ? "s" : ""}{" "}
+                  in queue
+                </p>
+              </>
+            ) : zoneState === "reject" ? (
+              <>
+                <h3 className="text-lg font-medium text-red-600 dark:text-red-400">
+                  Invalid files
+                </h3>
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  Only PDF files under 10MB are allowed
+                </p>
+              </>
+            ) : isDragActive ? (
+              <>
+                <h3 className="text-lg font-medium text-primary">
+                  Drop files here
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Release to start uploading
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-medium">
+                  Drag & drop PDF resumes here
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  or click to browse files
+                </p>
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <FileText className="w-3 h-3" />
+                  <span>PDF only • Max 10MB each • Up to {maxFiles} files</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Browse Button */}
-          {!disabled && state === "idle" && !isDragActive && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
+          {!isUploading && !disabled && !isDragActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <Button
-                variant="outline"
-                className="mt-4 border-purple-500 text-purple-400 hover:bg-purple-500/10"
-                onClick={() => document.getElementById("file-input")?.click()}
-              >
-                Browse Files
-              </Button>
-            </motion.div>
+              Browse Files
+            </Button>
           )}
         </div>
       </motion.div>
 
-      {/* Validation Error */}
-      <AnimatePresence>
-        {validationError && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg"
-          >
-            <div className="flex items-start space-x-2">
-              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-red-400">{validationError}</p>
+      {isUploading && Object.keys(uploadProgress).length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-3"
+        >
+          <h4 className="text-sm font-medium">Upload Progress</h4>
+          {Object.entries(uploadProgress).map(([filename, progress]) => (
+            <div key={filename} className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="truncate flex-1 mr-2">{filename}</span>
+                <span className="text-muted-foreground">{progress}%</span>
+              </div>
+              <Progress value={progress} className="h-1" />
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Upload Tips */}
-      {!disabled && (
-        <div className="text-xs text-gray-500 space-y-1">
-          <p>• Supports PDF files up to 10MB each</p>
-          <p>• Multiple files can be uploaded at once</p>
-          <p>• AI will extract candidate information automatically</p>
-        </div>
+          ))}
+        </motion.div>
       )}
     </div>
   );

@@ -12,13 +12,18 @@ import {
   Star,
   MessageSquare,
   Sparkles,
+  Upload,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface MetricsBarProps {
   totalSearches?: number;
   totalResults?: number;
   searchTimeMs?: number;
   outreachGenerated?: number; // 🔥 NEW PROP
+  onUploadClick?: () => void; // 🔥 NEW: Upload button handler
+  uploadCount?: number; // 🔥 NEW: Current upload count
+  maxUploads?: number; // 🔥 NEW: Max uploads allowed
 }
 
 export function MetricsBar({
@@ -26,6 +31,9 @@ export function MetricsBar({
   totalResults = 0,
   searchTimeMs = 0,
   outreachGenerated = 0, // 🔥 NEW PROP
+  onUploadClick, // 🔥 NEW
+  uploadCount = 0, // 🔥 NEW
+  maxUploads = 10, // 🔥 NEW
 }: MetricsBarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [sessionTime, setSessionTime] = useState(0);
@@ -55,7 +63,9 @@ export function MetricsBar({
       outreachMessages: outreachGenerated || prev.outreachMessages, // 🔥 NEW
       // Assume each manual search would take 15 minutes (0.25 hours)
       timeSaved:
-        totalSearches > 0 ? (totalSearches * 0.25).toFixed(1) : prev.timeSaved,
+        totalSearches > 0
+          ? parseFloat((totalSearches * 0.25).toFixed(1))
+          : prev.timeSaved,
       // Calculate efficiency based on search time (faster = higher %)
       efficiencyRank:
         searchTimeMs > 0
@@ -158,6 +168,19 @@ export function MetricsBar({
         </div>
 
         <div className="flex items-center space-x-4">
+          {/* 🔥 NEW: Upload Button */}
+          {onUploadClick && (
+            <Button
+              onClick={onUploadClick}
+              size="sm"
+              variant="outline"
+              className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10 hover:border-purple-400"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Upload ({uploadCount}/{maxUploads})
+            </Button>
+          )}
+
           <div className="text-sm text-gray-400 font-mono">
             Session: {formatTime(sessionTime)}
           </div>

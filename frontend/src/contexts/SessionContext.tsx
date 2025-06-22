@@ -6,164 +6,158 @@ import React, {
   useReducer,
   useEffect,
   ReactNode,
+  useState,
 } from "react";
-import {
-  SessionData,
-  getOrCreateSession,
-  updateSession,
-  resetSession,
-  getRemainingUploads,
-  getRemainingMessages,
-  isSessionExpired,
-} from "../lib/session-manager";
+import { api } from "../lib/api";
+import type { SessionStatus } from "../lib/types";
 
-// Session Actions
+// Session actions
 type SessionAction =
-  | { type: "LOAD_SESSION" }
-  | { type: "INCREMENT_UPLOAD" }
-  | { type: "INCREMENT_MESSAGE" }
-  | { type: "RESET_SESSION" }
-  | { type: "SET_SESSION"; payload: SessionData };
+  | { type: "INITIALIZE"; payload: SessionStatus }
+  | { type: "UPDATE_STATUS"; payload: SessionStatus }
+  | { type: "SET_LOADING"; payload: boolean }
+  | { type: "SET_ERROR"; payload: string | null };
 
-// Session State
+// Session state
 interface SessionState {
-  session: SessionData;
-  remainingUploads: number;
-  remainingMessages: number;
+  session: SessionStatus | null;
   isLoading: boolean;
+  error: string | null;
 }
 
-// Session Context Type
-interface SessionContextType extends SessionState {
-  incrementUpload: () => void;
-  incrementMessage: () => void;
-  resetSessionData: () => void;
+// Session context value
+interface SessionContextValue extends SessionState {
+  refreshSession: () => Promise<void>;
+  getRemainingUploads: () => number;
+  getRemainingMessages: () => number;
+  canUpload: () => boolean;
+  canSendMessage: () => boolean;
 }
 
-// Session Reducer
+// Create context
+const SessionContext = createContext<SessionContextValue | undefined>(
+  undefined
+);
+
+// Session reducer
 function sessionReducer(
   state: SessionState,
   action: SessionAction
 ): SessionState {
   switch (action.type) {
-    case "LOAD_SESSION": {
-      const session = getOrCreateSession();
-
-      // Check if expired and auto-reset
-      if (isSessionExpired(session)) {
-        const newSession = resetSession();
-        return {
-          session: newSession,
-          remainingUploads: getRemainingUploads(newSession),
-          remainingMessages: getRemainingMessages(newSession),
-          isLoading: false,
-        };
-      }
-
-      return {
-        session,
-        remainingUploads: getRemainingUploads(session),
-        remainingMessages: getRemainingMessages(session),
-        isLoading: false,
-      };
-    }
-
-    case "INCREMENT_UPLOAD": {
-      const updatedSession = updateSession(state.session, {
-        uploadCount: state.session.uploadCount + 1,
-      });
-
-      return {
-        ...state,
-        session: updatedSession,
-        remainingUploads: getRemainingUploads(updatedSession),
-      };
-    }
-
-    case "INCREMENT_MESSAGE": {
-      const updatedSession = updateSession(state.session, {
-        messageCount: state.session.messageCount + 1,
-      });
-
-      return {
-        ...state,
-        session: updatedSession,
-        remainingMessages: getRemainingMessages(updatedSession),
-      };
-    }
-
-    case "RESET_SESSION": {
-      const newSession = resetSession();
-      return {
-        session: newSession,
-        remainingUploads: getRemainingUploads(newSession),
-        remainingMessages: getRemainingMessages(newSession),
-        isLoading: false,
-      };
-    }
-
-    case "SET_SESSION": {
+    case "INITIALIZE":
+    case "UPDATE_STATUS":
       return {
         ...state,
         session: action.payload,
-        remainingUploads: getRemainingUploads(action.payload),
-        remainingMessages: getRemainingMessages(action.payload),
+        isLoading: false,
+        error: null,
       };
-    }
+
+    case "SET_LOADING":
+      return {
+        ...state,
+        isLoading: action.payload,
+      };
+
+    case "SET_ERROR":
+      return {
+        ...state,
+        error: action.payload,
+        isLoading: false,
+      };
 
     default:
       return state;
   }
 }
 
-// Create Context
-const SessionContext = createContext<SessionContextType | null>(null);
+// Create initial state (SSR-safe)
+function createInitialState(): SessionState {
+  return {
+    session: null,
+    isLoading: true,
+    error: null,
+  };
+}
 
-// Initial State
-const initialState: SessionState = {
-  session: {
-    id: "",
-    uploadCount: 0,
-    messageCount: 0,
-    createdAt: 0,
-    expiresAt: 0,
-  },
-  remainingUploads: 10,
-  remainingMessages: 10,
-  isLoading: true,
-};
+// Session provider props
+interface SessionProviderProps {
+  children: ReactNode;
+}
 
-// Session Provider Component
-export function SessionProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(sessionReducer, initialState);
+// Session provider component
+export function SessionProvider({ children }: SessionProviderProps) {
+  const [state, dispatch] = useReducer(sessionReducer, createInitialState());
 
-  // Load session on mount
+  // Initialize session on mount
   useEffect(() => {
-    dispatch({ type: "LOAD_SESSION" });
+    const initializeSession = async () => {
+      try {
+        dispatch({ type: "SET_LOADING", payload: true });
+        const sessionData = await api.getOrCreateSession();
+        dispatch({ type: "INITIALIZE", payload: sessionData });
+      } catch (error) {
+        console.error("Failed to initialize session:", error);
+        dispatch({
+          type: "SET_ERROR",
+          payload:
+            error instanceof Error
+              ? error.message
+              : "Session initialization failed",
+        });
+      }
+    };
+
+    initializeSession();
   }, []);
 
-  // Actions
-  const incrementUpload = () => {
-    if (state.remainingUploads > 0) {
-      dispatch({ type: "INCREMENT_UPLOAD" });
+  // Refresh session status
+  const refreshSession = async () => {
+    if (!state.session) return;
+
+    try {
+      const sessionData = await api.getSessionStatus();
+      dispatch({ type: "UPDATE_STATUS", payload: sessionData });
+    } catch (error) {
+      console.error("Failed to refresh session:", error);
+      dispatch({
+        type: "SET_ERROR",
+        payload:
+          error instanceof Error ? error.message : "Failed to refresh session",
+      });
     }
   };
 
-  const incrementMessage = () => {
-    if (state.remainingMessages > 0) {
-      dispatch({ type: "INCREMENT_MESSAGE" });
-    }
+  // Helper functions
+  const getRemainingUploads = (): number => {
+    if (!state.session) return 0;
+    return Math.max(0, state.session.max_uploads - state.session.upload_count);
   };
 
-  const resetSessionData = () => {
-    dispatch({ type: "RESET_SESSION" });
+  const getRemainingMessages = (): number => {
+    if (!state.session) return 0;
+    return Math.max(
+      0,
+      state.session.max_messages - state.session.message_count
+    );
   };
 
-  const contextValue: SessionContextType = {
+  const canUpload = (): boolean => {
+    return getRemainingUploads() > 0;
+  };
+
+  const canSendMessage = (): boolean => {
+    return getRemainingMessages() > 0;
+  };
+
+  const contextValue: SessionContextValue = {
     ...state,
-    incrementUpload,
-    incrementMessage,
-    resetSessionData,
+    refreshSession,
+    getRemainingUploads,
+    getRemainingMessages,
+    canUpload,
+    canSendMessage,
   };
 
   return (
@@ -173,13 +167,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// useSession Hook
-export function useSession(): SessionContextType {
+// Hook to use session context
+export function useSession(): SessionContextValue {
   const context = useContext(SessionContext);
-
-  if (!context) {
+  if (context === undefined) {
     throw new Error("useSession must be used within a SessionProvider");
   }
-
   return context;
 }

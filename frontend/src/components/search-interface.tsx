@@ -11,6 +11,8 @@ import {
   Zap,
   Target,
   Upload,
+  MessageCircle,
+  Send,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -18,6 +20,7 @@ import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
 import { AdvancedFilters } from "./advanced-filters";
 import { motion, AnimatePresence } from "framer-motion";
+import { QuerySuggestions } from "./chat/QuerySuggestions";
 
 interface SearchIntelligence {
   query_complexity: "simple" | "moderate" | "complex";
@@ -27,18 +30,30 @@ interface SearchIntelligence {
   confidence_score: number;
 }
 
+export type SearchMode = "search" | "chat";
+
 export function SearchInterface({
   onSearch,
+  onChat,
   initialQuery = "",
   onFilterChange = () => {},
   onUploadClick,
   remainingUploads = 10,
+  mode = "search",
+  onModeChange,
+  isTyping = false,
+  remainingMessages = 10,
 }: {
   onSearch: (query: string, filters?: any) => void;
+  onChat?: (message: string) => void;
   initialQuery?: string;
   onFilterChange?: (filters: any) => void;
   onUploadClick?: () => void;
   remainingUploads?: number;
+  mode?: SearchMode;
+  onModeChange?: (mode: SearchMode) => void;
+  isTyping?: boolean;
+  remainingMessages?: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [isSearching, setIsSearching] = useState(false);
@@ -62,15 +77,15 @@ export function SearchInterface({
     return () => clearTimeout(timer);
   }, [query]);
 
-  // 🧠 NEW: Real-time AI analysis
+  // 🧠 NEW: Real-time AI analysis (only for search mode)
   useEffect(() => {
-    if (debouncedQuery.trim().length > 3) {
+    if (mode === "search" && debouncedQuery.trim().length > 3) {
       analyzeQuery(debouncedQuery);
     } else {
       setQueryIntelligence(null);
       setShowIntelligence(false);
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, mode]);
 
   // 🔥 NEW: Smart AI Query Analysis
   const analyzeQuery = useCallback(async (searchQuery: string) => {
@@ -160,17 +175,23 @@ export function SearchInterface({
     return insights;
   };
 
-  const handleSearch = async () => {
+  const handleAction = async () => {
     if (!query.trim()) return;
 
-    setIsSearching(true);
-    await onSearch(query, filters);
-    setIsSearching(false);
+    if (mode === "search") {
+      setIsSearching(true);
+      await onSearch(query, filters);
+      setIsSearching(false);
+    } else if (mode === "chat" && onChat) {
+      onChat(query);
+      setQuery(""); // Clear input after sending chat message
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleSearch();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleAction();
     }
   };
 
@@ -190,6 +211,37 @@ export function SearchInterface({
         return "text-red-400";
       default:
         return "text-gray-400";
+    }
+  };
+
+  const handleModeToggle = () => {
+    const newMode = mode === "search" ? "chat" : "search";
+    onModeChange?.(newMode);
+  };
+
+  const getPlaceholder = () => {
+    if (mode === "search") {
+      return "Search for amazing talent...";
+    } else {
+      return isTyping ? "AI is thinking..." : "Ask me about your candidates...";
+    }
+  };
+
+  const isActionDisabled = () => {
+    if (mode === "chat") {
+      return !query.trim() || isTyping || remainingMessages <= 0;
+    }
+    return !query.trim() || isSearching;
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setQuery(suggestion);
+    // Auto-trigger action for convenience
+    if (mode === "search") {
+      onSearch(suggestion, filters);
+    } else if (mode === "chat" && onChat) {
+      onChat(suggestion);
+      setQuery(""); // Clear for chat mode
     }
   };
 
@@ -220,7 +272,7 @@ export function SearchInterface({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Describe your ideal candidate... (AI will analyze as you type)"
+              placeholder={getPlaceholder()}
               className="flex-1 bg-transparent border-0 text-white placeholder-gray-400 text-lg focus:ring-0 focus:outline-none"
             />
 
@@ -306,20 +358,74 @@ export function SearchInterface({
                 </Button>
               )}
 
+              {/* Mode Toggle Button */}
               <Button
-                onClick={handleSearch}
-                disabled={!query.trim() || isSearching}
+                onClick={handleModeToggle}
+                variant="ghost"
+                size="sm"
+                className="px-3 py-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                title={
+                  mode === "search" ? "Switch to Chat" : "Switch to Search"
+                }
+              >
+                <motion.div
+                  key={mode}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {mode === "search" ? (
+                    <MessageCircle className="w-5 h-5" />
+                  ) : (
+                    <Search className="w-5 h-5" />
+                  )}
+                </motion.div>
+              </Button>
+
+              <Button
+                onClick={handleAction}
+                disabled={isActionDisabled()}
                 className="px-6 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg"
               >
-                {isSearching ? (
-                  "Searching..."
+                {isSearching || isTyping ? (
+                  <div className="flex items-center space-x-2">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{
+                        duration: 1,
+                        repeat: Infinity,
+                        ease: "linear",
+                      }}
+                    >
+                      <Brain className="w-4 h-4" />
+                    </motion.div>
+                    <span>
+                      {mode === "search" ? "Searching..." : "Thinking..."}
+                    </span>
+                  </div>
                 ) : (
                   <div className="flex items-center space-x-2">
-                    <Zap className="w-4 h-4" />
-                    <span>Search</span>
+                    {mode === "search" ? (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        <span>Search</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Send</span>
+                      </>
+                    )}
                   </div>
                 )}
               </Button>
+
+              {/* Chat mode message counter */}
+              {mode === "chat" && (
+                <div className="text-xs text-gray-400">
+                  {remainingMessages} messages left
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -426,6 +532,13 @@ export function SearchInterface({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Query Suggestions - show when no query or in certain modes */}
+      <QuerySuggestions
+        mode={mode}
+        onSuggestionClick={handleSuggestionClick}
+        visible={!query.trim() && !isSearching && !isTyping}
+      />
 
       {showFilters && <AdvancedFilters onFiltersChange={handleFiltersChange} />}
     </div>

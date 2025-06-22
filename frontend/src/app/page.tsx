@@ -1,17 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Upload } from "lucide-react";
 import { MetricsBar } from "../components/metrics-bar";
 import { HeroSection } from "../components/hero-section";
-import { SearchInterface } from "../components/search-interface";
+import {
+  SearchInterface,
+  type SearchMode,
+} from "../components/search-interface";
+import { ChatSection } from "../components/chat/ChatSection";
 import { TalentHeatMap } from "../components/talent-heat-map";
 import { CandidateGrid } from "../components/candidate-grid";
 import { CommandPalette } from "../components/command-palette";
 import { AnimatedBackground } from "../components/animated-background";
 import { OutreachModal } from "../components/custom/outreach-modal"; // FE-6 IMPORT
-import { UploadModal } from "../components/upload/UploadModal";
-import { Button } from "../components/ui/button";
+import UploadModal from "../components/upload/UploadModal";
 // Import our services
 import { api } from "../lib/api";
 import {
@@ -21,8 +23,8 @@ import {
 import { apiService } from "../services/apiService";
 import { useSession } from "../contexts/SessionContext";
 import { toast } from "../hooks/use-toast";
-import type { FrontendCandidate } from "../lib/types";
-import type { UploadStatusResponse } from "../services/types";
+import type { FrontendCandidate, ChatMessage } from "../lib/types";
+import { saveChatMessages, loadChatMessages } from "../lib/chat-storage";
 
 // Define SearchMetrics type locally
 interface SearchMetrics {
@@ -40,7 +42,14 @@ interface SessionMetrics {
 }
 
 export default function Dashboard() {
-  const { session, incrementUpload, remainingUploads } = useSession();
+  const {
+    session,
+    refreshSession,
+    getRemainingUploads,
+    getRemainingMessages,
+    canUpload,
+    canSendMessage,
+  } = useSession();
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] =
@@ -53,6 +62,12 @@ export default function Dashboard() {
     queryInterpretation: null,
   });
 
+  // Chat integration state
+  const [searchMode, setSearchMode] = useState<SearchMode>("search");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatTyping, setIsChatTyping] = useState<boolean>(false);
+  const [remainingMessages, setRemainingMessages] = useState<number>(10);
+
   // FE-6: Outreach modal state
   const [isOutreachModalOpen, setIsOutreachModalOpen] = useState(false);
   const [selectedCandidateForOutreach, setSelectedCandidateForOutreach] =
@@ -60,9 +75,6 @@ export default function Dashboard() {
 
   // Step 3: Upload modal state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadStatuses, setUploadStatuses] = useState<UploadStatusResponse[]>(
-    []
-  );
 
   // Session metrics state
   const [sessionMetrics, setSessionMetrics] = useState<SessionMetrics>({
@@ -98,6 +110,23 @@ export default function Dashboard() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // Load chat messages from localStorage on mount
+  useEffect(() => {
+    if (session?.session_id) {
+      const storedMessages = loadChatMessages(session.session_id);
+      if (storedMessages.length > 0) {
+        setChatMessages(storedMessages);
+      }
+    }
+  }, [session?.session_id]);
+
+  // Save chat messages to localStorage when they change
+  useEffect(() => {
+    if (chatMessages.length > 0 && session?.session_id) {
+      saveChatMessages(session.session_id, chatMessages);
+    }
+  }, [chatMessages, session?.session_id]);
 
   // FE-6: Updated handler for generating outreach messages
   const handleGenerateOutreach = async (candidateId: string) => {
@@ -140,89 +169,90 @@ export default function Dashboard() {
     });
   };
 
-  // Step 3: Handle file uploads
-  const handleUpload = async (files: File[]) => {
-    if (files.length === 0) return;
+  // Chat handler function
+  const handleChat = async (message: string) => {
+    if (!message.trim() || !canSendMessage()) return;
 
-    // Create initial status entries
-    const initialStatuses: UploadStatusResponse[] = files.map((file) => ({
-      filename: file.name,
-      status: "pending",
-      message: "Queued for processing...",
-      processing_time_ms: 0,
-    }));
+    // Create user message
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: message,
+      timestamp: new Date(),
+    };
 
-    setUploadStatuses((prev) => [...prev, ...initialStatuses]);
+    // Add user message to chat
+    setChatMessages((prev) => [...prev, userMessage]);
+    setIsChatTyping(true);
 
-    // Process each file
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    try {
+      // Call chat API
+      const response = await api.chat(message);
 
-      // Update status to processing
-      setUploadStatuses((prev) =>
-        prev.map((status) =>
-          status.filename === file.name && status.status === "pending"
-            ? {
-                ...status,
-                status: "processing",
-                message: "Extracting candidate data...",
-              }
-            : status
-        )
-      );
+      // Create assistant message
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: response.ai_message,
+        timestamp: new Date(),
+        candidates: response.candidates
+          ? mapBackendCandidatesToFrontend({
+              results: response.candidates,
+              final_count_after_post_filter: response.candidates.length,
+              retrieved_count_before_post_filter: response.candidates.length,
+              processing_time_ms: response.processing_time_ms,
+            })
+          : undefined,
+      };
 
-      try {
-        const result = await apiService.uploadResume(file, session.id);
+      // Update chat and candidates
+      setChatMessages((prev) => [...prev, assistantMessage]);
+      setRemainingMessages(response.remaining_messages);
 
-        // Update with result
-        setUploadStatuses((prev) =>
-          prev.map((status) =>
-            status.filename === file.name && status.status === "processing"
-              ? result
-              : status
-          )
-        );
+      // Refresh session to get updated counts
+      await refreshSession();
 
-        // Increment session upload count
-        incrementUpload();
+      // Update candidate grid if candidates were returned
+      if (
+        assistantMessage.candidates &&
+        assistantMessage.candidates.length > 0
+      ) {
+        setCandidates(assistantMessage.candidates);
+        setHasSearched(true);
 
-        // Show success toast
-        if (result.status === "success") {
-          toast({
-            title: "✅ Upload Successful",
-            description: `${
-              result.extracted_name || file.name
-            } processed successfully`,
-          });
-        } else if (result.status === "partial_success") {
-          toast({
-            title: "⚠️ Partial Success",
-            description: result.message,
-            variant: "destructive",
-          });
-        }
-      } catch (error) {
-        // Update with error
-        setUploadStatuses((prev) =>
-          prev.map((status) =>
-            status.filename === file.name && status.status === "processing"
-              ? {
-                  ...status,
-                  status: "pdf_error",
-                  message:
-                    error instanceof Error ? error.message : "Upload failed",
-                  processing_time_ms: 0,
-                }
-              : status
-          )
-        );
-
-        toast({
-          title: "❌ Upload Failed",
-          description: `Failed to process ${file.name}`,
-          variant: "destructive",
+        // Update search metrics
+        setSearchMetrics({
+          totalResults: assistantMessage.candidates.length,
+          searchTimeMs: response.processing_time_ms,
+          queryInterpretation: response.ai_message,
         });
       }
+
+      toast({
+        title: "💬 AI Response",
+        description: assistantMessage.candidates
+          ? `Found ${assistantMessage.candidates.length} candidates`
+          : "AI responded to your question",
+      });
+    } catch (error) {
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: "assistant",
+        content:
+          "Sorry, I encountered an error processing your request. Please try again.",
+        timestamp: new Date(),
+      };
+
+      setChatMessages((prev) => [...prev, errorMessage]);
+
+      toast({
+        title: "Chat Error",
+        description:
+          error instanceof Error ? error.message : "Failed to send message",
+        variant: "destructive",
+      });
+    } finally {
+      setIsChatTyping(false);
     }
   };
 
@@ -281,9 +311,9 @@ export default function Dashboard() {
           variant: "destructive",
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const message =
-        error && error.message ? error.message : "Please try again";
+        error instanceof Error ? error.message : "Please try again";
       setErrorMessage(message);
       console.error("Search failed:", error);
       toast({
@@ -330,6 +360,9 @@ export default function Dashboard() {
           totalResults={searchMetrics.totalResults}
           searchTimeMs={searchMetrics.searchTimeMs}
           outreachGenerated={sessionMetrics.outreachGenerated}
+          onUploadClick={() => setIsUploadModalOpen(true)}
+          uploadCount={session?.upload_count || 0}
+          maxUploads={10}
         />
 
         <main className="container mx-auto px-4 pt-20">
@@ -340,12 +373,24 @@ export default function Dashboard() {
           <div className="mt-8 mb-8">
             <SearchInterface
               onSearch={handleSearch}
+              onChat={handleChat}
               initialQuery={searchQuery}
               onFilterChange={handleFilterChange}
               onUploadClick={() => setIsUploadModalOpen(true)}
-              remainingUploads={remainingUploads}
+              remainingUploads={getRemainingUploads()}
+              mode={searchMode}
+              onModeChange={setSearchMode}
+              isTyping={isChatTyping}
+              remainingMessages={remainingMessages}
             />
           </div>
+
+          {/* Chat section appears when in chat mode and there are messages */}
+          {searchMode === "chat" && (
+            <div className="mt-4 mb-8">
+              <ChatSection messages={chatMessages} isTyping={isChatTyping} />
+            </div>
+          )}
 
           {/* Show results only after search */}
           {hasSearched && (
@@ -382,8 +427,11 @@ export default function Dashboard() {
       <UploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
-        uploadStatuses={uploadStatuses}
-        onUpload={handleUpload}
+        onUploadComplete={(results) => {
+          // Handle upload completion
+          console.log("Upload completed:", results);
+          // Optionally refresh candidate list or show success message
+        }}
       />
 
       {/* FE-6: Outreach Modal */}

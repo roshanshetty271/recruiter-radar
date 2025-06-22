@@ -22,7 +22,7 @@ from app.services.chroma_connector import (
 from app.services.rag_service import RAGService, RAGServiceError
 from app.api.routers import candidate_router  # Corrected import
 from app.api.routers import upload_router  # Added import
-from app.api.routers import chat_router, session_data_router
+from app.api.routers import chat_router, session_data_router, session_router
 from app.services.session_service import SessionService  # Added import
 import app.services.session_service as session_module  # Added import
 from app.models.api_models import ErrorResponse
@@ -297,6 +297,7 @@ app.include_router(candidate_router.router, prefix="/api/v1", tags=["Candidates"
 app.include_router(upload_router.router, prefix="/api/v1", tags=["Upload"])
 app.include_router(chat_router.router, prefix="/api/v1")
 app.include_router(session_data_router.router, prefix="/api/v1")
+app.include_router(session_router.router, prefix="/api/v1")
 # app.include_router(health_router.router, prefix="/health", tags=["Health"]) # if moved to its own router
 
 # Configure basic logging for the application

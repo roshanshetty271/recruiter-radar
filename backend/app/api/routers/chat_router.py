@@ -65,6 +65,7 @@ Conversational AI response with matching candidates and metadata.
 )
 async def process_chat(
     request: ChatRequest,
+    x_session_id: str = Header(..., alias="X-Session-ID"),
     session_service: SessionService = Depends(get_session_service),
     llm_service: LLMService = Depends(get_llm_service),
     rag_service: RAGService = Depends(get_rag_service),
@@ -82,11 +83,9 @@ async def process_chat(
     start_time = time.time()
 
     # Validate message limit
-    is_valid, error_msg = await session_service.validate_message_limit(
-        request.session_id
-    )
+    is_valid, error_msg = await session_service.validate_message_limit(x_session_id)
     if not is_valid:
-        logger.info(f"Session {request.session_id} exceeded message limit")
+        logger.info(f"Session {x_session_id} exceeded message limit")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=ErrorResponse(
@@ -98,9 +97,9 @@ async def process_chat(
     try:
         # Get available skills for better parsing context
         logger.info(
-            f"Processing chat query: '{request.message}' for session {request.session_id}"
+            f"Processing chat query: '{request.message}' for session {x_session_id}"
         )
-        available_skills = await rag_service.get_all_unique_skills(request.session_id)
+        available_skills = await rag_service.get_all_unique_skills(x_session_id)
 
         # Parse natural language to filters
         parsed_filters = await llm_service.parse_chat_query(
@@ -132,7 +131,7 @@ async def process_chat(
 
         # Search with filters
         candidates = await rag_service.search_resumes_by_filters(
-            session_id=request.session_id, filters=parsed_filters, limit=10
+            session_id=x_session_id, filters=parsed_filters, limit=10
         )
 
         # Get candidate names for preview
@@ -151,10 +150,10 @@ async def process_chat(
         )
 
         # Increment message count
-        await session_service.increment_message_count(request.session_id)
+        await session_service.increment_message_count(x_session_id)
         remaining = (
             settings.max_chat_messages_per_session
-            - await session_service.get_message_count(request.session_id)
+            - await session_service.get_message_count(x_session_id)
         )
 
         # Calculate processing time
@@ -191,10 +190,10 @@ async def process_chat(
         )
 
         # Still increment message count
-        await session_service.increment_message_count(request.session_id)
+        await session_service.increment_message_count(x_session_id)
         remaining = (
             settings.max_chat_messages_per_session
-            - await session_service.get_message_count(request.session_id)
+            - await session_service.get_message_count(x_session_id)
         )
 
         return ChatResponse(

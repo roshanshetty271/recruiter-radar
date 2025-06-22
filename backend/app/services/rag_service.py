@@ -693,16 +693,60 @@ class RAGService:
         session_id: str,
         filters: Dict[str, Any],
         limit: int = 10,
+        include_demo: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Retrieve resumes for session and apply advanced filters in Python."""
+        """
+        Retrieve resumes for session and apply advanced filters in Python.
+
+        Args:
+            session_id: User's session ID
+            filters: Search filters to apply
+            limit: Maximum number of results
+            include_demo: Whether to include demo data when user has no uploads
+        """
         try:
-            # Step 1: get all candidates for session (reasonable small set in MVP)
-            results = await asyncio.to_thread(
-                self.collection.get,
-                where={"session_id": session_id},
-                include=["metadatas", "documents"],
-                limit=100,
-            )
+            # Step 1: Determine which sessions to search
+            session_ids_to_search = [session_id]
+
+            # If include_demo is True, check if user has any uploads
+            if include_demo:
+                # Check if user has any uploaded candidates
+                user_results = await asyncio.to_thread(
+                    self.collection.get,
+                    where={"session_id": session_id},
+                    include=["metadatas"],
+                    limit=1,  # Just need to check if any exist
+                )
+
+                # If no user uploads found, include demo data
+                if not user_results or not user_results["ids"]:
+                    session_ids_to_search.append("demo_static")
+                    logger.info(
+                        f"No uploads found for session {session_id}, including demo data"
+                    )
+
+            # Step 2: Get candidates from all relevant sessions
+            all_results = {"ids": [], "metadatas": [], "documents": []}
+
+            for search_session_id in session_ids_to_search:
+                results = await asyncio.to_thread(
+                    self.collection.get,
+                    where={"session_id": search_session_id},
+                    include=["metadatas", "documents"],
+                    limit=100,
+                )
+
+                if results and results["ids"]:
+                    all_results["ids"].extend(results["ids"])
+                    all_results["metadatas"].extend(results["metadatas"])
+                    if results.get("documents"):
+                        all_results["documents"].extend(results["documents"])
+                    else:
+                        # Ensure documents list matches the length
+                        all_results["documents"].extend([None] * len(results["ids"]))
+
+            # Use the combined results for the rest of the processing
+            results = all_results
 
             if not results or not results["ids"]:
                 return []

@@ -9,264 +9,223 @@ import {
   XCircle,
   FileText,
   Loader2,
+  User,
 } from "lucide-react";
 import { UploadStatusResponse } from "../../services/types";
 import { Badge } from "../ui/badge";
 import { Progress } from "../ui/progress";
 
 interface UploadStatusListProps {
-  statuses: UploadStatusResponse[];
+  uploadResults: UploadStatusResponse[];
+  isUploading: boolean;
 }
 
-export function UploadStatusList({ statuses }: UploadStatusListProps) {
+export default function UploadStatusList({
+  uploadResults,
+  isUploading,
+}: UploadStatusListProps) {
   const getStatusIcon = (status: UploadStatusResponse["status"]) => {
     switch (status) {
-      case "pending":
-        return <Clock className="w-4 h-4 text-yellow-400" />;
-      case "processing":
-        return <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />;
       case "success":
-        return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+        return <CheckCircle2 className="w-5 h-5 text-green-500" />;
       case "partial_success":
-        return <AlertTriangle className="w-4 h-4 text-yellow-400" />;
+        return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
       case "pdf_error":
       case "extraction_error":
-        return <XCircle className="w-4 h-4 text-red-400" />;
+        return <XCircle className="w-5 h-5 text-red-500" />;
+      case "processing":
+        return (
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+          >
+            <Loader2 className="w-5 h-5 text-blue-500" />
+          </motion.div>
+        );
+      case "pending":
       default:
-        return <FileText className="w-4 h-4 text-gray-400" />;
+        return <Clock className="w-5 h-5 text-gray-500" />;
     }
   };
 
   const getStatusColor = (status: UploadStatusResponse["status"]) => {
     switch (status) {
-      case "pending":
-        return "border-yellow-500/30 bg-yellow-500/10";
-      case "processing":
-        return "border-blue-500/30 bg-blue-500/10";
       case "success":
-        return "border-green-500/30 bg-green-500/10";
+        return "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-300";
       case "partial_success":
-        return "border-yellow-500/30 bg-yellow-500/10";
+        return "bg-yellow-500/10 border-yellow-500/20 text-yellow-700 dark:text-yellow-300";
       case "pdf_error":
       case "extraction_error":
-        return "border-red-500/30 bg-red-500/10";
+        return "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-300";
+      case "processing":
+        return "bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-300";
+      case "pending":
       default:
-        return "border-gray-500/30 bg-gray-500/10";
+        return "bg-gray-500/10 border-gray-500/20 text-gray-700 dark:text-gray-300";
     }
   };
 
-  const getStatusBadge = (
-    status: UploadStatusResponse["status"],
-    operationType?: string
-  ) => {
-    const isUpdate = operationType === "update";
-
+  const getStatusText = (status: UploadStatusResponse["status"]) => {
     switch (status) {
-      case "pending":
-        return (
-          <Badge
-            variant="secondary"
-            className="text-yellow-400 bg-yellow-500/20"
-          >
-            Pending
-          </Badge>
-        );
-      case "processing":
-        return (
-          <Badge variant="secondary" className="text-blue-400 bg-blue-500/20">
-            Processing
-          </Badge>
-        );
       case "success":
-        return (
-          <div className="flex items-center space-x-2">
-            <Badge
-              variant="secondary"
-              className="text-green-400 bg-green-500/20"
-            >
-              {isUpdate ? "Updated" : "Success"}
-            </Badge>
-            {isUpdate && (
-              <Badge
-                variant="outline"
-                className="text-purple-400 border-purple-500/30"
-              >
-                Replaced
-              </Badge>
-            )}
-          </div>
-        );
+        return "Success";
       case "partial_success":
-        return (
-          <Badge
-            variant="secondary"
-            className="text-yellow-400 bg-yellow-500/20"
-          >
-            Partial
-          </Badge>
-        );
+        return "Partial";
       case "pdf_error":
-        return (
-          <Badge variant="secondary" className="text-red-400 bg-red-500/20">
-            PDF Error
-          </Badge>
-        );
+        return "PDF Error";
       case "extraction_error":
-        return (
-          <Badge variant="secondary" className="text-red-400 bg-red-500/20">
-            AI Error
-          </Badge>
-        );
+        return "Extract Error";
+      case "processing":
+        return "Processing";
+      case "pending":
       default:
-        return <Badge variant="secondary">Unknown</Badge>;
+        return "Pending";
     }
   };
 
-  const getProgressValue = (status: UploadStatusResponse["status"]) => {
-    switch (status) {
-      case "pending":
-        return 10;
-      case "processing":
-        return 50;
-      case "success":
-        return 100;
-      case "partial_success":
-        return 80;
-      case "pdf_error":
-      case "extraction_error":
-        return 100; // Complete but failed
-      default:
-        return 0;
-    }
+  const formatProcessingTime = (timeMs: number) => {
+    if (timeMs < 1000) return `${timeMs}ms`;
+    return `${(timeMs / 1000).toFixed(1)}s`;
   };
 
   return (
     <div className="space-y-3">
       <AnimatePresence>
-        {statuses.map((status, index) => (
+        {uploadResults.map((result, index) => (
           <motion.div
-            key={`${status.filename}-${index}`}
+            key={result.filename}
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             transition={{
               duration: 0.3,
-              delay: index * 0.1, // Staggered entrance
+              delay: index * 0.1,
               ease: "easeOut",
             }}
-            className={`
-              p-4 rounded-lg border transition-all duration-300
-              ${getStatusColor(status.status)}
-            `}
+            className="border rounded-lg p-4 bg-card/50 backdrop-blur-sm"
           >
-            <div className="flex items-start justify-between space-x-4">
-              {/* Left side - Icon and details */}
-              <div className="flex items-start space-x-3 flex-1 min-w-0">
-                {/* Status Icon */}
-                <div className="flex-shrink-0 mt-0.5">
-                  {getStatusIcon(status.status)}
-                </div>
+            <div className="flex items-start gap-3">
+              {/* Status Icon */}
+              <div className="flex-shrink-0 mt-0.5">
+                {getStatusIcon(result.status)}
+              </div>
 
-                {/* File details */}
-                <div className="flex-1 min-w-0 space-y-2">
-                  {/* Filename and extracted name */}
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-white truncate">
-                      {status.filename}
-                    </p>
-                    {status.extracted_name && (
-                      <motion.p
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.3 }}
-                        className="text-sm text-green-400"
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    {/* Filename */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <h4
+                        className="font-medium text-sm truncate"
+                        title={result.filename}
                       >
-                        ✨ Extracted: {status.extracted_name}
-                      </motion.p>
+                        {result.filename}
+                      </h4>
+                    </div>
+
+                    {/* Extracted Name */}
+                    {result.extracted_name && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <User className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm text-muted-foreground">
+                          {result.extracted_name}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Message */}
+                    {result.message && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        {result.message}
+                      </p>
+                    )}
+
+                    {/* Processing Time */}
+                    {result.processing_time_ms > 0 && (
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>
+                          Processed in{" "}
+                          {formatProcessingTime(result.processing_time_ms)}
+                        </span>
+                        {result.operation_type && (
+                          <span className="capitalize">
+                            {result.operation_type}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {/* Status message */}
-                  <p className="text-xs text-gray-400 leading-relaxed">
-                    {status.message}
-                  </p>
-
-                  {/* Progress bar for processing states */}
-                  {(status.status === "pending" ||
-                    status.status === "processing") && (
-                    <motion.div
-                      initial={{ opacity: 0, scaleX: 0 }}
-                      animate={{ opacity: 1, scaleX: 1 }}
-                      transition={{ delay: 0.2 }}
-                      className="space-y-1"
-                    >
-                      <Progress
-                        value={getProgressValue(status.status)}
-                        className="h-1.5"
-                      />
-                      <p className="text-xs text-gray-500">
-                        {status.status === "processing"
-                          ? "Extracting candidate data..."
-                          : "Queued for processing"}
-                      </p>
-                    </motion.div>
-                  )}
-
-                  {/* Processing time */}
-                  {status.processing_time_ms > 0 && (
-                    <p className="text-xs text-gray-500">
-                      Processed in{" "}
-                      {(status.processing_time_ms / 1000).toFixed(1)}s
-                    </p>
-                  )}
+                  {/* Status Badge */}
+                  <Badge
+                    variant="outline"
+                    className={`${getStatusColor(result.status)} flex-shrink-0`}
+                  >
+                    {getStatusText(result.status)}
+                  </Badge>
                 </div>
-              </div>
-
-              {/* Right side - Status badge */}
-              <div className="flex-shrink-0">
-                {getStatusBadge(status.status, status.operation_type)}
               </div>
             </div>
 
-            {/* Success celebration animation */}
-            {status.status === "success" && (
+            {/* Progress Bar for Processing */}
+            {result.status === "processing" && (
               <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: [0, 1.2, 1], opacity: [0, 1, 0] }}
-                transition={{
-                  duration: 1.5,
-                  times: [0, 0.3, 1],
-                  delay: 0.5,
-                }}
-                className="absolute inset-0 rounded-lg border-2 border-green-400/50 pointer-events-none"
-              />
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mt-3 pt-3 border-t"
+              >
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Extracting candidate information...</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-1">
+                  <motion.div
+                    className="bg-primary h-1 rounded-full"
+                    initial={{ width: "0%" }}
+                    animate={{ width: "100%" }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                  />
+                </div>
+              </motion.div>
             )}
           </motion.div>
         ))}
       </AnimatePresence>
 
-      {/* Summary stats */}
-      {statuses.length > 1 && (
+      {/* Processing Indicator */}
+      {isUploading && uploadResults.length === 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: statuses.length * 0.1 + 0.2 }}
-          className="pt-3 border-t border-gray-700"
+          className="flex items-center justify-center gap-3 p-6 border rounded-lg bg-card/30"
         >
-          <div className="flex items-center justify-between text-xs text-gray-400">
-            <span>
-              {statuses.filter((s) => s.status === "success").length}{" "}
-              successful,{" "}
-              {
-                statuses.filter(
-                  (s) => s.status === "processing" || s.status === "pending"
-                ).length
-              }{" "}
-              processing,{" "}
-              {statuses.filter((s) => s.status.includes("error")).length} failed
-            </span>
-            <span>Total: {statuses.length} files</span>
-          </div>
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+          >
+            <Loader2 className="w-5 h-5 text-primary" />
+          </motion.div>
+          <span className="text-sm text-muted-foreground">
+            Preparing uploads...
+          </span>
+        </motion.div>
+      )}
+
+      {/* Empty State */}
+      {!isUploading && uploadResults.length === 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center py-6 text-muted-foreground"
+        >
+          <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No uploads yet</p>
         </motion.div>
       )}
     </div>
