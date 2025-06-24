@@ -169,7 +169,7 @@ export default function Dashboard() {
     });
   };
 
-  // Chat handler function
+  // Chat handler function - Updated for GPT-4o-mini conversational assistant
   const handleChat = async (message: string) => {
     if (!message.trim() || !canSendMessage()) return;
 
@@ -186,8 +186,21 @@ export default function Dashboard() {
     setIsChatTyping(true);
 
     try {
-      // Call chat API
-      const response = await api.chat(message);
+      // Call our new conversational chat API
+      const response = await apiService.chat(
+        message,
+        session?.session_id || ""
+      );
+
+      // Transform backend candidates to frontend candidates
+      const frontendCandidates = response.candidates?.length
+        ? mapBackendCandidatesToFrontend({
+            results: response.candidates,
+            final_count_after_post_filter: response.candidates.length,
+            retrieved_count_before_post_filter: response.candidates.length,
+            processing_time_ms: response.processing_time_ms,
+          })
+        : undefined;
 
       // Create assistant message
       const assistantMessage: ChatMessage = {
@@ -195,17 +208,10 @@ export default function Dashboard() {
         role: "assistant",
         content: response.ai_message,
         timestamp: new Date(),
-        candidates: response.candidates
-          ? mapBackendCandidatesToFrontend({
-              results: response.candidates,
-              final_count_after_post_filter: response.candidates.length,
-              retrieved_count_before_post_filter: response.candidates.length,
-              processing_time_ms: response.processing_time_ms,
-            })
-          : undefined,
+        candidates: frontendCandidates,
       };
 
-      // Update chat and candidates
+      // Update chat and remaining messages count
       setChatMessages((prev) => [...prev, assistantMessage]);
       setRemainingMessages(response.remaining_messages);
 
@@ -213,25 +219,22 @@ export default function Dashboard() {
       await refreshSession();
 
       // Update candidate grid if candidates were returned
-      if (
-        assistantMessage.candidates &&
-        assistantMessage.candidates.length > 0
-      ) {
-        setCandidates(assistantMessage.candidates);
+      if (frontendCandidates && frontendCandidates.length > 0) {
+        setCandidates(frontendCandidates);
         setHasSearched(true);
 
         // Update search metrics
         setSearchMetrics({
-          totalResults: assistantMessage.candidates.length,
+          totalResults: frontendCandidates.length,
           searchTimeMs: response.processing_time_ms,
           queryInterpretation: response.ai_message,
         });
       }
 
       toast({
-        title: "💬 AI Response",
-        description: assistantMessage.candidates
-          ? `Found ${assistantMessage.candidates.length} candidates`
+        title: "💬 AI Assistant",
+        description: frontendCandidates
+          ? `Found ${frontendCandidates.length} candidates`
           : "AI responded to your question",
       });
     } catch (error) {

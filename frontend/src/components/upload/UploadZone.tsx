@@ -215,97 +215,100 @@ export default function UploadZone({
   return (
     <div className="space-y-4">
       <motion.div
-        {...getRootProps()}
         className={getZoneStyles()}
         whileHover={!disabled && !isUploading ? { scale: 1.01 } : {}}
         whileTap={!disabled && !isUploading ? { scale: 0.99 } : {}}
       >
-        <input {...getInputProps()} />
+        <div {...getRootProps()}>
+          <input {...getInputProps()} />
 
-        <div className="space-y-4">
-          {/* Icon */}
-          <div className="flex justify-center">
-            {isUploading ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="p-3 bg-primary/10 rounded-full"
-              >
-                <Loader2 className="w-8 h-8 text-primary" />
-              </motion.div>
-            ) : zoneState === "reject" ? (
-              <div className="p-3 bg-red-500/10 rounded-full">
-                <AlertCircle className="w-8 h-8 text-red-500" />
-              </div>
-            ) : (
-              <motion.div
-                animate={isDragActive ? { scale: [1, 1.1, 1] } : {}}
-                transition={{
-                  duration: 0.5,
-                  repeat: isDragActive ? Infinity : 0,
-                }}
-                className="p-3 bg-primary/10 rounded-full"
-              >
-                <Upload className="w-8 h-8 text-primary" />
-              </motion.div>
-            )}
-          </div>
-
-          {/* Text */}
-          <div className="space-y-2">
-            {isUploading ? (
-              <>
-                <h3 className="text-lg font-medium">Processing uploads...</h3>
-                <p className="text-sm text-muted-foreground">
-                  {uploadQueue.length} file{uploadQueue.length !== 1 ? "s" : ""}{" "}
-                  in queue
-                </p>
-              </>
-            ) : zoneState === "reject" ? (
-              <>
-                <h3 className="text-lg font-medium text-red-600 dark:text-red-400">
-                  Invalid files
-                </h3>
-                <p className="text-sm text-red-600 dark:text-red-400">
-                  Only PDF files under 10MB are allowed
-                </p>
-              </>
-            ) : isDragActive ? (
-              <>
-                <h3 className="text-lg font-medium text-primary">
-                  Drop files here
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Release to start uploading
-                </p>
-              </>
-            ) : (
-              <>
-                <h3 className="text-lg font-medium">
-                  Drag & drop PDF resumes here
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  or click to browse files
-                </p>
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <FileText className="w-3 h-3" />
-                  <span>PDF only • Max 10MB each • Up to {maxFiles} files</span>
+          <div className="space-y-4">
+            {/* Icon */}
+            <div className="flex justify-center">
+              {isUploading ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="p-3 bg-primary/10 rounded-full"
+                >
+                  <Loader2 className="w-8 h-8 text-primary" />
+                </motion.div>
+              ) : zoneState === "reject" ? (
+                <div className="p-3 bg-red-500/10 rounded-full">
+                  <AlertCircle className="w-8 h-8 text-red-500" />
                 </div>
-              </>
+              ) : (
+                <motion.div
+                  animate={isDragActive ? { scale: [1, 1.1, 1] } : {}}
+                  transition={{
+                    duration: 0.5,
+                    repeat: isDragActive ? Infinity : 0,
+                  }}
+                  className="p-3 bg-primary/10 rounded-full"
+                >
+                  <Upload className="w-8 h-8 text-primary" />
+                </motion.div>
+              )}
+            </div>
+
+            {/* Text */}
+            <div className="space-y-2">
+              {isUploading ? (
+                <>
+                  <h3 className="text-lg font-medium">Processing uploads...</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {uploadQueue.length} file
+                    {uploadQueue.length !== 1 ? "s" : ""} in queue
+                  </p>
+                </>
+              ) : zoneState === "reject" ? (
+                <>
+                  <h3 className="text-lg font-medium text-red-600 dark:text-red-400">
+                    Invalid files
+                  </h3>
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    Only PDF files under 10MB are allowed
+                  </p>
+                </>
+              ) : isDragActive ? (
+                <>
+                  <h3 className="text-lg font-medium text-primary">
+                    Drop files here
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Release to start uploading
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-medium">
+                    Drag & drop PDF resumes here
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    or click to browse files
+                  </p>
+                  <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                    <FileText className="w-3 h-3" />
+                    <span>
+                      PDF only • Max 10MB each • Up to {maxFiles} files
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Browse Button */}
+            {!isUploading && !disabled && !isDragActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Browse Files
+              </Button>
             )}
           </div>
-
-          {/* Browse Button */}
-          {!isUploading && !disabled && !isDragActive && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Browse Files
-            </Button>
-          )}
         </div>
       </motion.div>
 

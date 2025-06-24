@@ -242,9 +242,8 @@ class RecruiterRadarAPI {
    * Send a chat query to backend and receive candidates & AI response
    */
   async chat(message: string, sessionId: string): Promise<ChatResponse> {
-    const body: ChatRequestBody = {
+    const body = {
       message,
-      session_id: sessionId,
     };
 
     try {
@@ -254,9 +253,11 @@ class RecruiterRadarAPI {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "X-Session-ID": sessionId,
           },
           body: JSON.stringify(body),
-        }
+        },
+        30000 // 30 second timeout for chat (GPT calls can be slow)
       );
 
       if (!response.ok) {

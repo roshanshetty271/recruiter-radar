@@ -22,6 +22,31 @@ class ProcessingStatus(str, Enum):
     PARTIAL_SUCCESS = "partial_success"
 
 
+class ChatMessage(BaseModel):
+    """Individual chat message in conversation history."""
+
+    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow, description="When message was sent"
+    )
+    function_call: Optional[Dict[str, Any]] = Field(
+        None, description="Function call data if this was a function call"
+    )
+    candidates_returned: Optional[List[str]] = Field(
+        None, description="Candidate IDs returned in this response (for context)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "role": "user",
+                "content": "Show me Python developers",
+                "timestamp": "2024-01-20T10:30:00Z",
+            }
+        }
+
+
 class ExtractedResumeData(BaseModel):
     """
     Structured data extracted from a resume by the LLM.
@@ -224,6 +249,10 @@ class SessionData(BaseModel):
         default_factory=datetime.utcnow, description="Last activity timestamp"
     )
 
+    conversation_history: List[ChatMessage] = Field(
+        default_factory=list, description="Conversation history for chat context"
+    )
+
     def increment_uploads(self) -> None:
         """Increment upload count and update activity."""
         self.upload_count += 1
@@ -238,6 +267,42 @@ class SessionData(BaseModel):
         """Check if session has expired."""
         age = datetime.utcnow() - self.created_at
         return age.total_seconds() > (expiry_hours * 3600)
+
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        function_call: Optional[Dict[str, Any]] = None,
+        candidates_returned: Optional[List[str]] = None,
+    ) -> None:
+        """Add a message to conversation history."""
+        message = ChatMessage(
+            role=role,
+            content=content,
+            function_call=function_call,
+            candidates_returned=candidates_returned,
+        )
+        self.conversation_history.append(message)
+        self.last_activity = datetime.utcnow()
+
+    def get_conversation_for_llm(self, max_messages: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get conversation history formatted for OpenAI API.
+
+        Returns the last N messages in OpenAI format, excluding function call metadata.
+        """
+        recent_messages = (
+            self.conversation_history[-max_messages:]
+            if max_messages > 0
+            else self.conversation_history
+        )
+
+        return [{"role": msg.role, "content": msg.content} for msg in recent_messages]
+
+    def trim_conversation(self, max_messages: int = 10) -> None:
+        """Keep only the most recent messages to prevent token overflow."""
+        if len(self.conversation_history) > max_messages:
+            self.conversation_history = self.conversation_history[-max_messages:]
 
     class Config:
         json_schema_extra = {

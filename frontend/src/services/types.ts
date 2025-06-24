@@ -128,7 +128,6 @@ export interface UploadStatusResponse {
 
 export interface ChatRequestBody {
   message: string;
-  session_id: string;
 }
 
 export interface ChatResponse {

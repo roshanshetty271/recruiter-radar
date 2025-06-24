@@ -122,7 +122,10 @@ export function useChat(): UseChatReturn {
 
       try {
         // Call API
-        const response = await apiService.chat(content, session.id);
+        const response = await apiService.chat(
+          content,
+          session?.session_id || ""
+        );
 
         // Check if component is still mounted
         if (!isMountedRef.current) return;
@@ -165,7 +168,7 @@ export function useChat(): UseChatReturn {
         }
       }
     },
-    [canSendMessage, session.id, incrementMessage]
+    [canSendMessage, session?.session_id, incrementMessage]
   );
 
   const clearMessages = useCallback(() => {

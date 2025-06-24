@@ -833,6 +833,217 @@ class RAGService:
             )
             return []
 
+    # =============================================================================
+    # Function Calling Methods for GPT-4o-mini
+    # =============================================================================
+
+    async def search_candidates_with_function_params(
+        self,
+        session_id: str,
+        skills: Optional[List[str]] = None,
+        title_keywords: Optional[List[str]] = None,
+        min_experience: Optional[int] = None,
+        max_experience: Optional[int] = None,
+        location_keywords: Optional[List[str]] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search candidates using structured function parameters from GPT-4o-mini.
+
+        This method translates function call parameters into our existing filter format
+        and delegates to search_resumes_by_filters.
+
+        Args:
+            session_id: User's session ID
+            skills: Array of required skills
+            title_keywords: Keywords that should appear in job titles
+            min_experience: Minimum years of experience
+            max_experience: Maximum years of experience
+            location_keywords: Location keywords to match
+            limit: Maximum number of candidates to return
+
+        Returns:
+            List of candidate dictionaries matching the criteria
+        """
+        # Build filters from function parameters
+        filters = {}
+        filter_conditions = []
+
+        # Skills filter (array contains any of the specified skills)
+        if skills:
+            skills_conditions = []
+            for skill in skills:
+                skills_conditions.append({"skills": {"$regex": f"(?i){skill}"}})
+            filter_conditions.append({"$or": skills_conditions})
+
+        # Title keywords filter
+        if title_keywords:
+            title_conditions = []
+            for keyword in title_keywords:
+                title_conditions.append({"title": {"$regex": f"(?i){keyword}"}})
+            if len(title_conditions) == 1:
+                filter_conditions.append(title_conditions[0])
+            else:
+                filter_conditions.append({"$and": title_conditions})
+
+        # Experience range filters
+        if min_experience is not None:
+            filter_conditions.append({"experience_years": {"$gte": min_experience}})
+
+        if max_experience is not None:
+            filter_conditions.append({"experience_years": {"$lte": max_experience}})
+
+        # Location filter
+        if location_keywords:
+            location_conditions = []
+            for location in location_keywords:
+                location_conditions.append({"location": {"$regex": f"(?i){location}"}})
+            filter_conditions.append({"$or": location_conditions})
+
+        # Combine all conditions with $and
+        if filter_conditions:
+            if len(filter_conditions) == 1:
+                filters = filter_conditions[0]
+            else:
+                filters = {"$and": filter_conditions}
+
+        logger.info(
+            f"Function search with parameters: skills={skills}, title_keywords={title_keywords}, "
+            f"experience={min_experience}-{max_experience}, location={location_keywords}"
+        )
+        logger.debug(f"Generated filters: {filters}")
+
+        # Use existing search method
+        return await self.search_resumes_by_filters(
+            session_id=session_id, filters=filters, limit=limit, include_demo=True
+        )
+
+    async def rank_candidates(
+        self,
+        session_id: str,
+        candidate_ids: List[str],
+        ranking_criteria: str,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Re-rank a set of candidates based on specific criteria.
+
+        This method retrieves the specified candidates and applies custom ranking logic
+        based on the provided criteria string.
+
+        Args:
+            session_id: User's session ID
+            candidate_ids: List of candidate IDs to rank
+            ranking_criteria: Natural language description of ranking criteria
+            limit: Number of top candidates to return
+
+        Returns:
+            List of top-ranked candidates
+        """
+        if not candidate_ids:
+            return []
+
+        try:
+            # First, retrieve all specified candidates
+            all_candidates = []
+
+            for candidate_id in candidate_ids:
+                # Get candidates from ChromaDB by candidate_id
+                results = await asyncio.to_thread(
+                    self.collection.get,
+                    where={"candidate_id": candidate_id, "session_id": session_id},
+                    include=["metadatas", "documents"],
+                )
+
+                if results and results["ids"]:
+                    metadata = results["metadatas"][0]
+                    candidate = {
+                        "id": candidate_id,
+                        "name": metadata.get("name", "Unknown"),
+                        "title": metadata.get("title", ""),
+                        "skills": (
+                            metadata.get("skills", "").split(",")
+                            if metadata.get("skills")
+                            else []
+                        ),
+                        "location": metadata.get("location", ""),
+                        "experience_years": metadata.get("experience_years", 0),
+                        "email": metadata.get("email"),
+                        "phone": metadata.get("phone"),
+                        "summary": metadata.get("summary"),
+                        "relevance_score": 1.0,
+                    }
+                    all_candidates.append(candidate)
+
+            if not all_candidates:
+                return []
+
+            # Apply ranking logic based on criteria
+            ranked_candidates = self._apply_ranking_criteria(
+                all_candidates, ranking_criteria
+            )
+
+            # Return top N candidates
+            return ranked_candidates[:limit]
+
+        except Exception as e:
+            logger.error(f"Error ranking candidates: {e}", exc_info=True)
+            return []
+
+    def _apply_ranking_criteria(
+        self, candidates: List[Dict[str, Any]], criteria: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Apply ranking logic based on natural language criteria.
+
+        This is a simplified ranking system for MVP. In production, this could
+        use another LLM call or more sophisticated ranking algorithms.
+        """
+        criteria_lower = criteria.lower()
+
+        # Simple keyword-based ranking for common criteria
+        if "experience" in criteria_lower or "senior" in criteria_lower:
+            # Rank by experience (descending)
+            candidates.sort(key=lambda c: c.get("experience_years", 0), reverse=True)
+
+        elif "aws" in criteria_lower:
+            # Rank by AWS experience
+            def has_aws(candidate):
+                skills = candidate.get("skills", [])
+                return any("aws" in skill.lower() for skill in skills)
+
+            candidates.sort(key=has_aws, reverse=True)
+
+        elif "python" in criteria_lower:
+            # Rank by Python experience
+            def has_python(candidate):
+                skills = candidate.get("skills", [])
+                return any("python" in skill.lower() for skill in skills)
+
+            candidates.sort(key=has_python, reverse=True)
+
+        elif "junior" in criteria_lower or "entry" in criteria_lower:
+            # Rank by less experience (ascending)
+            candidates.sort(key=lambda c: c.get("experience_years", 0))
+
+        elif "leadership" in criteria_lower or "lead" in criteria_lower:
+            # Rank by leadership indicators in title
+            def has_leadership(candidate):
+                title = candidate.get("title", "").lower()
+                return any(
+                    word in title
+                    for word in ["lead", "senior", "principal", "director", "manager"]
+                )
+
+            candidates.sort(key=has_leadership, reverse=True)
+
+        else:
+            # Default: rank by experience
+            candidates.sort(key=lambda c: c.get("experience_years", 0), reverse=True)
+
+        logger.info(f"Ranked {len(candidates)} candidates by criteria: '{criteria}'")
+        return candidates
+
 
 # Dependency Injection for FastAPI
 def get_rag_service() -> RAGService:

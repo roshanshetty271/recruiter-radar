@@ -16,7 +16,9 @@ type SessionAction =
   | { type: "INITIALIZE"; payload: SessionStatus }
   | { type: "UPDATE_STATUS"; payload: SessionStatus }
   | { type: "SET_LOADING"; payload: boolean }
-  | { type: "SET_ERROR"; payload: string | null };
+  | { type: "SET_ERROR"; payload: string | null }
+  | { type: "INCREMENT_UPLOAD" }
+  | { type: "INCREMENT_MESSAGE" };
 
 // Session state
 interface SessionState {
@@ -32,6 +34,8 @@ interface SessionContextValue extends SessionState {
   getRemainingMessages: () => number;
   canUpload: () => boolean;
   canSendMessage: () => boolean;
+  incrementUpload: () => void;
+  incrementMessage: () => void;
 }
 
 // Create context
@@ -65,6 +69,28 @@ function sessionReducer(
         ...state,
         error: action.payload,
         isLoading: false,
+      };
+
+    case "INCREMENT_UPLOAD":
+      return {
+        ...state,
+        session: state.session
+          ? {
+              ...state.session,
+              upload_count: state.session.upload_count + 1,
+            }
+          : null,
+      };
+
+    case "INCREMENT_MESSAGE":
+      return {
+        ...state,
+        session: state.session
+          ? {
+              ...state.session,
+              message_count: state.session.message_count + 1,
+            }
+          : null,
       };
 
     default:
@@ -151,6 +177,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return getRemainingMessages() > 0;
   };
 
+  const incrementUpload = (): void => {
+    dispatch({ type: "INCREMENT_UPLOAD" });
+  };
+
+  const incrementMessage = (): void => {
+    dispatch({ type: "INCREMENT_MESSAGE" });
+  };
+
   const contextValue: SessionContextValue = {
     ...state,
     refreshSession,
@@ -158,6 +192,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
     getRemainingMessages,
     canUpload,
     canSendMessage,
+    incrementUpload,
+    incrementMessage,
   };
 
   return (

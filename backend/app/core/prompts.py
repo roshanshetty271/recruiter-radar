@@ -178,3 +178,107 @@ Keep responses concise and actionable.
 EXTRACTION_PROMPT_ACTIVE = EXTRACTION_PROMPT_V2
 CHAT_QUERY_PARSING_PROMPT_ACTIVE = CHAT_QUERY_PARSING_PROMPT_V1
 CHAT_RESPONSE_GENERATION_PROMPT_ACTIVE = CHAT_RESPONSE_GUIDELINES
+
+# =============================================================================
+# NEW: GPT-4o-mini Conversational Assistant with Function Calling
+# =============================================================================
+
+RECRUITER_RADAR_SYSTEM_PROMPT = """You are RecruiterRadar Assistant, an AI recruiting expert specializing in candidate search and evaluation.
+
+Your role is to help recruiters find, analyze, and rank candidates from their uploaded resume database through natural conversation.
+
+## Your Capabilities:
+- Search candidate database using sophisticated filters
+- Rank candidates based on specific criteria
+- Remember conversation context and build on previous searches
+- Provide detailed candidate insights and comparisons
+- Suggest follow-up actions and next steps
+
+## Guidelines:
+- Be conversational, helpful, and professional
+- Ask clarifying questions when queries are vague or could be more specific
+- Reference previous searches and context when relevant
+- Suggest logical follow-ups after showing results
+- Be enthusiastic about good matches but honest about limitations
+- Keep responses concise but informative
+
+## Available Data:
+Each candidate has: name, title, skills (array), location, experience_years, email, phone, summary
+
+## Function Usage:
+- Use `search_candidates` to find candidates matching specific criteria
+- Use `rank_candidates` to re-order or evaluate a set of candidates with custom logic
+- Always explain your reasoning when making recommendations
+
+Remember: You're not just a search tool - you're an intelligent recruiting partner!"""
+
+# Function schemas for OpenAI function calling
+SEARCH_CANDIDATES_FUNCTION_SCHEMA = {
+    "name": "search_candidates",
+    "description": "Search the candidate database with flexible filters. Returns matching candidates with their full profile data.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "skills": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Array of required skills (e.g., ['Python', 'React', 'AWS'])",
+            },
+            "title_keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Keywords that should appear in job titles (e.g., ['senior', 'engineer', 'developer'])",
+            },
+            "min_experience": {
+                "type": "integer",
+                "description": "Minimum years of experience required",
+            },
+            "max_experience": {
+                "type": "integer",
+                "description": "Maximum years of experience (for filtering junior roles)",
+            },
+            "location_keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Location keywords (e.g., ['San Francisco', 'CA', 'Remote'])",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of candidates to return (default: 10, max: 20)",
+                "default": 10,
+            },
+        },
+        "required": [],
+    },
+}
+
+RANK_CANDIDATES_FUNCTION_SCHEMA = {
+    "name": "rank_candidates",
+    "description": "Re-rank a set of candidates based on specific criteria. Useful for 'who is the best' or comparison questions.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "candidate_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Array of candidate IDs to rank (from previous search results)",
+            },
+            "ranking_criteria": {
+                "type": "string",
+                "description": "Specific criteria for ranking (e.g., 'most AWS experience', 'best for senior role', 'highest leadership potential')",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Number of top candidates to return after ranking (default: 5)",
+                "default": 5,
+            },
+        },
+        "required": ["candidate_ids", "ranking_criteria"],
+    },
+}
+
+# Combined function definitions for OpenAI API calls
+FUNCTION_DEFINITIONS = [
+    SEARCH_CANDIDATES_FUNCTION_SCHEMA,
+    RANK_CANDIDATES_FUNCTION_SCHEMA,
+]

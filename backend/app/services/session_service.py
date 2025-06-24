@@ -8,7 +8,7 @@ counts and session lifecycle without requiring external storage.
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 from app.models.upload_models import SessionData
 from app.core.config import settings
@@ -205,6 +205,60 @@ class SessionService:
             count = len(self._sessions)
             self._sessions.clear()
             logger.info(f"Cleared all {count} sessions")
+
+    # =============================================================================
+    # Conversation History Management
+    # =============================================================================
+
+    async def add_message_to_conversation(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        function_call: Optional[Dict] = None,
+        candidates_returned: Optional[List[str]] = None,
+    ) -> None:
+        """
+        Add a message to the session's conversation history.
+
+        Args:
+            session_id: Session identifier
+            role: 'user' or 'assistant'
+            content: Message content
+            function_call: Optional function call metadata
+            candidates_returned: Optional list of candidate IDs returned
+        """
+        async with self._lock:
+            session = await self.get_or_create_session(session_id)
+            session.add_message(role, content, function_call, candidates_returned)
+
+            # Trim conversation if it gets too long (prevent token overflow)
+            session.trim_conversation(max_messages=10)
+
+            logger.debug(f"Added {role} message to session {session_id} conversation")
+
+    async def get_conversation_history(
+        self, session_id: str, max_messages: int = 10
+    ) -> List[Dict]:
+        """
+        Get conversation history for a session in OpenAI API format.
+
+        Args:
+            session_id: Session identifier
+            max_messages: Maximum number of recent messages to return
+
+        Returns:
+            List of messages in OpenAI format: [{"role": "user", "content": "..."}, ...]
+        """
+        session = await self.get_or_create_session(session_id)
+        return session.get_conversation_for_llm(max_messages)
+
+    async def clear_conversation_history(self, session_id: str) -> None:
+        """Clear conversation history for a session."""
+        async with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id].conversation_history.clear()
+                logger.info(f"Cleared conversation history for session {session_id}")
 
 
 # Global session service instance

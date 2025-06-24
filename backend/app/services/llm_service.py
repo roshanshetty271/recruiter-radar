@@ -916,58 +916,317 @@ Response:"""
         self, current_query: str, num_results: int
     ) -> List[str]:
         """
-        Generate smart follow-up query suggestions.
+        Generate helpful query suggestions based on current search.
 
         Args:
-            current_query: The current search query
+            current_query: User's current query
             num_results: Number of results found
 
         Returns:
-            List of 2-3 suggested queries
+            List of suggested follow-up queries
         """
-        if not self.settings.enable_query_suggestions:
-            return []
+        # Simple static suggestions for MVP
+        suggestions = []
+
+        # Context-aware suggestions based on query
+        query_lower = current_query.lower()
+
+        if "python" in query_lower:
+            suggestions.extend(
+                [
+                    "Python developers with AWS experience",
+                    "Senior Python engineers with 5+ years",
+                    "Python developers who know React",
+                ]
+            )
+        elif "react" in query_lower:
+            suggestions.extend(
+                [
+                    "React developers with TypeScript skills",
+                    "Senior React engineers",
+                    "Full stack React developers",
+                ]
+            )
+        elif "senior" in query_lower:
+            suggestions.extend(
+                [
+                    "Senior engineers with team lead experience",
+                    "Senior developers in San Francisco",
+                    "Experienced engineers with AWS skills",
+                ]
+            )
+        else:
+            # Generic suggestions
+            suggestions.extend(
+                [
+                    "Show me all candidates",
+                    "Python developers with 3+ years",
+                    "Senior engineers in California",
+                    "Developers with cloud experience",
+                ]
+            )
+
+        # Add result-based suggestions
+        if num_results == 0:
+            suggestions.append("Try a broader search")
+            suggestions.append("Show me all developers")
+        elif num_results > 10:
+            suggestions.append("Filter by experience level")
+            suggestions.append("Filter by location")
+
+        return suggestions[:4]  # Return max 4 suggestions
+
+    # =============================================================================
+    # NEW: GPT-4o-mini Conversational Assistant with Function Calling
+    # =============================================================================
+
+    async def chat(
+        self,
+        user_message: str,
+        session_id: str,
+        conversation_history: List[Dict[str, Any]],
+        rag_service: Any,  # Import would create circular dependency, so use Any
+        max_function_calls: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Main conversational chat method using GPT-4o-mini with function calling.
+
+        This method handles:
+        1. Building the full conversation context (system + history + user message)
+        2. Calling GPT-4o-mini with function definitions
+        3. Handling function calls and recursion
+        4. Returning the final response with any candidates found
+
+        Args:
+            user_message: Current user message
+            session_id: User's session ID for candidate search
+            conversation_history: Previous messages in OpenAI format
+            rag_service: RAGService instance for function execution
+            max_function_calls: Maximum number of function calls to prevent infinite loops
+
+        Returns:
+            Dict with: {
+                "ai_message": str,
+                "candidates": List[Dict],
+                "function_calls": List[Dict],
+                "total_candidates": int
+            }
+        """
+        from app.core.prompts import RECRUITER_RADAR_SYSTEM_PROMPT, FUNCTION_DEFINITIONS
+
+        # Build messages array for OpenAI API
+        messages = [{"role": "system", "content": RECRUITER_RADAR_SYSTEM_PROMPT}]
+
+        # Add conversation history
+        messages.extend(conversation_history)
+
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+
+        # Track function calls and candidates
+        all_function_calls = []
+        all_candidates = []
 
         try:
-            prompt = f"""Generate 2-3 follow-up search suggestions based on this recruiter query.
-
-Current Query: "{current_query}"
-Results Found: {num_results}
-
-Make suggestions that:
-- Build on the current search
-- Add useful filters
-- Are short and clear
-- Start with "Try: "
-
-Return as a simple JSON array of strings.
-
-Example: ["Try: 'with React experience'", "Try: 'in New York'"]
-
-Suggestions:"""
+            # Call GPT-4o-mini with function definitions
+            logger.info(f"Sending chat request to GPT-4o-mini for session {session_id}")
 
             response = await self.client.chat.completions.create(
                 model=self.chat_model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=100,
-                response_format={"type": "json_object"},
+                messages=messages,
+                functions=FUNCTION_DEFINITIONS,
+                function_call="auto",  # Let GPT decide when to call functions
+                temperature=self.settings.chat_response_temperature,
+                max_tokens=self.default_chat_max_tokens,
             )
 
-            import json
+            message = response.choices[0].message
 
-            content = response.choices[0].message.content
-            # Extract array from potential JSON object
-            data = json.loads(content)
-            if isinstance(data, dict) and "suggestions" in data:
-                return data["suggestions"][:3]
-            elif isinstance(data, list):
-                return data[:3]
+            # Handle function calls if present
+            if message.function_call:
+                function_calls_made = 0
+                current_message = message
+
+                while (
+                    current_message.function_call
+                    and function_calls_made < max_function_calls
+                ):
+                    function_call = current_message.function_call
+                    function_name = function_call.name
+
+                    try:
+                        # Parse function arguments
+                        import json
+
+                        function_args = json.loads(function_call.arguments)
+
+                        logger.info(
+                            f"GPT called function: {function_name} with args: {function_args}"
+                        )
+
+                        # Execute the function
+                        function_result = await self._execute_function_call(
+                            function_name, function_args, session_id, rag_service
+                        )
+
+                        # Track function call and results
+                        all_function_calls.append(
+                            {
+                                "name": function_name,
+                                "arguments": function_args,
+                                "result_count": (
+                                    len(function_result)
+                                    if isinstance(function_result, list)
+                                    else 0
+                                ),
+                            }
+                        )
+
+                        # If we got candidates, add them to our collection
+                        if isinstance(function_result, list):
+                            all_candidates.extend(function_result)
+
+                        # Add function call and result to messages for next GPT call
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "function_call": {
+                                    "name": function_name,
+                                    "arguments": function_call.arguments,
+                                },
+                            }
+                        )
+
+                        messages.append(
+                            {
+                                "role": "function",
+                                "name": function_name,
+                                "content": json.dumps(
+                                    {
+                                        "candidates_found": (
+                                            len(function_result)
+                                            if isinstance(function_result, list)
+                                            else 0
+                                        ),
+                                        "candidate_names": (
+                                            [
+                                                c.get("name", "Unknown")
+                                                for c in function_result[:5]
+                                            ]
+                                            if isinstance(function_result, list)
+                                            else []
+                                        ),
+                                    }
+                                ),
+                            }
+                        )
+
+                        # Get GPT's response to the function result
+                        response = await self.client.chat.completions.create(
+                            model=self.chat_model_name,
+                            messages=messages,
+                            functions=FUNCTION_DEFINITIONS,
+                            function_call="auto",
+                            temperature=self.settings.chat_response_temperature,
+                            max_tokens=self.default_chat_max_tokens,
+                        )
+
+                        current_message = response.choices[0].message
+                        function_calls_made += 1
+
+                    except Exception as e:
+                        logger.error(
+                            f"Error executing function call {function_name}: {e}"
+                        )
+                        # Break the function call loop on error
+                        break
+
+                # Get final response content
+                ai_message = (
+                    current_message.content or "I've found some candidates for you!"
+                )
+
             else:
+                # No function call, just a regular response
+                ai_message = message.content or "I'm here to help you find candidates!"
+
+            # Deduplicate candidates by ID
+            unique_candidates = []
+            seen_ids = set()
+            for candidate in all_candidates:
+                candidate_id = candidate.get("id")
+                if candidate_id and candidate_id not in seen_ids:
+                    unique_candidates.append(candidate)
+                    seen_ids.add(candidate_id)
+
+            logger.info(
+                f"Chat completed: {len(unique_candidates)} unique candidates found, {len(all_function_calls)} function calls made"
+            )
+
+            return {
+                "ai_message": ai_message,
+                "candidates": unique_candidates,
+                "function_calls": all_function_calls,
+                "total_candidates": len(unique_candidates),
+            }
+
+        except Exception as e:
+            logger.error(f"Error in chat method: {e}", exc_info=True)
+
+            # Return graceful error response
+            return {
+                "ai_message": "I encountered an issue processing your request. Please try rephrasing your question or check that you have uploaded some resumes.",
+                "candidates": [],
+                "function_calls": [],
+                "total_candidates": 0,
+            }
+
+    async def _execute_function_call(
+        self,
+        function_name: str,
+        function_args: Dict[str, Any],
+        session_id: str,
+        rag_service: Any,
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute a function call from GPT-4o-mini.
+
+        Args:
+            function_name: Name of the function to call
+            function_args: Arguments passed by GPT
+            session_id: User's session ID
+            rag_service: RAGService instance
+
+        Returns:
+            List of candidates or empty list on error
+        """
+        try:
+            if function_name == "search_candidates":
+                return await rag_service.search_candidates_with_function_params(
+                    session_id=session_id,
+                    skills=function_args.get("skills"),
+                    title_keywords=function_args.get("title_keywords"),
+                    min_experience=function_args.get("min_experience"),
+                    max_experience=function_args.get("max_experience"),
+                    location_keywords=function_args.get("location_keywords"),
+                    limit=function_args.get("limit", 10),
+                )
+
+            elif function_name == "rank_candidates":
+                return await rag_service.rank_candidates(
+                    session_id=session_id,
+                    candidate_ids=function_args.get("candidate_ids", []),
+                    ranking_criteria=function_args.get("ranking_criteria", ""),
+                    limit=function_args.get("limit", 5),
+                )
+
+            else:
+                logger.warning(f"Unknown function name: {function_name}")
                 return []
 
         except Exception as e:
-            logger.error(f"Error generating suggestions: {e}")
+            logger.error(f"Error executing function {function_name}: {e}")
             return []
 
 

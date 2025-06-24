@@ -71,14 +71,13 @@ async def process_chat(
     rag_service: RAGService = Depends(get_rag_service),
 ) -> ChatResponse:
     """
-    Process natural language chat query for candidate search.
+    Process natural language chat query using GPT-4o-mini conversational assistant.
 
     This endpoint:
     1. Validates session and message limits
-    2. Uses LLM to parse natural language into filters
-    3. Searches ChromaDB with parsed filters
-    4. Generates conversational response
-    5. Returns candidates with helpful context
+    2. Retrieves conversation history from session
+    3. Uses GPT-4o-mini with function calling to search/rank candidates
+    4. Stores the conversation and returns AI response with candidates
     """
     start_time = time.time()
 
@@ -95,61 +94,43 @@ async def process_chat(
         )
 
     try:
-        # Get available skills for better parsing context
         logger.info(
-            f"Processing chat query: '{request.message}' for session {x_session_id}"
-        )
-        available_skills = await rag_service.get_all_unique_skills(x_session_id)
-
-        # Parse natural language to filters
-        parsed_filters = await llm_service.parse_chat_query(
-            request.message, available_skills=available_skills
+            f"Processing chat message: '{request.message}' for session {x_session_id}"
         )
 
-        # Handle empty filters
-        if not parsed_filters:
-            # Check if this is a "show all" type query
-            show_all_terms = [
-                "all candidates",
-                "show all",
-                "everyone",
-                "all resumes",
-                "everything",
-            ]
-            if any(term in request.message.lower() for term in show_all_terms):
-                logger.info(f"Treating as 'show all' query: '{request.message}'")
-                parsed_filters = {}  # Empty dict means return all for session
-            else:
-                logger.warning(f"Could not parse filters from: '{request.message}'")
-                # Fallback to basic text search
-                parsed_filters = {
-                    "$or": [
-                        {"skills": {"$regex": f"(?i){request.message}"}},
-                        {"title": {"$regex": f"(?i){request.message}"}},
-                    ]
-                }
-
-        # Search with filters
-        candidates = await rag_service.search_resumes_by_filters(
-            session_id=x_session_id, filters=parsed_filters, limit=10
+        # Get conversation history from session
+        conversation_history = await session_service.get_conversation_history(
+            x_session_id, max_messages=8  # Keep reasonable context window
         )
 
-        # Get candidate names for preview
-        candidate_names = [c["name"] for c in candidates[:5]] if candidates else []
-
-        # Generate conversational response
-        ai_message = await llm_service.generate_chat_response_text(
-            original_query=request.message,
-            num_candidates_found=len(candidates),
-            candidates_preview=candidate_names,
+        # Add user message to conversation history
+        await session_service.add_message_to_conversation(
+            x_session_id, "user", request.message
         )
 
-        # Generate follow-up suggestions
+        # Call the new conversational LLM service
+        chat_result = await llm_service.chat(
+            user_message=request.message,
+            session_id=x_session_id,
+            conversation_history=conversation_history,
+            rag_service=rag_service,
+        )
+
+        # Add AI response to conversation history
+        await session_service.add_message_to_conversation(
+            x_session_id,
+            "assistant",
+            chat_result["ai_message"],
+            function_call=chat_result.get("function_calls"),
+            candidates_returned=[c.get("id") for c in chat_result["candidates"]],
+        )
+
+        # Generate simple follow-up suggestions
         suggestions = await llm_service.generate_query_suggestions(
-            current_query=request.message, num_results=len(candidates)
+            current_query=request.message, num_results=chat_result["total_candidates"]
         )
 
-        # Increment message count
+        # Increment message count (after successful processing)
         await session_service.increment_message_count(x_session_id)
         remaining = (
             settings.max_chat_messages_per_session
@@ -162,17 +143,18 @@ async def process_chat(
         # Log success
         logger.info(
             f"Chat query processed in {processing_time}ms: "
-            f"'{request.message[:50]}...' returned {len(candidates)} candidates"
+            f"'{request.message[:50]}...' returned {chat_result['total_candidates']} candidates"
         )
 
         return ChatResponse(
-            ai_message=ai_message,
-            candidates=candidates,
+            ai_message=chat_result["ai_message"],
+            candidates=chat_result["candidates"],
             query_metadata={
-                "parsed_filters": parsed_filters,
-                "candidates_found": len(candidates),
-                "search_type": "filtered" if parsed_filters else "fallback",
-                "available_skills_count": len(available_skills),
+                "function_calls": chat_result["function_calls"],
+                "candidates_found": chat_result["total_candidates"],
+                "search_type": "conversational_ai",
+                "conversation_length": len(conversation_history)
+                + 2,  # +2 for current exchange
             },
             remaining_messages=remaining,
             processing_time_ms=processing_time,
@@ -182,11 +164,11 @@ async def process_chat(
     except Exception as e:
         logger.error(f"Error processing chat query: {e}", exc_info=True)
 
-        # Generate error response
-        ai_message = await llm_service.generate_chat_response_text(
-            original_query=request.message,
-            num_candidates_found=0,
-            error="I encountered an issue processing your request",
+        # Add error message to conversation for context
+        await session_service.add_message_to_conversation(
+            x_session_id,
+            "assistant",
+            "I encountered an issue processing your request. Please try rephrasing your question.",
         )
 
         # Still increment message count
@@ -197,7 +179,7 @@ async def process_chat(
         )
 
         return ChatResponse(
-            ai_message=ai_message,
+            ai_message="I encountered an issue processing your request. Please try rephrasing your question or check that you have uploaded some resumes.",
             candidates=[],
             query_metadata={"error": str(e)},
             remaining_messages=remaining,

@@ -329,10 +329,6 @@ class ChatRequest(BaseModel):
         example="Show me Python developers with 5+ years experience",
     )
 
-    session_id: str = Field(
-        ..., description="Session identifier", example="device_123abc"
-    )
-
     # For future V2 - conversation history
     conversation_history: Optional[List[Dict[str, str]]] = Field(
         None,
