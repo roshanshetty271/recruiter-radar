@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "total_tests": 9,
+    "passed": 8,
+    "failed": 1,
+    "success_rate": 88.88888888888889,
+    "execution_time": 47.6448118686676
+  },
+  "detailed_results": [
+    {
+      "test": "Backend Candidate Data Structure",
+      "passed": false,
+      "details": "Error: 'skills'",
+      "timestamp": "2025-06-24T14:26:18.057294"
+    },
+    {
+      "test": "Frontend Candidate Mapping",
+      "passed": true,
+      "details": "Mapped candidate with 3 skills, score 0.87",
+      "timestamp": "2025-06-24T14:26:18.057847"
+    },
+    {
+      "test": "Assistant Tools Definition",
+      "passed": true,
+      "details": "Search tool: True, Summarise tool: True",
+      "timestamp": "2025-06-24T14:26:18.147288"
+    },
+    {
+      "test": "Search Result Caching",
+      "passed": true,
+      "details": "Cache: 10 results, Analysis: True",
+      "timestamp": "2025-06-24T14:26:18.160310"
+    },
+    {
+      "test": "Experience Distribution Analysis",
+      "passed": true,
+      "details": "Distribution: {'Entry (0-2 years)': 1, 'Mid-level (3-5 years)': 1, 'Senior (6-10 years)': 1, 'Principal/Lead (10+ years)': 1, 'Unknown': 1}",
+      "timestamp": "2025-06-24T14:26:18.160815"
+    },
+    {
+      "test": "Bulletproof Chat Fallback",
+      "passed": true,
+      "details": "Source: intelligent_fallback, Candidates: 10 (Fallback working correctly)",
+      "timestamp": "2025-06-24T14:26:31.978315"
+    },
+    {
+      "test": "Thread Cleanup",
+      "passed": true,
+      "details": "Cleanup completed successfully (started with 2 threads)",
+      "timestamp": "2025-06-24T14:26:33.246607"
+    },
+    {
+      "test": "Assistant Database Structure",
+      "passed": true,
+      "details": "Table exists: True, Columns: ['session_id', 'thread_id', 'created_at', 'last_used', 'message_count']",
+      "timestamp": "2025-06-24T14:26:33.265188"
+    },
+    {
+      "test": "End-to-End Search and Analysis",
+      "passed": true,
+      "details": "Search: 0 candidates (assistant), Analysis: True (intelligent_fallback)",
+      "timestamp": "2025-06-24T14:26:59.646615"
+    }
+  ]
+}

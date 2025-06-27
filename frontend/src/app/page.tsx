@@ -186,8 +186,8 @@ export default function Dashboard() {
     setIsChatTyping(true);
 
     try {
-      // Call our new conversational chat API
-      const response = await apiService.chat(
+      // Call our new bulletproof conversational chat API
+      const response = await apiService.bulletproofChat(
         message,
         session?.session_id || ""
       );
@@ -209,6 +209,15 @@ export default function Dashboard() {
         content: response.ai_message,
         timestamp: new Date(),
         candidates: frontendCandidates,
+        // Bulletproof chat enhancements
+        source: response.source as
+          | "assistant"
+          | "fallback"
+          | "cache"
+          | "emergency_fallback"
+          | undefined,
+        responseTime: response.response_time,
+        isFromBulletproof: true,
       };
 
       // Update chat and remaining messages count
@@ -218,8 +227,8 @@ export default function Dashboard() {
       // Refresh session to get updated counts
       await refreshSession();
 
-      // Update candidate grid if candidates were returned
-      if (frontendCandidates && frontendCandidates.length > 0) {
+      // ALWAYS update candidate grid - even if empty to clear previous results
+      if (frontendCandidates !== undefined) {
         setCandidates(frontendCandidates);
         setHasSearched(true);
 
@@ -231,12 +240,30 @@ export default function Dashboard() {
         });
       }
 
-      toast({
-        title: "💬 AI Assistant",
-        description: frontendCandidates
-          ? `Found ${frontendCandidates.length} candidates`
-          : "AI responded to your question",
-      });
+      // Enhanced toast with better feedback
+      if (frontendCandidates !== undefined) {
+        if (frontendCandidates.length === 0) {
+          toast({
+            title: "🔍 No Results Found",
+            description: `No candidates match your search. Try adjusting your criteria.`,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "💬 AI Assistant",
+            description: `Found ${frontendCandidates.length} candidates via ${
+              response.source || "system"
+            } in ${response.response_time?.toFixed(2) || "instant"}s`,
+          });
+        }
+      } else {
+        toast({
+          title: "💬 AI Assistant",
+          description: `AI responded via ${response.source || "system"} in ${
+            response.response_time?.toFixed(2) || "instant"
+          }s`,
+        });
+      }
     } catch (error) {
       const errorMessage: ChatMessage = {
         id: `error-${Date.now()}`,
@@ -379,7 +406,6 @@ export default function Dashboard() {
               onChat={handleChat}
               initialQuery={searchQuery}
               onFilterChange={handleFilterChange}
-              onUploadClick={() => setIsUploadModalOpen(true)}
               remainingUploads={getRemainingUploads()}
               mode={searchMode}
               onModeChange={setSearchMode}
@@ -403,16 +429,14 @@ export default function Dashboard() {
                   <TalentHeatMap />
                 </div>
                 <div className="lg:col-span-3">
-                  <CandidateGrid
-                    candidates={candidates.map((c) => ({
-                      ...c,
-                      distance: c.distance ?? "",
-                      experience: c.experience ?? 0,
-                    }))}
-                    isLoading={isLoading}
-                    searchQuery={searchQuery}
-                    onGenerateOutreach={handleGenerateOutreach}
-                  />
+                  {candidates.length > 0 && (
+                    <CandidateGrid
+                      candidates={candidates}
+                      isLoading={isLoading}
+                      searchQuery={searchQuery}
+                      onGenerateOutreach={handleGenerateOutreach}
+                    />
+                  )}
                 </div>
               </div>
             </div>

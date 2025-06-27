@@ -137,4 +137,6 @@ export interface ChatResponse {
   remaining_messages: number;
   processing_time_ms: number;
   suggestions?: string[];
+  source?: string; // 'assistant', 'fallback', 'cache', 'emergency_fallback'
+  response_time?: number; // Response time in seconds
 }

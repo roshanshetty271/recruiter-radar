@@ -7,7 +7,7 @@ Designed with future extensibility in mind while supporting MVP functionality.
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, model_validator
 from .candidate import CandidateProfile
 
 
@@ -393,3 +393,49 @@ class ChatResponse(BaseModel):
             "Try: 'who know AWS'",
         ],
     )
+
+    # Bulletproof assistant fields
+    source: Optional[str] = Field(
+        None,
+        description="Source of the response (assistant/fallback/emergency_fallback)",
+        example="assistant",
+    )
+
+    response_time: Optional[float] = Field(
+        None,
+        description="Response time in seconds",
+        example=2.45,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_candidate_fields_have_safe_defaults(cls, values):
+        """Ensure all candidate fields have safe defaults."""
+        candidates = values.get("candidates", [])
+
+        for candidate in candidates:
+            # Ensure required fields exist with safe defaults
+            candidate.setdefault("id", f"candidate_{hash(str(candidate))}")
+            candidate.setdefault("name", "Unknown Candidate")
+            candidate.setdefault("title", "Unknown Role")
+            candidate.setdefault("location", "Location not specified")
+            candidate.setdefault("experience_years", 0)
+            candidate.setdefault("relevance_score", 0.0)
+            candidate.setdefault("match_score", candidate.get("relevance_score", 0.0))
+            candidate.setdefault("visa_status", "Not specified")
+
+            # Handle skills conversion FIRST, then set default
+            skills = candidate.get("skills")
+            if isinstance(skills, str):
+                # Convert string to list (split by comma)
+                candidate["skills"] = [
+                    s.strip() for s in skills.split(",") if s.strip()
+                ]
+            elif isinstance(skills, list):
+                # Already a list, keep as-is
+                candidate["skills"] = skills
+            else:
+                # None, empty, or other invalid type - set to empty list
+                candidate["skills"] = []
+
+        return values

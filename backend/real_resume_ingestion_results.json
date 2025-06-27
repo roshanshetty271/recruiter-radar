@@ -1,0 +1,92 @@
+[
+  {
+    "filename": "director-of-software-engineering-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_178",
+    "extracted_data": "name='RENATA VOSS' title='DIRECTOR OF SOFTWARE ENGINEERING' skills=['JIRA', 'Amazon Web Services (AWS)', 'Jenkins', 'TensorFlow', 'Spring Boot', 'Apache Hadoop', 'React Native'] location='San Jose, CA' experience_years=13 email='r.voss@email.com' phone='(123) 456-7890' summary='Experienced Director of Software Engineering with a proven track record in managing cross-functional teams and optimizing software development processes to enhance productivity and user satisfaction.'"
+  },
+  {
+    "filename": "embedded-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_89564",
+    "extracted_data": "name='SALVADOR SANZ' title='Senior Embedded Software Engineer' skills=['Python', 'Perl', 'RISC', 'Operating System', 'Hardware', 'RTOS', 'C/C++'] location='Dover, DE' experience_years=10 email='salvador.sanz@email.com' phone='(123) 456-7890' summary='Proven and hard-working embedded software engineer with 10+ years of experience, passionate about combining clean and scalable code with cutting-edge physical hardware.'"
+  },
+  {
+    "filename": "experienced-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_62280",
+    "extracted_data": "name='KIAN WOODS' title='Software Engineer' skills=['C++', 'PyTorch', 'PyCharm', 'CircleCI', 'Microsoft SQL Server', 'Mercurial', 'Ruby on Rails'] location='Pittsburgh, PA' experience_years=6 email='kianwoods@email.com' phone='(123) 456-7890' summary='Experienced Software Engineer with a strong background in optimizing machine learning algorithms and improving software development processes. Proven track record in enhancing application performance and deployment efficiency.'"
+  },
+  {
+    "filename": "google-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_56342",
+    "extracted_data": "name='KIAN MARSHALL' title='Software Engineer' skills=['JavaScript', 'Google Cloud SDK', 'Google Cloud Storage', 'Google Cloud Platform', 'Google Cloud Run', 'Google Cloud Armor', 'React'] location='Redmond, WA' experience_years=8 email='kianmarsh@email.com' phone='(123) 456-7890' summary='Experienced Software Engineer with a strong background in cloud infrastructure and application optimization, demonstrating a proven ability to enhance system reliability and user efficiency.'"
+  },
+  {
+    "filename": "junior-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_17166",
+    "extracted_data": "name='ARIA FISCHER' title='Junior Software Engineer' skills=['Eclipse', 'Subversion (SVN)', 'C++', 'React', 'PostgreSQL', 'Microsoft Azure', 'Selenium'] location='Southfield, MI' experience_years=5 email='a.fischer@email.com' phone='(123) 456-7890' summary='A seasoned IT professional passionate about software development, seeking a junior software engineer role at Bosch. Eager to apply my experience with Eclipse and C++ to create high-quality software products.'"
+  },
+  {
+    "filename": "lead-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_40284",
+    "extracted_data": "name='LEANDER HARTMAN' title='Lead Software Engineer' skills=['Bitbucket', 'CircleCI', 'Google Cloud Functions', 'Apache JMeter', 'Wireshark', 'draw.io', 'Microsoft Project'] location='Philadelphia, PA' experience_years=7 email='l.hartman@email.com' phone='(123) 456-7890' summary='Experienced Lead Software Engineer with a strong background in cloud technologies and version control systems. Proven track record of enhancing team performance and operational efficiency through innovative solutions.'"
+  },
+  {
+    "filename": "principal-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_99834",
+    "extracted_data": "name='Gaia Park' title='Principal Software Engineer' skills=['Java', 'Python', 'JavaScript', 'C++', 'Oracle Cloud Infrastructure', 'Oracle Database', 'MongoDB'] location='Redmond, WA' experience_years=9 email='gaia.park@email.com' phone='(123) 456-7890' summary='Experienced Principal Software Engineer with a strong background in software development and testing, specializing in migration and automation. Proven track record of improving code maintainability and reducing bug rates.'"
+  },
+  {
+    "filename": "python-developer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_69922",
+    "extracted_data": "name='Giulia Gonzalez' title='Python Developer' skills=['HTML/CSS', 'SQL (PostgreSQL, Oracle)', 'JavaScript (Angular)', 'Python (Django)', 'REST APIs (GraphQL)', 'AWS (Redshift, S3)', 'Git'] location='Detroit, MI' experience_years=6 email='ggonzalez@email.com' phone='(123) 456-7890' summary='Experienced Python Developer with a strong background in building web applications and data pipelines. Proven ability to improve user experience and increase revenue through effective collaboration and innovative solutions.'"
+  },
+  {
+    "filename": "security-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_20141",
+    "extracted_data": "name='Ilya Karaslavov' title='Senior Information Security Engineer' skills=['Java', 'Spring', 'Hibernate', 'SQL', 'AWS', 'Azure', 'Project Management'] location='Phoenix, AZ' experience_years=18 email='ilyia.karaslavov@email.com' phone='(123) 456-7890' summary='Experienced Senior Information Security Engineer with a strong background in cybersecurity, cloud technologies, and project management, dedicated to reducing risks and enhancing security measures.'"
+  },
+  {
+    "filename": "senior-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_47097",
+    "extracted_data": "name='Tasiana Ukura' title='Senior Software Engineer' skills=['Python', 'JavaScript', 'C++', 'Java', 'React', 'Django', 'NodeJS'] location='Seattle, WA' experience_years=14 email='tukura@email.com' phone='(123) 456-7890' summary='Experienced Senior Software Engineer with over 14 years in software development, specializing in front-end technologies and cloud-based solutions. Proven track record of enhancing application performance and client satisfaction through innovative solutions.'"
+  },
+  {
+    "filename": "software-developer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_56237",
+    "extracted_data": "name='Cynthia Dwayne' title='Software Developer' skills=['Python (Django)', 'SQL (PostgreSQL, MySQL)', 'Cloud (GCP, AWS)', 'JavaScript (ES6, React, Redux, Node.js)', 'Typescript', 'HTML/CSS', 'CI/CD'] location='Brooklyn, NY' experience_years=11 email='cynthia@beamjobs.com' phone='(123) 456-7890' summary='Experienced software developer with over 11 years in the industry, specializing in scalable code development and collaborative project execution. Proven track record in improving operational efficiency and mentoring junior developers.'"
+  },
+  {
+    "filename": "software-engineer-intern-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_30145",
+    "extracted_data": "name='Caius Kessler' title='Software Engineer Intern' skills=['Bitbucket', 'Oracle', 'Django', 'Java', 'Visual Studio', 'Windows'] location='Seattle, WA' experience_years=2 email='ckessler@email.com' phone='(123) 456-7890' summary='Highly-driven computer science student with growing knowledge in Bitbucket, Oracle, and Java, seeking a software engineering internship at Microsoft.'"
+  },
+  {
+    "filename": "software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_2682",
+    "extracted_data": "name='Charles McTurland' title='Software Engineer' skills=['Python (Django)', 'Javascript (NodeJS, ReactJS, jQuery)', 'SQL (MySQL, PostgreSQL, NoSQL)', 'HTML5/CSS', 'AWS', 'Unix', 'Git'] location='New York, NY' experience_years=8 email='cmcturland@email.com' phone='(123) 456-7890' summary='Experienced Software Engineer with a strong background in developing scalable web applications and improving system efficiencies. Proven track record of enhancing user experience and increasing revenue through innovative software solutions.'"
+  },
+  {
+    "filename": "software-engineering-manager-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_22130",
+    "extracted_data": "name='ZARA GREENE' title='SOFTWARE ENGINEERING MANAGER' skills=['Eclipse', 'Git', 'Docker', 'Amazon Web Services (AWS)', 'Jenkins', 'React.js', 'MySQL', 'Java'] location='Mountain View, CA' experience_years=10 email='zaragreen@email.com' phone='(123) 456-7890' summary='Experienced Software Engineering Manager with a strong background in optimizing application performance and mentoring engineering teams. Proven track record in enhancing CI/CD pipelines and leveraging cloud services for improved system efficiency.'"
+  },
+  {
+    "filename": "staff-software-engineer-resume-example.pdf",
+    "success": true,
+    "candidate_id": "real_resume_98059",
+    "extracted_data": "name='LUCIAN ASHFORD' title='Staff Software Engineer' skills=['JavaScript', 'C++', 'Angular', 'MySQL', 'Kubernetes', 'Oracle Cloud', 'Pytest'] location='Alpharetta, GA' experience_years=6 email='l.ashford@email.com' phone='(123) 456-7890' summary='Experienced Staff Software Engineer with a strong background in optimizing software performance and reducing operational costs through innovative solutions.'"
+  }
+]

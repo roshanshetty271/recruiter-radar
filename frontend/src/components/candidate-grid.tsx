@@ -17,25 +17,100 @@ import {
   TrendingUp,
   ChevronDown,
   ChevronUp,
+  Download,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
 import { Separator } from "./ui/separator";
+import { useToast } from "../hooks/use-toast";
+import type { FrontendCandidate } from "../lib/types";
 
 interface Candidate {
   id: string;
   name: string;
   title: string;
   location: string;
-  distance: string;
+  distance?: string;
   matchScore: number;
-  experience: number;
+  experience: number | undefined;
   skills: string[];
   isOnline: boolean;
   isVerified: boolean;
   avatar: string;
+  visaStatus?: string;
+  githubUrl?: string;
+  linkedinUrl?: string;
+  isDemo?: boolean;
 }
+
+// CSV Export utility function
+const exportToCsv = (candidates: Candidate[], searchQuery: string) => {
+  // Prepare CSV headers
+  const headers = [
+    "Name",
+    "Title",
+    "Skills",
+    "Location",
+    "Experience (Years)",
+    "Visa Status",
+    "GitHub URL",
+    "LinkedIn URL",
+    "Match Score",
+    "Candidate Type",
+  ];
+
+  // Prepare CSV rows
+  const rows = candidates.map((candidate) => [
+    candidate.name || "",
+    candidate.title || "",
+    candidate.skills?.join("; ") || "",
+    candidate.location || "",
+    candidate.experience?.toString() || "",
+    candidate.visaStatus || "",
+    candidate.githubUrl || "",
+    candidate.linkedinUrl || "",
+    candidate.matchScore?.toString() || "",
+    candidate.id?.startsWith("upload_") ? "Your Upload" : "Demo",
+  ]);
+
+  // Create CSV content
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) =>
+      row
+        .map((field) =>
+          typeof field === "string" &&
+          (field.includes(",") || field.includes('"'))
+            ? `"${field}"`
+            : field
+        )
+        .join(",")
+    ),
+  ].join("\n");
+
+  // Download file
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+
+  // Generate filename with timestamp and search query
+  const timestamp = new Date().toISOString().split("T")[0];
+  const sanitizedQuery = searchQuery
+    .replace(/[^a-z0-9]/gi, "_")
+    .substring(0, 20);
+  const filename = `recruiter_radar_${
+    sanitizedQuery || "search"
+  }_${timestamp}.csv`;
+
+  link.setAttribute("download", filename);
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
 
 export function CandidateGrid({
   candidates,
@@ -48,6 +123,7 @@ export function CandidateGrid({
   searchQuery?: string; // 🔥 NEW
   onGenerateOutreach?: (candidateId: string) => void; // 🔥 NEW
 }) {
+  const { toast } = useToast();
   const [savedCandidates, setSavedCandidates] = useState<Set<string>>(
     new Set()
   );
@@ -84,6 +160,34 @@ export function CandidateGrid({
   const clearComparison = () => {
     setComparisonCandidates([]);
     setShowComparison(false);
+  };
+
+  const handleExportCsv = () => {
+    if (candidates.length === 0) {
+      toast({
+        title: "No data to export",
+        description: "Please search for candidates first before exporting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      exportToCsv(candidates, searchQuery);
+      toast({
+        title: "📊 Export successful!",
+        description: `Exported ${candidates.length} candidate${
+          candidates.length !== 1 ? "s" : ""
+        } to CSV`,
+      });
+    } catch (error) {
+      console.error("CSV export error:", error);
+      toast({
+        title: "Export failed",
+        description: "There was an error exporting the data. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -181,13 +285,24 @@ export function CandidateGrid({
             isSaved={savedCandidates.has(candidate.id)}
             onToggleSave={() => toggleSave(candidate.id)}
             onAddToComparison={() => addToComparison(candidate)}
-            onGenerateOutreach={() => onGenerateOutreach?.(candidate.id)} // 🔥 NEW
+            onGenerateOutreach={() => onGenerateOutreach?.(candidate.id)} // �� NEW
             isInComparison={comparisonCandidates.some(
               (c) => c.id === candidate.id
             )}
             delay={index * 50}
           />
         ))}
+      </div>
+
+      <div className="mt-6">
+        <Button
+          variant="outline"
+          className="w-full border-white/20 text-white hover:bg-white/10 group"
+          onClick={handleExportCsv}
+        >
+          <span>Export to CSV</span>
+          <Download className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+        </Button>
       </div>
     </div>
   );
@@ -238,8 +353,8 @@ function CandidateCard({
       );
     }
 
-    if (candidate.experience >= 5) {
-      matchReasons.push(`⭐ Senior-level (${candidate.experience} years)`);
+    if ((candidate.experience ?? 0) >= 5) {
+      matchReasons.push(`⭐ Senior-level (${candidate.experience ?? 0} years)`);
     }
 
     if (candidate.isVerified) {
@@ -312,9 +427,27 @@ function CandidateCard({
                   <Sparkles className="w-4 h-4 text-yellow-400" />
                 )}
               </div>
-              <p className="text-sm text-gray-400 truncate">
-                {candidate.title}
-              </p>
+
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-gray-400 truncate">
+                  {candidate.title}
+                </p>
+                {/* Upload Type Badge */}
+                <Badge
+                  variant={
+                    candidate.id?.startsWith("upload_") ? "default" : "outline"
+                  }
+                  className={
+                    candidate.id?.startsWith("upload_")
+                      ? "bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-0.5"
+                      : "border-purple-500/30 text-purple-400 text-xs px-2 py-0.5"
+                  }
+                >
+                  {candidate.id?.startsWith("upload_")
+                    ? "📄 Your Upload"
+                    : "🎯 Demo"}
+                </Badge>
+              </div>
             </div>
           </div>
 
@@ -461,7 +594,9 @@ function CandidateCard({
           <div className="flex items-center space-x-1 text-sm text-gray-400">
             <MapPin className="w-3 h-3" />
             <span>{candidate.location}</span>
-            <span className="text-xs">({candidate.distance})</span>
+            {candidate.distance && (
+              <span className="text-xs">({candidate.distance})</span>
+            )}
           </div>
 
           <div className="flex items-center space-x-2">
@@ -472,7 +607,7 @@ function CandidateCard({
               <div
                 className="bg-gradient-to-r from-purple-500 to-blue-500 h-1 rounded-full transition-all duration-1000"
                 style={{
-                  width: `${Math.min(candidate.experience * 10, 100)}%`,
+                  width: `${Math.min((candidate.experience ?? 0) * 10, 100)}%`,
                 }}
               />
             </div>

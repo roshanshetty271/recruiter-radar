@@ -260,6 +260,46 @@ class SessionService:
                 self._sessions[session_id].conversation_history.clear()
                 logger.info(f"Cleared conversation history for session {session_id}")
 
+    async def get_session_data(self, session_id: str) -> Optional[SessionData]:
+        """
+        Get session data if it exists, without creating a new one.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            SessionData if exists, None otherwise
+        """
+        async with self._lock:
+            return self._sessions.get(session_id)
+
+    async def reset_session(self, session_id: str) -> SessionData:
+        """
+        Reset session data by clearing counts and conversation history.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Reset SessionData
+        """
+        async with self._lock:
+            if session_id in self._sessions:
+                # Get existing session and reset it
+                session = self._sessions[session_id]
+                session.upload_count = 0
+                session.message_count = 0
+                session.conversation_history.clear()
+                session.last_activity = datetime.utcnow()
+                logger.info(f"Reset session {session_id}")
+                return session
+            else:
+                # Create new session if doesn't exist
+                session = SessionData(session_id=session_id)
+                self._sessions[session_id] = session
+                logger.info(f"Created new session during reset: {session_id}")
+                return session
+
 
 # Global session service instance
 # Will be initialized once in main.py lifespan

@@ -7,6 +7,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
+import asyncio
 
 from app.core.config import settings
 from app.services.llm_service import (
@@ -20,6 +21,7 @@ from app.services.chroma_connector import (
     ChromaConnectionError,
 )
 from app.services.rag_service import RAGService, RAGServiceError
+from app.services.assistant_service import AssistantService  # Added import
 from app.api.routers import candidate_router  # Corrected import
 from app.api.routers import upload_router  # Added import
 from app.api.routers import chat_router, session_data_router, session_router
@@ -31,6 +33,9 @@ from datetime import datetime  # Added import
 # from app.api.routers import health_router # Placeholder, health is in main for now
 
 logger = logging.getLogger(__name__)
+
+# Global cleanup task
+cleanup_task = None
 
 
 @asynccontextmanager
@@ -60,6 +65,17 @@ async def lifespan(app: FastAPI):
         session_module.session_service = app.state.session_service
         logger.info("SessionService initialized.")
 
+        # Initialize AssistantService
+        app.state.assistant_service = AssistantService()
+        logger.info("AssistantService initialized.")
+
+        # Start periodic cleanup task
+        cleanup_task = asyncio.create_task(
+            periodic_cleanup(app.state.assistant_service)
+        )
+        app.state.cleanup_task = cleanup_task
+        logger.info("Periodic cleanup task started.")
+
         logger.info("Lifespan: All services initialized successfully.")
     except (
         OpenAIConfigError,
@@ -83,8 +99,31 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Lifespan: Cleaning up services (if applicable)...")
-    # Add cleanup here if services need explicit closing
+    # Cancel cleanup task
+    if hasattr(app.state, "cleanup_task"):
+        app.state.cleanup_task.cancel()
+        try:
+            await app.state.cleanup_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Cleanup task cancelled.")
     logger.info("Lifespan: Shutdown complete.")
+
+
+async def periodic_cleanup(assistant_service: AssistantService):
+    """Periodic cleanup task for old threads and cache."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Run every hour
+            cleaned_count = await assistant_service.cleanup_old_threads(hours=24)
+            if cleaned_count > 0:
+                logger.info(f"Periodic cleanup removed {cleaned_count} old threads")
+        except asyncio.CancelledError:
+            logger.info("Periodic cleanup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic cleanup: {e}")
+            # Continue running despite errors
 
 
 app = FastAPI(
@@ -152,6 +191,10 @@ Built with ❤️ by the RecruiterRadar team.
 origins = [
     "http://localhost:3000",  # Next.js default dev port
     "http://127.0.0.1:3000",
+    "http://localhost:3001",  # Alternative Next.js port
+    "http://127.0.0.1:3001",
+    "http://localhost:5173",  # Vite default port
+    "http://localhost:8080",  # Alternative frontend port
 ]
 
 # Optional: make it config driven by adding settings.frontend_url to origins

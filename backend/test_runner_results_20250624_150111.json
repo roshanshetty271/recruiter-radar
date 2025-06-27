@@ -1,0 +1,10 @@
+{
+  "overall_success": true,
+  "total_time": 6.113708019256592,
+  "individual_results": {
+    "smoke": {
+      "passed": true,
+      "timestamp": "2025-06-24T15:01:11.201798"
+    }
+  }
+}

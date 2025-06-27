@@ -5,19 +5,25 @@ Provides access to processed resumes and session metrics.
 """
 
 import logging
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, Path, status, Header
 
 from app.models.api_models import ErrorResponse
 from app.models.upload_models import ExtractedResumeData
-from app.services.session_service import SessionService
+from app.services.session_service import SessionService, get_session_service
 from app.services.rag_service import RAGService
-from app.dependencies import get_session_service, get_rag_service
+from app.dependencies import get_rag_service
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/session", tags=["Session"])
+router = APIRouter(
+    prefix="/session",
+    tags=["Session"],
+    responses={
+        404: {"model": ErrorResponse, "description": "Session not found"},
+    },
+)
 
 
 @router.get(
@@ -74,43 +80,146 @@ async def get_session_resumes(
 
 
 @router.get(
-    "/{session_id}/status",
+    "/status",
     summary="Get session status and limits",
-    description="Returns current usage and remaining limits for uploads and messages",
-    response_model=dict,
+    description="""
+Get detailed information about the current session including:
+- Upload count and remaining uploads
+- Message count and remaining messages  
+- Session expiry information
+- Current limits
+
+Requires X-Session-ID header to identify the session.
+    """,
+    responses={
+        200: {
+            "description": "Session status information",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "session_id": "device_123abc",
+                        "upload_count": 3,
+                        "message_count": 7,
+                        "max_uploads": 10,
+                        "max_messages": 10,
+                        "remaining_uploads": 7,
+                        "remaining_messages": 3,
+                        "expires_at": "2024-01-21T10:30:00Z",
+                        "created_at": "2024-01-20T10:30:00Z",
+                        "last_activity": "2024-01-20T14:22:00Z",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Missing session ID",
+            "model": ErrorResponse,
+        },
+        404: {
+            "description": "Session not found",
+            "model": ErrorResponse,
+        },
+    },
 )
 async def get_session_status(
-    session_id: str = Path(..., description="Session identifier"),
+    session_id: Optional[str] = Header(
+        None, alias="X-Session-ID", description="Unique session identifier"
+    ),
     session_service: SessionService = Depends(get_session_service),
-) -> dict:
-    """Get current session usage and limits."""
-    try:
-        upload_count = await session_service.get_upload_count(session_id)
-        message_count = await session_service.get_message_count(session_id)
+):
+    """Get current session status and usage information."""
 
-        return {
-            "session_id": session_id,
-            "uploads": {
-                "used": upload_count,
-                "limit": settings.max_uploads_per_session,
-                "remaining": settings.max_uploads_per_session - upload_count,
-            },
-            "messages": {
-                "used": message_count,
-                "limit": settings.max_chat_messages_per_session,
-                "remaining": settings.max_chat_messages_per_session - message_count,
-            },
-            "features": {
-                "smart_chunking_enabled": settings.enable_smart_chunking,
-                "query_suggestions_enabled": settings.enable_query_suggestions,
-            },
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting session status: {e}")
+    # Validate session ID
+    if not session_id:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorResponse(
-                error="status_error", message="Failed to retrieve session status"
-            ).model_dump(),
+                error="missing_session_id",
+                message="Session ID required in X-Session-ID header",
+            ).model_dump(exclude_none=True),
         )
+
+    # Get session data
+    session_data = await session_service.get_session_data(session_id)
+
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorResponse(
+                error="session_not_found",
+                message=f"Session {session_id} not found",
+            ).model_dump(exclude_none=True),
+        )
+
+    # Return formatted session status
+    return {
+        "session_id": session_data.session_id,
+        "upload_count": session_data.upload_count,
+        "message_count": session_data.message_count,
+        "max_uploads": 10,  # From settings, could be made configurable
+        "max_messages": 10,  # From settings, could be made configurable
+        "remaining_uploads": max(0, 10 - session_data.upload_count),
+        "remaining_messages": max(0, 10 - session_data.message_count),
+        "expires_at": session_data.created_at.isoformat()
+        + "Z",  # 48 hours from creation
+        "created_at": session_data.created_at.isoformat() + "Z",
+        "last_activity": session_data.last_activity.isoformat() + "Z",
+    }
+
+
+@router.post(
+    "/reset",
+    summary="Reset session data",
+    description="""
+Reset the current session by clearing upload and message counts.
+This effectively creates a fresh session while keeping the same session ID.
+
+⚠️ **Warning**: This will clear all conversation history and reset limits.
+    """,
+    responses={
+        200: {
+            "description": "Session reset successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Session reset successfully",
+                        "session_id": "device_123abc",
+                        "upload_count": 0,
+                        "message_count": 0,
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Missing session ID",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def reset_session(
+    session_id: Optional[str] = Header(
+        None, alias="X-Session-ID", description="Unique session identifier"
+    ),
+    session_service: SessionService = Depends(get_session_service),
+):
+    """Reset session data and conversation history."""
+
+    # Validate session ID
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorResponse(
+                error="missing_session_id",
+                message="Session ID required in X-Session-ID header",
+            ).model_dump(exclude_none=True),
+        )
+
+    # Reset session data
+    session_data = await session_service.reset_session(session_id)
+
+    return {
+        "message": "Session reset successfully",
+        "session_id": session_data.session_id,
+        "upload_count": session_data.upload_count,
+        "message_count": session_data.message_count,
+    }

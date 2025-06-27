@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "total_tests": 9,
+    "passed": 8,
+    "failed": 1,
+    "success_rate": 88.88888888888889,
+    "execution_time": 31.880195379257202
+  },
+  "detailed_results": [
+    {
+      "test": "Backend Candidate Data Structure",
+      "passed": true,
+      "details": "Validated 3 candidates",
+      "timestamp": "2025-06-24T16:09:22.669396"
+    },
+    {
+      "test": "Frontend Candidate Mapping",
+      "passed": true,
+      "details": "Mapped candidate with 3 skills, score 0.87",
+      "timestamp": "2025-06-24T16:09:22.671691"
+    },
+    {
+      "test": "Assistant Tools Definition",
+      "passed": true,
+      "details": "Search tool: True, Summarise tool: True",
+      "timestamp": "2025-06-24T16:09:22.749731"
+    },
+    {
+      "test": "Search Result Caching",
+      "passed": false,
+      "details": "Cache: 0 results, Analysis: False",
+      "timestamp": "2025-06-24T16:09:22.757154"
+    },
+    {
+      "test": "Experience Distribution Analysis",
+      "passed": true,
+      "details": "Distribution: {'Entry (0-2 years)': 1, 'Mid-level (3-5 years)': 1, 'Senior (6-10 years)': 1, 'Principal/Lead (10+ years)': 1, 'Unknown': 1}",
+      "timestamp": "2025-06-24T16:09:22.757715"
+    },
+    {
+      "test": "Bulletproof Chat Fallback",
+      "passed": true,
+      "details": "Source: assistant, Candidates: 0",
+      "timestamp": "2025-06-24T16:09:32.553727"
+    },
+    {
+      "test": "Thread Cleanup",
+      "passed": true,
+      "details": "Cleanup completed successfully (started with 2 threads)",
+      "timestamp": "2025-06-24T16:09:33.965915"
+    },
+    {
+      "test": "Assistant Database Structure",
+      "passed": true,
+      "details": "Table exists: True, Columns: ['session_id', 'thread_id', 'created_at', 'last_used', 'message_count']",
+      "timestamp": "2025-06-24T16:09:33.968773"
+    },
+    {
+      "test": "End-to-End Search and Analysis",
+      "passed": true,
+      "details": "Search: 0 candidates (assistant), Analysis: True (assistant)",
+      "timestamp": "2025-06-24T16:09:49.448827"
+    }
+  ]
+}

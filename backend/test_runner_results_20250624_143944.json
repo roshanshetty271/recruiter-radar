@@ -1,0 +1,21 @@
+{
+  "overall_success": false,
+  "total_time": 40.710322856903076,
+  "individual_results": {
+    "smoke": {
+      "passed": true,
+      "timestamp": "2025-06-24T14:39:08.456112"
+    },
+    "assistant": {
+      "passed": true,
+      "tests_passed": 3,
+      "total_tests": 3,
+      "success_rate": 100.0,
+      "timestamp": "2025-06-24T14:39:23.952972"
+    },
+    "comprehensive": {
+      "passed": true,
+      "timestamp": "2025-06-24T14:39:44.206924"
+    }
+  }
+}

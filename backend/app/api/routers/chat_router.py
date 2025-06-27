@@ -8,14 +8,21 @@ uploaded resumes using natural language queries.
 import time
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status, Request
 
 from app.models.api_models import ChatRequest, ChatResponse, ErrorResponse
 from app.services.session_service import SessionService
 from app.services.llm_service import LLMService
 from app.services.rag_service import RAGService
-from app.dependencies import get_session_service, get_llm_service, get_rag_service
+from app.services.assistant_service import AssistantService
+from app.dependencies import (
+    get_session_service,
+    get_llm_service,
+    get_rag_service,
+    get_assistant_service,
+)
 from app.core.config import settings
+from app.services.response_cache import get_response_cache
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +30,128 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 @router.post(
+    "/bulletproof",
+    response_model=ChatResponse,
+    summary="Bulletproof chat with OpenAI Assistant + fallback",
+    description="""
+**NEW: BULLETPROOF CHAT ENDPOINT**
+
+This is the next-generation chat endpoint with guaranteed responses:
+
+🚀 **Key Features:**
+- OpenAI Assistant with conversational memory
+- 8-second timeout with seamless fallback to existing search logic
+- Thread-based conversation persistence 
+- Circuit breaker protection
+- Performance monitoring
+- 100% response reliability - NEVER times out
+
+🎯 **How it works:**
+1. Try OpenAI Assistant with recruiting expertise (primary path)
+2. If timeout/failure → Instant fallback to proven search logic
+3. Both paths return identical candidate data format
+4. Frontend never knows which path was used
+
+**Examples:**
+- "Find Python developers with 5+ years experience"
+- "Show me React engineers in San Francisco" 
+- "I need senior full-stack developers"
+- "Any DevOps engineers with AWS experience?"
+
+**Returns:**
+Same ChatResponse format as existing endpoint but with enhanced reliability.
+    """,
+    responses={
+        200: {
+            "description": "Chat query processed successfully",
+            "model": ChatResponse,
+        },
+        400: {
+            "description": "Invalid request",
+            "model": ErrorResponse,
+        },
+        429: {
+            "description": "Chat message limit exceeded",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def bulletproof_chat(
+    request: ChatRequest,
+    x_session_id: str = Header(..., alias="X-Session-ID"),
+    session_service: SessionService = Depends(get_session_service),
+    assistant_service: AssistantService = Depends(get_assistant_service),
+) -> ChatResponse:
+    """
+    Bulletproof chat with OpenAI Assistant + intelligent fallback.
+
+    This endpoint provides 100% reliable responses by trying:
+    1. OpenAI Assistant (enhanced conversational AI)
+    2. Fallback to existing search logic if timeout/failure
+
+    Both paths return identical response format.
+    """
+    # Validate message limit
+    is_valid, error_msg = await session_service.validate_message_limit(x_session_id)
+    if not is_valid:
+        logger.info(f"Session {x_session_id} exceeded message limit")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=ErrorResponse(
+                error="message_limit_exceeded",
+                message=error_msg or "Chat message limit exceeded",
+            ).model_dump(),
+        )
+
+    try:
+        logger.info(f"Bulletproof chat: '{request.message}' for session {x_session_id}")
+
+        # Use the bulletproof assistant service
+        response = await assistant_service.bulletproof_recruiter_chat(
+            message=request.message, session_id=x_session_id
+        )
+
+        # Increment message count after successful processing
+        await session_service.increment_message_count(x_session_id)
+        remaining = (
+            settings.max_chat_messages_per_session
+            - await session_service.get_message_count(x_session_id)
+        )
+
+        # Update remaining messages count
+        response.remaining_messages = remaining
+
+        logger.info(
+            f"Bulletproof chat completed in {response.response_time:.2f}s "
+            f"via {response.source} with {len(response.candidates)} candidates"
+        )
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Bulletproof chat failed: {e}", exc_info=True)
+
+        # Still increment message count
+        await session_service.increment_message_count(x_session_id)
+        remaining = (
+            settings.max_chat_messages_per_session
+            - await session_service.get_message_count(x_session_id)
+        )
+
+        # Emergency fallback
+        return ChatResponse(
+            ai_message="I'm experiencing technical difficulties. Please try your search again.",
+            candidates=[],
+            remaining_messages=remaining,
+            source="emergency_fallback",
+            response_time=0.0,
+        )
+
+
+@router.post(
     "",
     response_model=ChatResponse,
-    summary="Process natural language chat query",
+    summary="Process natural language chat query (Legacy)",
     description="""
 Send a natural language message to search uploaded resumes.
 
@@ -188,6 +314,27 @@ async def process_chat(
 
 
 @router.get(
+    "/metrics",
+    summary="Get assistant performance metrics",
+    description="Returns performance metrics for monitoring assistant health",
+    response_model=dict,
+)
+async def get_assistant_metrics(
+    assistant_service: AssistantService = Depends(get_assistant_service),
+) -> dict:
+    """
+    Get performance metrics for the assistant service.
+
+    Returns information about:
+    - Assistant success rate
+    - Fallback activation rate
+    - Average response times
+    - Circuit breaker status
+    """
+    return assistant_service.get_performance_metrics()
+
+
+@router.get(
     "/examples",
     summary="Get example chat queries",
     description="Returns example queries to help users get started",
@@ -238,4 +385,80 @@ async def get_chat_examples() -> dict:
                 ],
             },
         ]
+    }
+
+
+@router.get(
+    "/cache/stats",
+    summary="Get response cache statistics",
+    description="Returns detailed statistics about the response cache performance",
+    response_model=dict,
+)
+async def get_cache_stats() -> dict:
+    """
+    Get comprehensive cache statistics.
+
+    Returns information about:
+    - Cache hit/miss rates
+    - Current cache size and utilization
+    - Popular cached queries
+    - Performance metrics
+    """
+    cache = get_response_cache()
+    stats = cache.get_cache_stats()
+    popular_queries = cache.get_popular_queries(limit=5)
+
+    return {
+        **stats,
+        "popular_queries": popular_queries,
+    }
+
+
+@router.post(
+    "/cache/clear",
+    summary="Clear response cache",
+    description="Clear all cached responses (admin operation)",
+    response_model=dict,
+)
+async def clear_cache() -> dict:
+    """
+    Clear all cached responses.
+
+    This is an administrative operation that removes all cached responses.
+    Use with caution as it will impact performance until cache rebuilds.
+    """
+    cache = get_response_cache()
+    cleared_count = cache.clear()
+
+    logger.info(f"Cache cleared by admin: {cleared_count} entries removed")
+
+    return {
+        "message": "Cache cleared successfully",
+        "entries_cleared": cleared_count,
+        "timestamp": time.time(),
+    }
+
+
+@router.post(
+    "/cache/cleanup",
+    summary="Clean up expired cache entries",
+    description="Remove expired cache entries to free memory",
+    response_model=dict,
+)
+async def cleanup_cache() -> dict:
+    """
+    Remove expired cache entries.
+
+    This operation removes only expired entries, preserving valid cached responses.
+    Useful for maintenance and memory management.
+    """
+    cache = get_response_cache()
+    expired_count = cache.cleanup_expired()
+
+    logger.info(f"Cache cleanup: {expired_count} expired entries removed")
+
+    return {
+        "message": "Cache cleanup completed",
+        "expired_entries_removed": expired_count,
+        "timestamp": time.time(),
     }

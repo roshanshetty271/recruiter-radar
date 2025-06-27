@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "total_tests": 9,
+    "passed": 8,
+    "failed": 1,
+    "success_rate": 88.88888888888889,
+    "execution_time": 35.92933988571167
+  },
+  "detailed_results": [
+    {
+      "test": "Backend Candidate Data Structure",
+      "passed": false,
+      "details": "Validated 3 candidates. Issues: Candidate 2: missing skills; Candidate 2: skills not converted to list (got <class 'NoneType'>)",
+      "timestamp": "2025-06-24T14:31:19.154909"
+    },
+    {
+      "test": "Frontend Candidate Mapping",
+      "passed": true,
+      "details": "Mapped candidate with 3 skills, score 0.87",
+      "timestamp": "2025-06-24T14:31:19.155951"
+    },
+    {
+      "test": "Assistant Tools Definition",
+      "passed": true,
+      "details": "Search tool: True, Summarise tool: True",
+      "timestamp": "2025-06-24T14:31:19.339519"
+    },
+    {
+      "test": "Search Result Caching",
+      "passed": true,
+      "details": "Cache: 10 results, Analysis: True",
+      "timestamp": "2025-06-24T14:31:19.357205"
+    },
+    {
+      "test": "Experience Distribution Analysis",
+      "passed": true,
+      "details": "Distribution: {'Entry (0-2 years)': 1, 'Mid-level (3-5 years)': 1, 'Senior (6-10 years)': 1, 'Principal/Lead (10+ years)': 1, 'Unknown': 1}",
+      "timestamp": "2025-06-24T14:31:19.357753"
+    },
+    {
+      "test": "Bulletproof Chat Fallback",
+      "passed": true,
+      "details": "Source: intelligent_fallback, Candidates: 10 (Fallback working correctly)",
+      "timestamp": "2025-06-24T14:31:33.028801"
+    },
+    {
+      "test": "Thread Cleanup",
+      "passed": true,
+      "details": "Cleanup completed successfully (started with 2 threads)",
+      "timestamp": "2025-06-24T14:31:34.364375"
+    },
+    {
+      "test": "Assistant Database Structure",
+      "passed": true,
+      "details": "Table exists: True, Columns: ['session_id', 'thread_id', 'created_at', 'last_used', 'message_count']",
+      "timestamp": "2025-06-24T14:31:34.369106"
+    },
+    {
+      "test": "End-to-End Search and Analysis",
+      "passed": true,
+      "details": "Search: 10 candidates (intelligent_fallback), Analysis: True (intelligent_fallback)",
+      "timestamp": "2025-06-24T14:31:49.804905"
+    }
+  ]
+}

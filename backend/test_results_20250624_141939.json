@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "total_tests": 9,
+    "passed": 5,
+    "failed": 4,
+    "success_rate": 55.55555555555556,
+    "execution_time": 46.12662148475647
+  },
+  "detailed_results": [
+    {
+      "test": "Backend Candidate Data Structure",
+      "passed": false,
+      "details": "Error: 'skills'",
+      "timestamp": "2025-06-24T14:18:59.205352"
+    },
+    {
+      "test": "Frontend Candidate Mapping",
+      "passed": true,
+      "details": "Mapped candidate with 3 skills, score 0.87",
+      "timestamp": "2025-06-24T14:18:59.206154"
+    },
+    {
+      "test": "Assistant Tools Definition",
+      "passed": true,
+      "details": "Search tool: True, Summarise tool: True",
+      "timestamp": "2025-06-24T14:18:59.342692"
+    },
+    {
+      "test": "Search Result Caching",
+      "passed": true,
+      "details": "Cache: 10 results, Analysis: True",
+      "timestamp": "2025-06-24T14:18:59.360476"
+    },
+    {
+      "test": "Experience Distribution Analysis",
+      "passed": true,
+      "details": "Distribution: {'Entry (0-2 years)': 1, 'Mid-level (3-5 years)': 1, 'Senior (6-10 years)': 1, 'Principal/Lead (10+ years)': 1, 'Unknown': 1}",
+      "timestamp": "2025-06-24T14:18:59.361177"
+    },
+    {
+      "test": "Bulletproof Chat Fallback",
+      "passed": false,
+      "details": "Source: intelligent_fallback, Candidates: 10",
+      "timestamp": "2025-06-24T14:19:15.098531"
+    },
+    {
+      "test": "Thread Cleanup",
+      "passed": false,
+      "details": "Cleaned None threads",
+      "timestamp": "2025-06-24T14:19:25.468570"
+    },
+    {
+      "test": "Assistant Database Structure",
+      "passed": true,
+      "details": "Table exists: True, Columns: ['session_id', 'thread_id', 'created_at', 'last_used', 'message_count']",
+      "timestamp": "2025-06-24T14:19:25.480765"
+    },
+    {
+      "test": "End-to-End Search and Analysis",
+      "passed": false,
+      "details": "Search: 10 candidates, Analysis: False",
+      "timestamp": "2025-06-24T14:19:39.527829"
+    }
+  ]
+}
