@@ -14,6 +14,7 @@ import logging
 from typing import List, Optional, Dict, Any
 import asyncio
 import random as hochwertiges
+import hashlib  # 🚀 TURBO-PATCH: For embedding cache keys
 
 from openai import (
     AsyncOpenAI,
@@ -114,17 +115,22 @@ class LLMService:
         # Initialize the async OpenAI client
         self.client = AsyncOpenAI(api_key=self.api_key)
 
+        # 🚀 TURBO-PATCH: Simple embedding cache for repeated queries
+        self._embedding_cache: Dict[str, List[float]] = {}
+        self._cache_max_size = 1000  # Prevent memory bloat
+
         logger.info(
             f"LLMService initialized with embedding model: {self.embedding_model}, chat model: {self.chat_model_name}, "
             f"Default Temp: {self.default_chat_temperature}, Default Chat Max Tokens: {self.default_chat_max_tokens}, "
-            f"Resume Snippet Chars: {self.resume_snippet_max_chars_for_prompt}"
+            f"Resume Snippet Chars: {self.resume_snippet_max_chars_for_prompt}, "
+            f"Embedding Cache: {self._cache_max_size} entries max"
         )
 
     async def get_embedding(
         self, text: str, attempt: int = 1, max_attempts: int = 3
     ) -> List[float]:
         """
-        Generate a vector embedding for the given text.
+        🚀 TURBO-PATCH: Generate a vector embedding with caching for repeated queries.
 
         Uses OpenAI's Embeddings API to convert text into a high-dimensional
         vector representation suitable for similarity search and RAG applications.
@@ -154,10 +160,19 @@ class LLMService:
             # For an invalid argument from the caller, ValueError is appropriate.
             raise ValueError("Input text for embedding cannot be empty.")
 
+        # 🚀 CACHE CHECK: Generate cache key and check if we already have this embedding
+        cache_key = hashlib.md5(
+            f"{self.embedding_model}:{text.strip()}".encode()
+        ).hexdigest()
+
+        if cache_key in self._embedding_cache:
+            logger.info(f"🎯 CACHE HIT: Embedding found for text '{text[:30]}...'")
+            return self._embedding_cache[cache_key]
+
         # Log the request (with truncated text for privacy/readability)
         text_preview = text[:50] + "..." if len(text) > 50 else text
         logger.info(
-            f"Requesting embedding (model: {self.embedding_model}, "
+            f"🌐 API CALL: Requesting embedding (model: {self.embedding_model}, "
             f"attempt: {attempt}/{max_attempts}, text: '{text_preview}')"
         )
 
@@ -170,9 +185,17 @@ class LLMService:
             # Extract the embedding vector from the response
             embedding = response.data[0].embedding
 
+            # 🚀 CACHE STORAGE: Store in cache for future queries (with size limit)
+            if len(self._embedding_cache) >= self._cache_max_size:
+                # Remove oldest entry (simple FIFO eviction)
+                oldest_key = next(iter(self._embedding_cache))
+                del self._embedding_cache[oldest_key]
+                logger.debug(f"📦 CACHE EVICTION: Removed oldest entry to make space")
+
+            self._embedding_cache[cache_key] = embedding
             logger.info(
-                f"Embedding successfully generated (text: '{text_preview}', "
-                f"dimension: {len(embedding)})"
+                f"💾 CACHE STORED: Embedding cached for text '{text_preview}' "
+                f"(dimension: {len(embedding)}, cache size: {len(self._embedding_cache)})"
             )
 
             return embedding
@@ -749,8 +772,8 @@ class LLMService:
         """
         Parse natural language chat query into structured filters.
 
-        Converts queries like "Python developers with 5+ years" into
-        ChromaDB-compatible filter dictionaries.
+        Enhanced version with better natural language understanding for
+        complex recruiting queries like "senior Python developers in SF who can start immediately".
 
         Args:
             message: Natural language query from user
@@ -760,29 +783,29 @@ class LLMService:
             Dictionary of filters ready for ChromaDB query
         """
         try:
-            # Import prompt from centralized location
-            from app.core.prompts import CHAT_QUERY_PARSING_PROMPT_V1
+            # Import enhanced prompt from centralized location
+            from app.core.prompts import CHAT_QUERY_PARSING_PROMPT_ACTIVE
 
             # Build context about available filters
             filter_context = """
 Available filters:
 - skills: List of technical skills (e.g., Python, React, AWS)
 - experience_years: Integer years of experience
-- location: City, State format
+- location: City, State format (supports "remote")
 - visa_status: Work authorization status
 - title: Job title keywords
 
 Return a JSON object with the appropriate filters based on the user's query.
-Use MongoDB-style operators where needed: $gte, $lte, $regex, $contains
+Use MongoDB-style operators where needed: $gte, $lte, $regex, $contains, $and, $or
 """
 
             # Add available skills context if provided
             if available_skills:
-                skills_sample = ", ".join(available_skills[:20])  # First 20 as example
-                filter_context += f"\n\nKnown skills in database: {skills_sample}..."
+                skills_sample = ", ".join(available_skills[:15])  # First 15 as example
+                filter_context += f"\n\nPopular skills in database: {skills_sample}..."
 
-            # Create prompt
-            prompt = f"""{CHAT_QUERY_PARSING_PROMPT_V1}
+            # Create enhanced prompt
+            prompt = f"""{CHAT_QUERY_PARSING_PROMPT_ACTIVE}
 
 {filter_context}
 
@@ -790,20 +813,20 @@ User Query: "{message}"
 
 Parsed Filters JSON:"""
 
-            logger.info(f"Parsing chat query: '{message[:100]}...'")
+            logger.info(f"Parsing enhanced chat query: '{message[:100]}...'")
 
-            # Call OpenAI
+            # Call OpenAI with improved parameters
             response = await self.client.chat.completions.create(
                 model=self.chat_model_name,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a query parsing assistant. Convert natural language queries into database filters.",
+                        "content": "You are an expert recruiting query parser. Convert natural language into precise database filters that understand recruiting terminology and common patterns.",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=self.settings.chat_temperature,
-                max_tokens=300,
+                temperature=0.1,  # Lower temperature for more consistent parsing
+                max_tokens=400,  # More tokens for complex queries
                 response_format={"type": "json_object"},
             )
 
@@ -817,7 +840,7 @@ Parsed Filters JSON:"""
                 import json
 
                 filters = json.loads(content)
-                logger.info(f"Parsed filters: {filters}")
+                logger.info(f"Enhanced parsed filters: {filters}")
                 return filters
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse filter JSON: {e}")
@@ -830,6 +853,50 @@ Parsed Filters JSON:"""
         except Exception as e:
             logger.error(f"Error parsing chat query: {e}", exc_info=True)
             return {}
+
+    async def interpret_query_for_user(
+        self, original_query: str, applied_filters: Dict[str, Any]
+    ) -> str:
+        """
+        Generate a human-readable explanation of how the query was interpreted.
+
+        Shows users what criteria the AI extracted from their natural language query.
+
+        Args:
+            original_query: The user's original natural language query
+            applied_filters: The structured filters that were applied
+
+        Returns:
+            Human-friendly explanation like "Searching for: Python developers with 5+ years in California"
+        """
+        try:
+            from app.core.prompts import QUERY_INTERPRETATION_PROMPT
+
+            prompt = QUERY_INTERPRETATION_PROMPT.format(
+                query=original_query, filters=applied_filters
+            )
+
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You explain search queries in simple, friendly terms.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                max_tokens=100,
+            )
+
+            interpretation = response.choices[0].message.content.strip()
+            logger.info(f"Query interpretation: '{interpretation}'")
+            return interpretation
+
+        except Exception as e:
+            logger.error(f"Error interpreting query: {e}")
+            # Simple fallback
+            return f"Searching for: {original_query}"
 
     async def generate_chat_response_text(
         self,
@@ -1210,7 +1277,7 @@ Response:"""
                     min_experience=function_args.get("min_experience"),
                     max_experience=function_args.get("max_experience"),
                     location_keywords=function_args.get("location_keywords"),
-                    limit=function_args.get("limit", 10),
+                    limit=function_args.get("limit", 50),
                 )
 
             elif function_name == "rank_candidates":
@@ -1228,6 +1295,121 @@ Response:"""
         except Exception as e:
             logger.error(f"Error executing function {function_name}: {e}")
             return []
+
+    async def generate_completion(
+        self,
+        prompt: str,
+        max_tokens: int = 300,
+        temperature: float = 0.7,
+        attempt: int = 1,
+        max_attempts: int = 3,
+    ) -> str:
+        """
+        Generate text completion using OpenAI's Chat Completions API.
+
+        This is for general text generation in our RAG system.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            max_tokens: Maximum tokens to generate
+            temperature: Creativity level (0.0 to 1.0)
+            attempt: Current attempt number
+            max_attempts: Maximum retry attempts
+
+        Returns:
+            Generated text response
+
+        Raises:
+            TextGenerationError: If generation fails after retries
+        """
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt cannot be empty")
+
+        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        logger.info(
+            f"Generating completion (attempt {attempt}/{max_attempts}): '{prompt_preview}'"
+        )
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+            generated_text = response.choices[0].message.content
+
+            logger.info(
+                f"Completion generated successfully ({len(generated_text)} chars)"
+            )
+            return generated_text
+
+        except AuthenticationError as e:
+            logger.error(f"OpenAI Authentication Error: {e}", exc_info=True)
+            raise OpenAIConfigError(
+                "OpenAI authentication failed. Please check API key configuration.",
+                original_exception=e,
+            )
+
+        except RateLimitError as e:
+            logger.warning(
+                f"OpenAI Rate Limit Error (attempt {attempt}/{max_attempts}): {e}"
+            )
+
+            if attempt < max_attempts:
+                backoff_delay = 2**attempt  # 2, 4, 8 seconds
+                logger.info(f"Retrying after {backoff_delay} seconds...")
+                await asyncio.sleep(backoff_delay)
+                return await self.generate_completion(
+                    prompt, max_tokens, temperature, attempt + 1, max_attempts
+                )
+            else:
+                logger.error("Rate limit exceeded after all retry attempts")
+                raise TextGenerationError(
+                    "OpenAI rate limit exceeded after retries. Please try again later.",
+                    original_exception=e,
+                )
+
+        except (APITimeoutError, APIConnectionError) as e:
+            logger.warning(
+                f"OpenAI Connection Error (attempt {attempt}/{max_attempts}): {e}"
+            )
+
+            if attempt < max_attempts:
+                backoff_delay = 2**attempt
+                logger.info(f"Retrying after {backoff_delay} seconds...")
+                await asyncio.sleep(backoff_delay)
+                return await self.generate_completion(
+                    prompt, max_tokens, temperature, attempt + 1, max_attempts
+                )
+            else:
+                logger.error("Connection error after all retry attempts")
+                raise TextGenerationError(
+                    "OpenAI connection failed after retries. Please check network connection.",
+                    original_exception=e,
+                )
+
+        except BadRequestError as e:
+            logger.error(f"OpenAI Bad Request Error: {e}")
+            raise TextGenerationError(
+                f"Invalid request to OpenAI: {str(e)}",
+                original_exception=e,
+            )
+
+        except APIError as e:
+            logger.error(f"OpenAI API Error: {e}")
+            raise TextGenerationError(
+                f"OpenAI API error: {str(e)}",
+                original_exception=e,
+            )
+
+        except Exception as e:
+            logger.error(f"Unexpected error during text generation: {e}", exc_info=True)
+            raise TextGenerationError(
+                f"Unexpected error during text generation: {str(e)}",
+                original_exception=e,
+            )
 
 
 async def _test_llm_service():

@@ -20,20 +20,14 @@ interface MetricsBarProps {
   totalSearches?: number;
   totalResults?: number;
   searchTimeMs?: number;
-  outreachGenerated?: number; // 🔥 NEW PROP
-  onUploadClick?: () => void; // 🔥 NEW: Upload button handler
-  uploadCount?: number; // 🔥 NEW: Current upload count
-  maxUploads?: number; // 🔥 NEW: Max uploads allowed
+  outreachGenerated?: number;
 }
 
 export function MetricsBar({
   totalSearches = 0,
   totalResults = 0,
   searchTimeMs = 0,
-  outreachGenerated = 0, // 🔥 NEW PROP
-  onUploadClick, // 🔥 NEW
-  uploadCount = 0, // 🔥 NEW
-  maxUploads = 10, // 🔥 NEW
+  outreachGenerated = 0,
 }: MetricsBarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [sessionTime, setSessionTime] = useState(0);
@@ -168,19 +162,6 @@ export function MetricsBar({
         </div>
 
         <div className="flex items-center space-x-4">
-          {/* 🔥 NEW: Upload Button */}
-          {onUploadClick && (
-            <Button
-              onClick={onUploadClick}
-              size="sm"
-              variant="outline"
-              className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10 hover:border-purple-400"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              Upload ({uploadCount}/{maxUploads})
-            </Button>
-          )}
-
           <div className="text-sm text-gray-400 font-mono">
             Session: {formatTime(sessionTime)}
           </div>

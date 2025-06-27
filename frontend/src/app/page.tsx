@@ -3,19 +3,15 @@
 import { useState, useEffect } from "react";
 import { MetricsBar } from "../components/metrics-bar";
 import { HeroSection } from "../components/hero-section";
-import {
-  SearchInterface,
-  type SearchMode,
-} from "../components/search-interface";
+import { SearchInterface } from "../components/search-interface";
 import { ChatSection } from "../components/chat/ChatSection";
 import { TalentHeatMap } from "../components/talent-heat-map";
 import { CandidateGrid } from "../components/candidate-grid";
 import { CommandPalette } from "../components/command-palette";
 import { AnimatedBackground } from "../components/animated-background";
-import { OutreachModal } from "../components/custom/outreach-modal"; // FE-6 IMPORT
+import { OutreachModal } from "../components/custom/outreach-modal";
 import UploadModal from "../components/upload/UploadModal";
 // Import our services
-import { api } from "../lib/api";
 import {
   mapBackendCandidatesToFrontend,
   getSearchMetrics,
@@ -50,30 +46,30 @@ export default function Dashboard() {
     canUpload,
     canSendMessage,
   } = useSession();
-  const [searchQuery, setSearchQuery] = useState<string>("");
+
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] =
     useState<boolean>(false);
   const [candidates, setCandidates] = useState<FrontendCandidate[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [searchMetrics, setSearchMetrics] = useState<SearchMetrics>({
     totalResults: 0,
     searchTimeMs: 0,
     queryInterpretation: null,
   });
 
-  // Chat integration state
-  const [searchMode, setSearchMode] = useState<SearchMode>("search");
+  // 🚀 Chat-First State - No more search/chat mode toggle!
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatTyping, setIsChatTyping] = useState<boolean>(false);
   const [remainingMessages, setRemainingMessages] = useState<number>(10);
+  const [lastQueryInterpretation, setLastQueryInterpretation] =
+    useState<string>("");
 
-  // FE-6: Outreach modal state
+  // Outreach modal state
   const [isOutreachModalOpen, setIsOutreachModalOpen] = useState(false);
   const [selectedCandidateForOutreach, setSelectedCandidateForOutreach] =
     useState<FrontendCandidate | null>(null);
 
-  // Step 3: Upload modal state
+  // Upload modal state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Session metrics state
@@ -82,19 +78,6 @@ export default function Dashboard() {
     candidatesViewed: 0,
     outreachGenerated: 0,
     timeSpent: 0,
-  });
-
-  // Track active filters
-  const [activeFilters, setActiveFilters] = useState<{
-    location: string;
-    visa_status: string;
-    min_experience: number;
-    skills: string;
-  }>({
-    location: "",
-    visa_status: "",
-    min_experience: 0,
-    skills: "",
   });
 
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -128,17 +111,15 @@ export default function Dashboard() {
     }
   }, [chatMessages, session?.session_id]);
 
-  // FE-6: Updated handler for generating outreach messages
+  // Generate outreach messages
   const handleGenerateOutreach = async (candidateId: string) => {
     try {
-      // Find the candidate details
       const candidate = candidates.find((c) => c.id === candidateId);
 
       if (!candidate) {
         throw new Error("Candidate not found");
       }
 
-      // Set selected candidate and open modal
       setSelectedCandidateForOutreach(candidate);
       setIsOutreachModalOpen(true);
 
@@ -156,7 +137,7 @@ export default function Dashboard() {
     }
   };
 
-  // FE-6: Handle outreach success
+  // Handle outreach success
   const handleOutreachSuccess = () => {
     setSessionMetrics((prev) => ({
       ...prev,
@@ -169,7 +150,7 @@ export default function Dashboard() {
     });
   };
 
-  // Chat handler function - Updated for GPT-4o-mini conversational assistant
+  // 🚀 Enhanced Chat Handler - Now the primary interaction method!
   const handleChat = async (message: string) => {
     if (!message.trim() || !canSendMessage()) return;
 
@@ -185,8 +166,14 @@ export default function Dashboard() {
     setChatMessages((prev) => [...prev, userMessage]);
     setIsChatTyping(true);
 
+    // Update session metrics
+    setSessionMetrics((prev) => ({
+      ...prev,
+      totalSearches: prev.totalSearches + 1,
+    }));
+
     try {
-      // Call our new bulletproof conversational chat API
+      // Call our bulletproof conversational chat API
       const response = await apiService.bulletproofChat(
         message,
         session?.session_id || ""
@@ -209,7 +196,6 @@ export default function Dashboard() {
         content: response.ai_message,
         timestamp: new Date(),
         candidates: frontendCandidates,
-        // Bulletproof chat enhancements
         source: response.source as
           | "assistant"
           | "fallback"
@@ -223,6 +209,9 @@ export default function Dashboard() {
       // Update chat and remaining messages count
       setChatMessages((prev) => [...prev, assistantMessage]);
       setRemainingMessages(response.remaining_messages);
+
+      // Store query interpretation for refinements
+      setLastQueryInterpretation(response.ai_message);
 
       // Refresh session to get updated counts
       await refreshSession();
@@ -250,7 +239,7 @@ export default function Dashboard() {
           });
         } else {
           toast({
-            title: "💬 AI Assistant",
+            title: "🤖 AI Found Results",
             description: `Found ${frontendCandidates.length} candidates via ${
               response.source || "system"
             } in ${response.response_time?.toFixed(2) || "instant"}s`,
@@ -286,83 +275,10 @@ export default function Dashboard() {
     }
   };
 
-  const handleSearch = async (
-    query: string,
-    filters: Partial<typeof activeFilters> = {}
-  ) => {
-    setSearchQuery(query);
-    setHasSearched(true);
-    setErrorMessage(""); // Clear error on new search
-    setIsLoading(true);
-
-    // Update session metrics
-    setSessionMetrics((prev) => ({
-      ...prev,
-      totalSearches: prev.totalSearches + 1,
-    }));
-
-    try {
-      // Call the API service with the query and filters
-      const searchResults = await api.searchCandidates(query, {
-        ...activeFilters,
-        ...filters,
-      });
-
-      // Map the backend data to the format expected by our frontend
-      const mappedCandidates = mapBackendCandidatesToFrontend(searchResults);
-      setCandidates(mappedCandidates);
-
-      // Extract and set search metrics with defaults
-      const metrics = getSearchMetrics(searchResults);
-      setSearchMetrics({
-        totalResults: metrics.totalResults || 0,
-        searchTimeMs: metrics.searchTimeMs || 0,
-        queryInterpretation: metrics.queryInterpretation || null,
-      });
-
-      setIsLoading(false);
-
-      // Show success toast if there are results
-      if (mappedCandidates.length > 0) {
-        const timeStr = metrics.searchTimeMs
-          ? `${metrics.searchTimeMs.toFixed(2)}ms`
-          : "lightning fast";
-
-        toast({
-          title: "🎯 AI Search Complete",
-          description: `Found ${
-            metrics.totalResults || mappedCandidates.length
-          } candidates in ${timeStr} with intelligent matching`,
-        });
-      } else {
-        toast({
-          title: "No results found",
-          description: "Try adjusting your search query or filters",
-          variant: "destructive",
-        });
-      }
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Please try again";
-      setErrorMessage(message);
-      console.error("Search failed:", error);
-      toast({
-        title: "Search failed",
-        description: message,
-        variant: "destructive",
-      });
-      setIsLoading(false);
-    }
-  };
-
-  // Handler for filter changes
-  const handleFilterChange = (filters: Partial<typeof activeFilters>) => {
-    setActiveFilters({ ...activeFilters, ...filters });
-
-    // If we've already searched, rerun the search with new filters
-    if (hasSearched && searchQuery) {
-      handleSearch(searchQuery, filters);
-    }
+  // 🚀 Simplified Command Palette Search (uses chat behind the scenes)
+  const handleCommandPaletteSearch = async (query: string) => {
+    setIsCommandPaletteOpen(false);
+    await handleChat(query); // Everything goes through chat now!
   };
 
   return (
@@ -390,38 +306,33 @@ export default function Dashboard() {
           totalResults={searchMetrics.totalResults}
           searchTimeMs={searchMetrics.searchTimeMs}
           outreachGenerated={sessionMetrics.outreachGenerated}
-          onUploadClick={() => setIsUploadModalOpen(true)}
-          uploadCount={session?.upload_count || 0}
-          maxUploads={10}
         />
 
         <main className="container mx-auto px-4 pt-20">
-          {/* Always show compact hero section */}
-          <HeroSection onSearch={handleSearch} />
+          {/* 🚀 ENHANCED HERO SECTION - Chat-First Messaging */}
+          <HeroSection onSearch={handleChat} />
 
-          {/* Always show search interface prominently */}
+          {/* 🚀 BEAUTIFUL CHAT-FIRST SEARCH INTERFACE */}
           <div className="mt-8 mb-8">
             <SearchInterface
-              onSearch={handleSearch}
               onChat={handleChat}
-              initialQuery={searchQuery}
-              onFilterChange={handleFilterChange}
+              onUploadClick={() => setIsUploadModalOpen(true)}
               remainingUploads={getRemainingUploads()}
-              mode={searchMode}
-              onModeChange={setSearchMode}
               isTyping={isChatTyping}
               remainingMessages={remainingMessages}
+              lastQueryInterpretation={lastQueryInterpretation}
+              showRefinements={hasSearched && candidates.length > 0}
             />
           </div>
 
-          {/* Chat section appears when in chat mode and there are messages */}
-          {searchMode === "chat" && (
+          {/* 🚀 CHAT SECTION - Always visible when there are messages */}
+          {chatMessages.length > 0 && (
             <div className="mt-4 mb-8">
               <ChatSection messages={chatMessages} isTyping={isChatTyping} />
             </div>
           )}
 
-          {/* Show results only after search */}
+          {/* 🚀 RESULTS SECTION - Show after any search */}
           {hasSearched && (
             <div className="space-y-8">
               <div className="grid lg:grid-cols-4 gap-8">
@@ -429,13 +340,22 @@ export default function Dashboard() {
                   <TalentHeatMap />
                 </div>
                 <div className="lg:col-span-3">
-                  {candidates.length > 0 && (
+                  {candidates.length > 0 ? (
                     <CandidateGrid
                       candidates={candidates}
-                      isLoading={isLoading}
-                      searchQuery={searchQuery}
+                      isLoading={isChatTyping}
+                      searchQuery={lastQueryInterpretation}
                       onGenerateOutreach={handleGenerateOutreach}
                     />
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="text-gray-400 text-lg mb-4">
+                        No candidates found for your search
+                      </div>
+                      <div className="text-gray-500 text-sm">
+                        Try adjusting your criteria or asking differently
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -447,7 +367,7 @@ export default function Dashboard() {
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
-        onSearch={handleSearch}
+        onSearch={handleCommandPaletteSearch}
       />
 
       {/* Upload Modal */}
@@ -455,13 +375,11 @@ export default function Dashboard() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onUploadComplete={(results) => {
-          // Handle upload completion
           console.log("Upload completed:", results);
-          // Optionally refresh candidate list or show success message
         }}
       />
 
-      {/* FE-6: Outreach Modal */}
+      {/* Outreach Modal */}
       <OutreachModal
         isOpen={isOutreachModalOpen}
         onClose={() => {

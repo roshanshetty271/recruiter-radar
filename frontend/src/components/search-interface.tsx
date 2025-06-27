@@ -3,7 +3,6 @@
 import type React from "react";
 import { useState, useEffect, useCallback } from "react";
 import {
-  Search,
   Mic,
   Filter,
   Brain,
@@ -11,8 +10,9 @@ import {
   Zap,
   Target,
   Upload,
-  MessageCircle,
   Send,
+  Sparkles,
+  MessageCircleIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -22,53 +22,59 @@ import { AdvancedFilters } from "./advanced-filters";
 import { motion, AnimatePresence } from "framer-motion";
 import { QuerySuggestions } from "./chat/QuerySuggestions";
 
-interface SearchIntelligence {
+interface QueryIntelligence {
   query_complexity: "simple" | "moderate" | "complex";
   semantic_themes: string[];
   suggested_refinements: string[];
   market_insights: string[];
   confidence_score: number;
+  interpretation?: string;
 }
 
-export type SearchMode = "search" | "chat";
+interface QueryRefinement {
+  label: string;
+  action: string;
+  icon: React.ReactNode;
+}
 
 export function SearchInterface({
-  onSearch,
   onChat,
   initialQuery = "",
   onFilterChange = () => {},
   onUploadClick,
   remainingUploads = 10,
-  mode = "search",
-  onModeChange,
   isTyping = false,
   remainingMessages = 10,
+  lastQueryInterpretation,
+  showRefinements = false,
 }: {
-  onSearch: (query: string, filters?: any) => void;
-  onChat?: (message: string) => void;
+  onChat: (message: string) => void;
   initialQuery?: string;
   onFilterChange?: (filters: any) => void;
   onUploadClick?: () => void;
   remainingUploads?: number;
-  mode?: SearchMode;
-  onModeChange?: (mode: SearchMode) => void;
   isTyping?: boolean;
   remainingMessages?: number;
+  lastQueryInterpretation?: string;
+  showRefinements?: boolean;
 }) {
   const [query, setQuery] = useState(initialQuery);
-  const [isSearching, setIsSearching] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [activeFilters, setActiveFilters] = useState(0);
   const [filters, setFilters] = useState({});
 
-  // 🧠 NEW: AI Intelligence State
+  // 🧠 Enhanced AI Intelligence State
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   const [queryIntelligence, setQueryIntelligence] =
-    useState<SearchIntelligence | null>(null);
+    useState<QueryIntelligence | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showIntelligence, setShowIntelligence] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(!query);
 
-  // 🚀 NEW: Debounced query for real-time analysis
+  // 🚀 Smart Query Refinements (appear after search)
+  const [refinements, setRefinements] = useState<QueryRefinement[]>([]);
+
+  // 🚀 Debounced query for real-time analysis
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query);
@@ -77,24 +83,26 @@ export function SearchInterface({
     return () => clearTimeout(timer);
   }, [query]);
 
-  // 🧠 NEW: Real-time AI analysis (only for search mode)
+  // 🧠 Real-time AI analysis
   useEffect(() => {
-    if (mode === "search" && debouncedQuery.trim().length > 3) {
+    if (debouncedQuery.trim().length > 3) {
       analyzeQuery(debouncedQuery);
     } else {
       setQueryIntelligence(null);
       setShowIntelligence(false);
+      setShowSuggestions(!query);
     }
-  }, [debouncedQuery, mode]);
+  }, [debouncedQuery]);
 
-  // 🔥 NEW: Smart AI Query Analysis
+  // 🔥 Enhanced AI Query Analysis
   const analyzeQuery = useCallback(async (searchQuery: string) => {
     setIsAnalyzing(true);
+    setShowSuggestions(false);
 
-    // Simulate AI processing
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    // Simulate advanced AI processing
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
-    const mockIntelligence: SearchIntelligence = {
+    const mockIntelligence: QueryIntelligence = {
       query_complexity:
         searchQuery.split(" ").length > 5
           ? "complex"
@@ -105,6 +113,7 @@ export function SearchInterface({
       suggested_refinements: generateRefinements(searchQuery),
       market_insights: generateMarketInsights(searchQuery),
       confidence_score: Math.min(95, 60 + searchQuery.length * 1.5),
+      interpretation: generateInterpretation(searchQuery),
     };
 
     setQueryIntelligence(mockIntelligence);
@@ -112,7 +121,31 @@ export function SearchInterface({
     setIsAnalyzing(false);
   }, []);
 
-  // 🎯 NEW: Extract semantic themes
+  // 🎯 Generate human interpretation
+  const generateInterpretation = (searchQuery: string): string => {
+    const q = searchQuery.toLowerCase();
+    let interpretation = "Looking for: ";
+
+    if (q.includes("senior")) interpretation += "Senior ";
+    if (q.includes("python")) interpretation += "Python developers";
+    else if (q.includes("react")) interpretation += "React developers";
+    else if (q.includes("machine learning") || q.includes("ml"))
+      interpretation += "ML engineers";
+    else interpretation += "candidates";
+
+    if (
+      q.includes("california") ||
+      q.includes("sf") ||
+      q.includes("san francisco")
+    ) {
+      interpretation += " in California";
+    }
+    if (q.includes("remote")) interpretation += " (remote work)";
+
+    return interpretation;
+  };
+
+  // 🎯 Extract semantic themes
   const extractSemanticThemes = (searchQuery: string): string[] => {
     const themes: string[] = [];
     const q = searchQuery.toLowerCase();
@@ -132,7 +165,7 @@ export function SearchInterface({
     return themes.length > 0 ? themes : ["General Tech"];
   };
 
-  // 💡 NEW: Generate smart suggestions
+  // 💡 Generate smart suggestions
   const generateRefinements = (searchQuery: string): string[] => {
     const refinements: string[] = [];
     const q = searchQuery.toLowerCase();
@@ -154,7 +187,7 @@ export function SearchInterface({
     return refinements;
   };
 
-  // 📈 NEW: Market insights
+  // 📈 Market insights
   const generateMarketInsights = (searchQuery: string): string[] => {
     const insights: string[] = [];
     const q = searchQuery.toLowerCase();
@@ -175,23 +208,62 @@ export function SearchInterface({
     return insights;
   };
 
-  const handleAction = async () => {
-    if (!query.trim()) return;
+  // 🚀 Generate post-search refinements
+  const generatePostSearchRefinements = (
+    lastQuery: string
+  ): QueryRefinement[] => {
+    const refinements: QueryRefinement[] = [];
+    const q = lastQuery.toLowerCase();
 
-    if (mode === "search") {
-      setIsSearching(true);
-      await onSearch(query, filters);
-      setIsSearching(false);
-    } else if (mode === "chat" && onChat) {
-      onChat(query);
-      setQuery(""); // Clear input after sending chat message
+    if (q.includes("python")) {
+      refinements.push({
+        label: "More Senior",
+        action: "senior Python developers with 7+ years",
+        icon: <TrendingUp className="w-3 h-3" />,
+      });
+      refinements.push({
+        label: "Add AWS",
+        action: "Python developers with AWS experience",
+        icon: <Zap className="w-3 h-3" />,
+      });
+      refinements.push({
+        label: "Remote Only",
+        action: "remote Python developers",
+        icon: <Target className="w-3 h-3" />,
+      });
     }
+
+    if (!q.includes("remote") && !q.includes("location")) {
+      refinements.push({
+        label: "Add Location",
+        action: lastQuery + " in San Francisco",
+        icon: <Target className="w-3 h-3" />,
+      });
+    }
+
+    return refinements;
+  };
+
+  // Update refinements when we get results
+  useEffect(() => {
+    if (showRefinements && lastQueryInterpretation) {
+      const newRefinements = generatePostSearchRefinements(query);
+      setRefinements(newRefinements);
+    }
+  }, [showRefinements, lastQueryInterpretation, query]);
+
+  const handleChat = async () => {
+    if (!query.trim() || isTyping || remainingMessages <= 0) return;
+
+    onChat(query);
+    setQuery(""); // Clear input after sending
+    setShowSuggestions(true); // Show suggestions for next query
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleAction();
+      handleChat();
     }
   };
 
@@ -214,39 +286,30 @@ export function SearchInterface({
     }
   };
 
-  const handleModeToggle = () => {
-    const newMode = mode === "search" ? "chat" : "search";
-    onModeChange?.(newMode);
-  };
-
-  const getPlaceholder = () => {
-    if (mode === "search") {
-      return "Search for amazing talent...";
-    } else {
-      return isTyping ? "AI is thinking..." : "Ask me about your candidates...";
-    }
-  };
-
-  const isActionDisabled = () => {
-    if (mode === "chat") {
-      return !query.trim() || isTyping || remainingMessages <= 0;
-    }
-    return !query.trim() || isSearching;
-  };
-
   const handleSuggestionClick = (suggestion: string) => {
     setQuery(suggestion);
-    // Auto-trigger action for convenience
-    if (mode === "search") {
-      onSearch(suggestion, filters);
-    } else if (mode === "chat" && onChat) {
-      onChat(suggestion);
-      setQuery(""); // Clear for chat mode
-    }
+    // Auto-trigger for convenience
+    onChat(suggestion);
+    setQuery("");
+  };
+
+  const handleRefinementClick = (refinement: QueryRefinement) => {
+    setQuery(refinement.action);
+    onChat(refinement.action);
+    setQuery("");
+  };
+
+  const isDisabled = !query.trim() || isTyping || remainingMessages <= 0;
+
+  // Enhanced placeholder text
+  const getPlaceholder = () => {
+    if (isTyping) return "AI is thinking...";
+    return "Tell me what you're looking for... (e.g., 'Senior Python developers who can start next month')";
   };
 
   return (
     <div className="space-y-6">
+      {/* 🚀 HERO CHAT INPUT - Now the star of the show! */}
       <div className="relative">
         <div
           className="relative group"
@@ -254,17 +317,22 @@ export function SearchInterface({
             background: "rgba(255,255,255,0.05)",
             backdropFilter: "blur(12px)",
             border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: "16px",
+            borderRadius: "20px",
+            boxShadow: query ? "0 8px 32px rgba(147, 51, 234, 0.2)" : "",
           }}
         >
-          <div className="flex items-center p-4 space-x-4">
+          <div className="flex items-center p-6 space-x-4">
             <div className="flex-shrink-0">
-              {isSearching ? (
-                <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+              {isTyping ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="w-7 h-7 border-2 border-purple-400 border-t-transparent rounded-full"
+                />
               ) : isAnalyzing ? (
-                <Brain className="w-6 h-6 text-purple-400 animate-pulse" />
+                <Brain className="w-7 h-7 text-purple-400 animate-pulse" />
               ) : (
-                <Search className="w-6 h-6 text-gray-400" />
+                <MessageCircleIcon className="w-7 h-7 text-purple-400" />
               )}
             </div>
 
@@ -273,10 +341,11 @@ export function SearchInterface({
               onChange={(e) => setQuery(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder={getPlaceholder()}
-              className="flex-1 bg-transparent border-0 text-white placeholder-gray-400 text-lg focus:ring-0 focus:outline-none"
+              className="flex-1 bg-transparent border-0 text-white placeholder-gray-400 text-xl focus:ring-0 focus:outline-none"
+              style={{ fontSize: "18px" }}
             />
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-3">
               <Button
                 variant="ghost"
                 size="sm"
@@ -285,7 +354,7 @@ export function SearchInterface({
                 <Mic className="w-5 h-5" />
               </Button>
 
-              {/* 🧠 NEW: Intelligence Toggle */}
+              {/* 🧠 Intelligence Toggle */}
               {queryIntelligence && (
                 <Button
                   variant="ghost"
@@ -317,17 +386,17 @@ export function SearchInterface({
             </div>
           </div>
 
-          <div className="flex items-center justify-between px-4 pb-4">
+          <div className="flex items-center justify-between px-6 pb-6">
             <div className="flex items-center space-x-4">
               <div className="text-xs text-gray-500">
-                {query.length}/100 characters
+                {query.length}/200 characters
               </div>
 
-              {/* 🎯 NEW: Intelligence Indicator */}
+              {/* 🎯 Query Intelligence Indicator */}
               {queryIntelligence && (
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-3">
                   <div className="flex items-center space-x-1">
-                    <Target className="w-3 h-3 text-purple-400" />
+                    <Sparkles className="w-3 h-3 text-purple-400" />
                     <span
                       className={`text-xs font-medium ${getComplexityColor(
                         queryIntelligence.query_complexity
@@ -342,11 +411,18 @@ export function SearchInterface({
                       {queryIntelligence.confidence_score}%
                     </span>
                   </div>
+                  {queryIntelligence.interpretation && (
+                    <div className="flex items-center space-x-1">
+                      <span className="text-xs text-blue-300">
+                        {queryIntelligence.interpretation}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-3">
               {onUploadClick && (
                 <Button
                   onClick={onUploadClick}
@@ -358,36 +434,12 @@ export function SearchInterface({
                 </Button>
               )}
 
-              {/* Mode Toggle Button */}
               <Button
-                onClick={handleModeToggle}
-                variant="ghost"
-                size="sm"
-                className="px-3 py-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                title={
-                  mode === "search" ? "Switch to Chat" : "Switch to Search"
-                }
+                onClick={handleChat}
+                disabled={isDisabled}
+                className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-xl text-lg font-medium"
               >
-                <motion.div
-                  key={mode}
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {mode === "search" ? (
-                    <MessageCircle className="w-5 h-5" />
-                  ) : (
-                    <Search className="w-5 h-5" />
-                  )}
-                </motion.div>
-              </Button>
-
-              <Button
-                onClick={handleAction}
-                disabled={isActionDisabled()}
-                className="px-6 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg"
-              >
-                {isSearching || isTyping ? (
+                {isTyping ? (
                   <div className="flex items-center space-x-2">
                     <motion.div
                       animate={{ rotate: 360 }}
@@ -397,40 +449,26 @@ export function SearchInterface({
                         ease: "linear",
                       }}
                     >
-                      <Brain className="w-4 h-4" />
+                      <Brain className="w-5 h-5" />
                     </motion.div>
-                    <span>
-                      {mode === "search" ? "Searching..." : "Thinking..."}
-                    </span>
+                    <span>Thinking...</span>
                   </div>
                 ) : (
                   <div className="flex items-center space-x-2">
-                    {mode === "search" ? (
-                      <>
-                        <Zap className="w-4 h-4" />
-                        <span>Search</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-4 h-4" />
-                        <span>Send</span>
-                      </>
-                    )}
+                    <Send className="w-5 h-5" />
+                    <span>Ask AI</span>
                   </div>
                 )}
               </Button>
 
-              {/* Chat mode message counter */}
-              {mode === "chat" && (
-                <div className="text-xs text-gray-400">
-                  {remainingMessages} messages left
-                </div>
-              )}
+              <div className="text-xs text-gray-400">
+                {remainingMessages} questions left
+              </div>
             </div>
           </div>
         </div>
 
-        {/* 🔥 NEW: AI Intelligence Panel */}
+        {/* 🔥 AI Intelligence Panel */}
         <AnimatePresence>
           {showIntelligence && queryIntelligence && (
             <motion.div
@@ -447,7 +485,6 @@ export function SearchInterface({
               }}
             >
               <div className="p-4 space-y-4">
-                {/* Header */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Brain className="w-4 h-4 text-purple-400" />
@@ -466,81 +503,129 @@ export function SearchInterface({
                   </div>
                 </div>
 
-                {/* Semantic Themes */}
-                {queryIntelligence.semantic_themes.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Themes */}
                   <div>
-                    <p className="text-xs font-medium text-gray-300 mb-2">
-                      🎯 Detected Focus Areas:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                    <h4 className="text-xs font-medium text-gray-300 mb-2">
+                      Themes
+                    </h4>
+                    <div className="flex flex-wrap gap-1">
                       {queryIntelligence.semantic_themes.map((theme, index) => (
                         <Badge
                           key={index}
-                          className="bg-purple-500/20 text-purple-200 border-purple-400/30"
+                          variant="secondary"
+                          className="text-xs bg-purple-500/20 text-purple-300"
                         >
                           {theme}
                         </Badge>
                       ))}
                     </div>
                   </div>
-                )}
 
-                {/* Market Insights */}
-                {queryIntelligence.market_insights.length > 0 && (
+                  {/* Refinements */}
                   <div>
-                    <p className="text-xs font-medium text-gray-300 mb-2 flex items-center">
-                      <TrendingUp className="w-3 h-3 mr-1" />
-                      Market Intelligence:
-                    </p>
+                    <h4 className="text-xs font-medium text-gray-300 mb-2">
+                      Suggestions
+                    </h4>
+                    <div className="space-y-1">
+                      {queryIntelligence.suggested_refinements.map(
+                        (refinement, index) => (
+                          <div
+                            key={index}
+                            className="text-xs text-yellow-300 bg-yellow-500/10 px-2 py-1 rounded"
+                          >
+                            {refinement}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Market Insights */}
+                  <div>
+                    <h4 className="text-xs font-medium text-gray-300 mb-2">
+                      Market Insights
+                    </h4>
                     <div className="space-y-1">
                       {queryIntelligence.market_insights.map(
                         (insight, index) => (
-                          <p
+                          <div
                             key={index}
-                            className="text-xs text-blue-200 bg-blue-500/10 px-2 py-1 rounded border border-blue-400/20"
+                            className="text-xs text-blue-300 bg-blue-500/10 px-2 py-1 rounded"
                           >
                             {insight}
-                          </p>
+                          </div>
                         )
                       )}
                     </div>
                   </div>
-                )}
-
-                {/* Suggestions */}
-                {queryIntelligence.suggested_refinements.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-gray-300 mb-2">
-                      💡 Optimization Tips:
-                    </p>
-                    <div className="space-y-1">
-                      {queryIntelligence.suggested_refinements.map(
-                        (suggestion, index) => (
-                          <p
-                            key={index}
-                            className="text-xs text-yellow-200 bg-yellow-500/10 px-2 py-1 rounded border border-yellow-400/20"
-                          >
-                            {suggestion}
-                          </p>
-                        )
-                      )}
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 🚀 POST-SEARCH REFINEMENT CHIPS */}
+        <AnimatePresence>
+          {showRefinements && refinements.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="mt-4"
+            >
+              <div className="flex items-center space-x-2 mb-2">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <span className="text-sm text-gray-300">
+                  Quick refinements:
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {refinements.map((refinement, index) => (
+                  <Button
+                    key={index}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRefinementClick(refinement)}
+                    className="border-purple-400/30 bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 hover:text-purple-200"
+                  >
+                    {refinement.icon}
+                    <span className="ml-1">{refinement.label}</span>
+                  </Button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 🎯 QUERY SUGGESTIONS (when input is empty) */}
+        <AnimatePresence>
+          {showSuggestions && !query && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="mt-4"
+            >
+              <QuerySuggestions onSuggestionClick={handleSuggestionClick} />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Query Suggestions - show when no query or in certain modes */}
-      <QuerySuggestions
-        mode={mode}
-        onSuggestionClick={handleSuggestionClick}
-        visible={!query.trim() && !isSearching && !isTyping}
-      />
-
-      {showFilters && <AdvancedFilters onFiltersChange={handleFiltersChange} />}
+      {/* Advanced Filters Panel */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <AdvancedFilters onFiltersChange={handleFiltersChange} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

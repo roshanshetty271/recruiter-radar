@@ -73,46 +73,21 @@ class RAGService:
     - Resetting the underlying data collection.
     """
 
-    def __init__(self, settings_obj: Any, connector: ChromaConnector):
-        """
-        Initialize the RAG service with a pre-configured ChromaConnector.
+    def __init__(self):
+        """Initialize RAGService with ChromaConnector."""
+        logger.info("Initializing ChromaConnector for RAGService...")
+        from app.core.config import settings
 
-        Args:
-            settings_obj: The application settings object (can be used for RAG-specific settings if any).
-            connector: An initialized instance of ChromaConnector.
+        self.chroma_connector = ChromaConnector(settings_obj=settings)
+        logger.info(
+            f"RAGService initialized successfully using ChromaConnector for collection '{self.chroma_connector.collection_name}'."
+        )
 
-        Raises:
-            RAGServiceError: If the provided connector is invalid or collection access fails.
-        """
-        self.settings = settings_obj
-        self.connector = connector
-        try:
-            logger.info("Initializing ChromaConnector for RAGService...")
-            self.collection = self.connector.get_collection()
-            if not self.collection:
-                # This case should ideally be caught by connector.get_collection() raising an error
-                raise ChromaConnectionError(
-                    "ChromaConnector returned None for collection."
-                )
-            self.collection_name = self.collection.name
-            logger.info(
-                f"RAGService initialized successfully using ChromaConnector for collection '{self.collection_name}'."
-            )
-        except ChromaConnectionError as e:
-            logger.error(
-                f"Failed to initialize RAGService: Error obtaining collection from ChromaConnector: {e}",
-                exc_info=True,
-            )
-            raise RAGServiceError(
-                f"RAGService initialization failed: Connector error - {e}"
-            ) from e
-        except Exception as e:
-            logger.error(
-                f"Unexpected error during RAGService initialization: {e}", exc_info=True
-            )
-            raise RAGServiceError(
-                f"Unexpected error initializing RAGService: {e}"
-            ) from e
+        # 🚀 PERFORMANCE: Create shared LLMService instance to avoid recreation
+        from app.services.llm_service import LLMService
+
+        self.llm_service = LLMService(settings)
+        logger.info("Shared LLMService instance created for RAGService.")
 
     async def health_check(self) -> Dict[str, Any]:
         """
@@ -124,21 +99,21 @@ class RAGService:
         service_status = "healthy"
         details = {
             "rag_service_status": "initialized",
-            "chroma_collection_name": self.collection_name,
-            "chroma_db_path": str(Path(self.settings.chroma_db_path)),
-            "embedding_model_name_for_collection": self.settings.embedding_model_name,
+            "chroma_collection_name": self.chroma_connector.collection_name,
+            "chroma_db_path": str(Path(settings.chroma_db_path)),
+            "embedding_model_name_for_collection": settings.embedding_model_name,
         }
         try:
-            if not self.collection:
+            if not self.chroma_connector.collection:
                 service_status = "unhealthy"
                 details["error"] = (
                     "ChromaDB collection object not available in RAGService."
                 )
             else:
-                count = await asyncio.to_thread(self.collection.count)
+                count = await asyncio.to_thread(self.chroma_connector.collection.count)
                 details["chroma_document_count"] = count
                 logger.debug(
-                    f"RAGService health check: collection '{self.collection_name}' has {count} documents."
+                    f"RAGService health check: collection '{self.chroma_connector.collection_name}' has {count} documents."
                 )
         except Exception as e:
             logger.error(
@@ -150,6 +125,84 @@ class RAGService:
 
         details["status"] = service_status
         return details
+
+    async def get_session_collection(self, session_id: str):
+        """
+        Get or create a session-specific collection for proper user isolation.
+
+        This method eliminates the need for complex where clauses and provides
+        perfect data isolation between users.
+
+        Args:
+            session_id: The session identifier
+
+        Returns:
+            ChromaDB collection instance for the session
+        """
+        try:
+            return self.chroma_connector.get_or_create_session_collection(session_id)
+        except Exception as e:
+            logger.error(
+                f"Failed to get session collection for {session_id}: {e}", exc_info=True
+            )
+            raise RAGServiceError(f"Session collection access failed: {e}") from e
+
+    async def add_candidate_to_session_collection(
+        self,
+        session_id: str,
+        candidate_id: str,
+        embedding: List[float],
+        metadata: Dict[str, Any],
+        document_text: Optional[str] = None,
+    ):
+        """
+        Add a candidate to the session-specific collection.
+
+        This eliminates the need for session_id in metadata and provides
+        clean isolation between users.
+
+        Args:
+            session_id: The session identifier
+            candidate_id: Unique identifier for the candidate
+            embedding: Pre-computed embedding vector
+            metadata: Candidate metadata (no session_id needed)
+            document_text: Optional raw text that was embedded
+        """
+        if not candidate_id or not candidate_id.strip():
+            logger.error(
+                "Invalid candidate_id provided for add_candidate_to_session_collection."
+            )
+            raise ValueError("candidate_id cannot be empty.")
+        if not embedding:
+            logger.error(
+                f"Invalid or empty embedding provided for candidate {candidate_id}."
+            )
+            raise ValueError(f"Embedding for candidate {candidate_id} cannot be empty.")
+
+        try:
+            # Get session-specific collection
+            session_collection = await self.get_session_collection(session_id)
+
+            # Add to session collection (no session_id in metadata needed!)
+            await asyncio.to_thread(
+                session_collection.add,
+                ids=[candidate_id],
+                embeddings=[embedding],
+                metadatas=[metadata],
+                documents=[document_text] if document_text is not None else None,
+            )
+
+            logger.info(
+                f"Successfully added candidate ID '{candidate_id}' to session '{session_id}' collection."
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to add candidate '{candidate_id}' to session '{session_id}': {e}",
+                exc_info=True,
+            )
+            raise DocumentStorageError(
+                f"Failed to add candidate '{candidate_id}' to session collection: {e}"
+            ) from e
 
     async def add_candidate_to_collection(
         self,
@@ -184,22 +237,22 @@ class RAGService:
             raise ValueError(f"Embedding for candidate {candidate_id} cannot be empty.")
 
         logger.debug(
-            f"RAGService: Queueing add operation for candidate ID '{candidate_id}' to collection '{self.collection_name}' (via thread)."
+            f"RAGService: Queueing add operation for candidate ID '{candidate_id}' to collection '{self.chroma_connector.collection_name}' (via thread)."
         )
         try:
             await asyncio.to_thread(
-                self.collection.add,
+                self.chroma_connector.collection.add,
                 ids=[candidate_id],
                 embeddings=[embedding],
                 metadatas=[metadata],
                 documents=[document_text] if document_text is not None else None,
             )
             logger.info(
-                f"RAGService: Successfully added/updated candidate ID '{candidate_id}' in collection '{self.collection_name}'."
+                f"RAGService: Successfully added/updated candidate ID '{candidate_id}' in collection '{self.chroma_connector.collection_name}'."
             )
         except Exception as e:
             logger.error(
-                f"RAGService: Threaded add failed for candidate ID '{candidate_id}' to collection '{self.collection_name}': {e}",
+                f"RAGService: Threaded add failed for candidate ID '{candidate_id}' to collection '{self.chroma_connector.collection_name}': {e}",
                 exc_info=True,
             )
             raise DocumentStorageError(
@@ -210,10 +263,10 @@ class RAGService:
         self, candidate_id: str, session_id: str
     ) -> bool:
         """
-        Delete a candidate from the collection if it exists.
+        Delete a candidate from the session collection if it exists.
 
-        This is used to implement "update" behavior - delete the old version
-        before adding the new version.
+        With session-based collections, this is much simpler - we just need
+        to check if the candidate_id exists in the session's collection.
 
         Args:
             candidate_id: The candidate ID to delete
@@ -226,34 +279,37 @@ class RAGService:
             DocumentStorageError: If deletion fails
         """
         try:
-            # First check if candidate exists
+            # Get session-specific collection
+            session_collection = await self.get_session_collection(session_id)
+
+            # Check if candidate exists (simple query - no complex where clause!)
             results = await asyncio.to_thread(
-                self.collection.get,
-                where={"candidate_id": candidate_id, "session_id": session_id},
+                session_collection.get,
+                ids=[candidate_id],
                 include=["metadatas"],
             )
 
             if not results or not results.get("ids"):
-                logger.debug(f"Candidate {candidate_id} not found for deletion")
+                logger.debug(
+                    f"Candidate {candidate_id} not found for deletion in session {session_id}"
+                )
                 return False
 
-            # Delete all matching records (handles chunking case where multiple vectors exist)
-            ids_to_delete = results["ids"]
+            # Delete the candidate
+            await asyncio.to_thread(session_collection.delete, ids=[candidate_id])
+
             logger.info(
-                f"Deleting {len(ids_to_delete)} existing records for candidate {candidate_id}"
+                f"Successfully deleted candidate {candidate_id} from session {session_id}"
             )
-
-            await asyncio.to_thread(self.collection.delete, ids=ids_to_delete)
-
-            logger.info(f"Successfully deleted existing candidate {candidate_id}")
             return True
 
         except Exception as e:
             logger.error(
-                f"Failed to delete candidate {candidate_id}: {e}", exc_info=True
+                f"Failed to delete candidate {candidate_id} from session {session_id}: {e}",
+                exc_info=True,
             )
             raise DocumentStorageError(
-                f"Failed to delete existing candidate '{candidate_id}': {e}"
+                f"Failed to delete candidate '{candidate_id}' from session collection: {e}"
             ) from e
 
     async def batch_add_candidates(
@@ -283,7 +339,7 @@ class RAGService:
             }
 
         logger.info(
-            f"RAGService: Preparing batch add for {len(candidates_data)} candidates to '{self.collection_name}'."
+            f"RAGService: Preparing batch add for {len(candidates_data)} candidates to '{self.chroma_connector.collection_name}'."
         )
         ids, embeddings, metadatas, documents = [], [], [], []
         initial_processing_errors = []
@@ -328,10 +384,10 @@ class RAGService:
 
         try:
             logger.debug(
-                f"RAGService: Queueing batch add operation for {len(ids)} candidates to '{self.collection_name}' (via thread)."
+                f"RAGService: Queueing batch add operation for {len(ids)} candidates to '{self.chroma_connector.collection_name}' (via thread)."
             )
             await asyncio.to_thread(
-                self.collection.add,
+                self.chroma_connector.collection.add,
                 ids=ids,
                 embeddings=embeddings,
                 metadatas=metadatas,
@@ -340,7 +396,7 @@ class RAGService:
                 ),
             )
             logger.info(
-                f"RAGService: Successfully batch added {len(ids)} candidates to collection '{self.collection_name}'."
+                f"RAGService: Successfully batch added {len(ids)} candidates to collection '{self.chroma_connector.collection_name}'."
             )
             return {
                 "total_candidates_received": len(candidates_data),
@@ -356,7 +412,7 @@ class RAGService:
                 exc_info=True,
             )
             raise DocumentStorageError(
-                f"Batch insertion into collection '{self.collection_name}' failed: {e}"
+                f"Batch insertion into collection '{self.chroma_connector.collection_name}' failed: {e}"
             ) from e
 
     async def similarity_search(
@@ -389,19 +445,19 @@ class RAGService:
             SearchOperationError: If the underlying search operation fails.
             RAGServiceError: For other RAG service issues (e.g., collection not available).
         """
-        if not self.collection:
+        if not self.chroma_connector.collection:
             logger.error(
                 "RAGService.similarity_search: ChromaDB collection is not available."
             )
             raise RAGServiceError("ChromaDB collection not initialized or accessible.")
 
         logger.debug(
-            f"RAGService: Initiating similarity search in collection '{self.collection_name}' with k={k}, filters={filters is not None}."
+            f"RAGService: Initiating similarity search in collection '{self.chroma_connector.collection_name}' with k={k}, filters={filters is not None}."
         )
         try:
             # execute_similarity_search is already async
             results, count_before_post_filter = await execute_similarity_search(
-                collection=self.collection,
+                collection=self.chroma_connector.collection,
                 query_embedding=query_embedding,
                 query_text=query_text,
                 k=k,
@@ -444,9 +500,9 @@ class RAGService:
         try:
             # Get path from settings
             logger.info(
-                f"RAGService._load_candidates_cache: self.settings.candidate_data_full_path = {self.settings.candidate_data_full_path}"
+                f"RAGService._load_candidates_cache: self.settings.candidate_data_full_path = {settings.candidate_data_full_path}"
             )
-            candidates_path = Path(self.settings.candidate_data_full_path)
+            candidates_path = Path(settings.candidate_data_full_path)
 
             if not candidates_path.exists():
                 logger.error(f"Candidate data file not found: {candidates_path}")
@@ -582,26 +638,28 @@ class RAGService:
             CollectionManagementError: If any step in resetting the collection fails.
         """
         logger.warning(
-            f"RAGService: Attempting to reset collection '{self.collection_name}' via ChromaConnector (in thread)."
+            f"RAGService: Attempting to reset collection '{self.chroma_connector.collection_name}' via ChromaConnector (in thread)."
         )
         try:
             new_collection_instance = await asyncio.to_thread(
-                self.connector.recreate_collection
+                self.chroma_connector.recreate_collection
             )
 
-            self.collection = new_collection_instance
-            self.collection_name = self.collection.name
+            self.chroma_connector.collection = new_collection_instance
+            self.chroma_connector.collection_name = (
+                self.chroma_connector.collection.name
+            )
 
             logger.info(
-                f"RAGService: Collection '{self.collection_name}' reset. RAGService now uses the new collection instance."
+                f"RAGService: Collection '{self.chroma_connector.collection_name}' reset. RAGService now uses the new collection instance."
             )
         except ChromaCollectionError as e:
             logger.error(
-                f"RAGService: Failed to reset collection '{self.collection_name}' due to ChromaConnector error: {e}",
+                f"RAGService: Failed to reset collection '{self.chroma_connector.collection_name}' due to ChromaConnector error: {e}",
                 exc_info=True,
             )
             raise CollectionManagementError(
-                f"Failed to reset collection '{self.collection_name}': Connector - {e}"
+                f"Failed to reset collection '{self.chroma_connector.collection_name}': Connector - {e}"
             ) from e
         except Exception as e:
             logger.error(
@@ -609,7 +667,7 @@ class RAGService:
                 exc_info=True,
             )
             raise CollectionManagementError(
-                f"Unexpected error resetting collection '{self.collection_name}': {e}"
+                f"Unexpected error resetting collection '{self.chroma_connector.collection_name}': {e}"
             ) from e
 
     async def get_parent_candidate_ids(self, chunk_ids: List[str]) -> List[str]:
@@ -692,11 +750,11 @@ class RAGService:
         self,
         session_id: str,
         filters: Dict[str, Any],
-        limit: int = 10,
+        limit: int = 50,
         include_demo: bool = True,
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve resumes for session and apply advanced filters in Python.
+        Retrieve resumes using session-based collections for perfect user isolation.
 
         Args:
             session_id: User's session ID
@@ -705,45 +763,54 @@ class RAGService:
             include_demo: Whether to include demo data when user has no uploads
         """
         try:
-            # Step 1: Determine which sessions to search
-            session_ids_to_search = [session_id]
+            # Step 1: Get user's session collection and check for uploads
+            user_session_collection = await self.get_session_collection(session_id)
 
-            # If include_demo is True, check if user has any uploads
-            if include_demo:
-                # Check if user has any uploaded candidates
-                user_results = await asyncio.to_thread(
-                    self.collection.get,
-                    where={"session_id": session_id},
-                    include=["metadatas"],
-                    limit=1,  # Just need to check if any exist
-                )
+            # Check if user has any uploaded candidates
+            user_results = await asyncio.to_thread(
+                user_session_collection.get,
+                include=["metadatas", "documents"],
+                limit=100,  # Get all user uploads
+            )
 
-                # If no user uploads found, include demo data
-                if not user_results or not user_results["ids"]:
-                    session_ids_to_search.append("demo_static")
-                    logger.info(
-                        f"No uploads found for session {session_id}, including demo data"
-                    )
-
-            # Step 2: Get candidates from all relevant sessions
             all_results = {"ids": [], "metadatas": [], "documents": []}
 
-            for search_session_id in session_ids_to_search:
-                results = await asyncio.to_thread(
-                    self.collection.get,
-                    where={"session_id": search_session_id},
-                    include=["metadatas", "documents"],
-                    limit=100,
+            # Add user's results if any
+            if user_results and user_results["ids"]:
+                all_results["ids"].extend(user_results["ids"])
+                all_results["metadatas"].extend(user_results["metadatas"])
+                if user_results.get("documents"):
+                    all_results["documents"].extend(user_results["documents"])
+                else:
+                    all_results["documents"].extend([None] * len(user_results["ids"]))
+                logger.info(
+                    f"Found {len(user_results['ids'])} user uploads for session {session_id}"
                 )
 
-                if results and results["ids"]:
-                    all_results["ids"].extend(results["ids"])
-                    all_results["metadatas"].extend(results["metadatas"])
-                    if results.get("documents"):
-                        all_results["documents"].extend(results["documents"])
-                    else:
-                        # Ensure documents list matches the length
-                        all_results["documents"].extend([None] * len(results["ids"]))
+            # Step 2: Include demo data if requested and user has no uploads
+            if include_demo and (not user_results or not user_results["ids"]):
+                try:
+                    demo_collection = await self.get_session_collection("demo_static")
+                    demo_results = await asyncio.to_thread(
+                        demo_collection.get,
+                        include=["metadatas", "documents"],
+                        limit=50,  # Limit demo results
+                    )
+
+                    if demo_results and demo_results["ids"]:
+                        all_results["ids"].extend(demo_results["ids"])
+                        all_results["metadatas"].extend(demo_results["metadatas"])
+                        if demo_results.get("documents"):
+                            all_results["documents"].extend(demo_results["documents"])
+                        else:
+                            all_results["documents"].extend(
+                                [None] * len(demo_results["ids"])
+                            )
+                        logger.info(
+                            f"Including {len(demo_results['ids'])} demo candidates"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to load demo data: {e}")
 
             # Use the combined results for the rest of the processing
             results = all_results
@@ -805,11 +872,12 @@ class RAGService:
         Used to provide context for chat query parsing.
         """
         try:
-            # Using .get() is more efficient for retrieving all items based on metadata
-            # than .query() without a query vector.
+            # Get session-specific collection
+            session_collection = await self.get_session_collection(session_id)
+
+            # Get all candidates from session collection (no complex where clause!)
             results = await asyncio.to_thread(
-                self.collection.get,
-                where={"session_id": session_id},
+                session_collection.get,
                 include=["metadatas"],  # We only need metadata to extract skills
             )
 
@@ -842,10 +910,11 @@ class RAGService:
         session_id: str,
         skills: Optional[List[str]] = None,
         title_keywords: Optional[List[str]] = None,
+        name_keywords: Optional[List[str]] = None,
         min_experience: Optional[int] = None,
         max_experience: Optional[int] = None,
         location_keywords: Optional[List[str]] = None,
-        limit: int = 10,
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """
         Search candidates using structured function parameters from GPT-4o-mini.
@@ -857,6 +926,7 @@ class RAGService:
             session_id: User's session ID
             skills: Array of required skills
             title_keywords: Keywords that should appear in job titles
+            name_keywords: Keywords that should appear in candidate names
             min_experience: Minimum years of experience
             max_experience: Maximum years of experience
             location_keywords: Location keywords to match
@@ -886,6 +956,16 @@ class RAGService:
             else:
                 filter_conditions.append({"$and": title_conditions})
 
+        # Name keywords filter
+        if name_keywords:
+            name_conditions = []
+            for keyword in name_keywords:
+                name_conditions.append({"name": {"$regex": f"(?i){keyword}"}})
+            if len(name_conditions) == 1:
+                filter_conditions.append(name_conditions[0])
+            else:
+                filter_conditions.append({"$and": name_conditions})
+
         # Experience range filters
         if min_experience is not None:
             filter_conditions.append({"experience_years": {"$gte": min_experience}})
@@ -909,7 +989,7 @@ class RAGService:
 
         logger.info(
             f"Function search with parameters: skills={skills}, title_keywords={title_keywords}, "
-            f"experience={min_experience}-{max_experience}, location={location_keywords}"
+            f"name_keywords={name_keywords}, experience={min_experience}-{max_experience}, location={location_keywords}"
         )
         logger.debug(f"Generated filters: {filters}")
 
@@ -950,7 +1030,7 @@ class RAGService:
             for candidate_id in candidate_ids:
                 # Get candidates from ChromaDB by candidate_id
                 results = await asyncio.to_thread(
-                    self.collection.get,
+                    self.chroma_connector.collection.get,
                     where={"candidate_id": candidate_id, "session_id": session_id},
                     include=["metadatas", "documents"],
                 )
@@ -1052,9 +1132,7 @@ def get_rag_service() -> RAGService:
     Initializes ChromaConnector and injects it into RAGService.
     """
     try:
-        connector = ChromaConnector(settings_obj=settings)
-
-        rag_service_instance = RAGService(settings_obj=settings, connector=connector)
+        rag_service_instance = RAGService()
         return rag_service_instance
 
     except ChromaConfigError as e:

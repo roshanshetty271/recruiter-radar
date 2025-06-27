@@ -20,7 +20,8 @@ export default function UploadModal({
   onClose,
   onUploadComplete,
 }: UploadModalProps) {
-  const { session, remainingUploads, canUpload } = useSession();
+  const { session, getRemainingUploads, canUpload } = useSession();
+  const remainingUploads = getRemainingUploads();
   const [uploadResults, setUploadResults] = useState<UploadStatusResponse[]>(
     []
   );
@@ -129,7 +130,7 @@ export default function UploadModal({
                 <div>
                   <h2 className="text-xl font-semibold">Upload Resumes</h2>
                   <p className="text-sm text-muted-foreground">
-                    {canUpload
+                    {canUpload()
                       ? `${remainingUploads} upload${
                           remainingUploads !== 1 ? "s" : ""
                         } remaining`
@@ -152,7 +153,7 @@ export default function UploadModal({
             {/* Content */}
             <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-140px)]">
               {/* Upload limit warning */}
-              {!canUpload && (
+              {!canUpload() && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -172,13 +173,13 @@ export default function UploadModal({
               )}
 
               {/* Upload Zone */}
-              {canUpload && (
+              {canUpload() && session && (
                 <UploadZone
-                  sessionId={session.id}
+                  sessionId={session.session_id}
                   onUploadStart={handleUploadStart}
                   onUploadProgress={handleUploadProgress}
                   onUploadComplete={handleUploadComplete}
-                  disabled={!canUpload || isUploading}
+                  disabled={!canUpload() || isUploading}
                   maxFiles={remainingUploads}
                 />
               )}

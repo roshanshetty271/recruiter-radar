@@ -439,3 +439,21 @@ class ChatResponse(BaseModel):
                 candidate["skills"] = []
 
         return values
+
+
+class BulletproofChatResponse(BaseModel):
+    """Internal response model for bulletproof chat with detailed metadata"""
+
+    ai_message: str = Field(..., description="AI's conversational response")
+    candidates: List[Dict[str, Any]] = Field(
+        default_factory=list, description="List of matching candidates"
+    )
+    source: str = Field(
+        ..., description="Source of the response (real_rag/fallback/cache/etc)"
+    )
+    response_time: float = Field(..., description="Response time in seconds")
+    remaining_messages: int = Field(..., description="Remaining messages for session")
+    processing_time_ms: int = Field(..., description="Processing time in milliseconds")
+    success: bool = Field(
+        default=True, description="Whether the operation was successful"
+    )

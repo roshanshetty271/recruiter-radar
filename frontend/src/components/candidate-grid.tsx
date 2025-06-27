@@ -26,99 +26,13 @@ import { Separator } from "./ui/separator";
 import { useToast } from "../hooks/use-toast";
 import type { FrontendCandidate } from "../lib/types";
 
-interface Candidate {
-  id: string;
-  name: string;
-  title: string;
-  location: string;
-  distance?: string;
-  matchScore: number;
-  experience: number | undefined;
-  skills: string[];
-  isOnline: boolean;
-  isVerified: boolean;
-  avatar: string;
-  visaStatus?: string;
-  githubUrl?: string;
-  linkedinUrl?: string;
-  isDemo?: boolean;
-}
-
-// CSV Export utility function
-const exportToCsv = (candidates: Candidate[], searchQuery: string) => {
-  // Prepare CSV headers
-  const headers = [
-    "Name",
-    "Title",
-    "Skills",
-    "Location",
-    "Experience (Years)",
-    "Visa Status",
-    "GitHub URL",
-    "LinkedIn URL",
-    "Match Score",
-    "Candidate Type",
-  ];
-
-  // Prepare CSV rows
-  const rows = candidates.map((candidate) => [
-    candidate.name || "",
-    candidate.title || "",
-    candidate.skills?.join("; ") || "",
-    candidate.location || "",
-    candidate.experience?.toString() || "",
-    candidate.visaStatus || "",
-    candidate.githubUrl || "",
-    candidate.linkedinUrl || "",
-    candidate.matchScore?.toString() || "",
-    candidate.id?.startsWith("upload_") ? "Your Upload" : "Demo",
-  ]);
-
-  // Create CSV content
-  const csvContent = [
-    headers.join(","),
-    ...rows.map((row) =>
-      row
-        .map((field) =>
-          typeof field === "string" &&
-          (field.includes(",") || field.includes('"'))
-            ? `"${field}"`
-            : field
-        )
-        .join(",")
-    ),
-  ].join("\n");
-
-  // Download file
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  link.setAttribute("href", url);
-
-  // Generate filename with timestamp and search query
-  const timestamp = new Date().toISOString().split("T")[0];
-  const sanitizedQuery = searchQuery
-    .replace(/[^a-z0-9]/gi, "_")
-    .substring(0, 20);
-  const filename = `recruiter_radar_${
-    sanitizedQuery || "search"
-  }_${timestamp}.csv`;
-
-  link.setAttribute("download", filename);
-  link.style.visibility = "hidden";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-};
-
 export function CandidateGrid({
   candidates,
   isLoading,
   searchQuery = "", // 🔥 NEW
   onGenerateOutreach, // 🔥 NEW
 }: {
-  candidates: Candidate[];
+  candidates: FrontendCandidate[];
   isLoading: boolean;
   searchQuery?: string; // 🔥 NEW
   onGenerateOutreach?: (candidateId: string) => void; // 🔥 NEW
@@ -127,9 +41,9 @@ export function CandidateGrid({
   const [savedCandidates, setSavedCandidates] = useState<Set<string>>(
     new Set()
   );
-  const [comparisonCandidates, setComparisonCandidates] = useState<Candidate[]>(
-    []
-  );
+  const [comparisonCandidates, setComparisonCandidates] = useState<
+    FrontendCandidate[]
+  >([]);
   const [showComparison, setShowComparison] = useState(false);
 
   const toggleSave = (candidateId: string) => {
@@ -142,7 +56,7 @@ export function CandidateGrid({
     setSavedCandidates(newSaved);
   };
 
-  const addToComparison = (candidate: Candidate) => {
+  const addToComparison = (candidate: FrontendCandidate) => {
     if (
       comparisonCandidates.length < 3 &&
       !comparisonCandidates.find((c) => c.id === candidate.id)
@@ -285,7 +199,7 @@ export function CandidateGrid({
             isSaved={savedCandidates.has(candidate.id)}
             onToggleSave={() => toggleSave(candidate.id)}
             onAddToComparison={() => addToComparison(candidate)}
-            onGenerateOutreach={() => onGenerateOutreach?.(candidate.id)} // �� NEW
+            onGenerateOutreach={() => onGenerateOutreach?.(candidate.id)} // 🔥 NEW
             isInComparison={comparisonCandidates.some(
               (c) => c.id === candidate.id
             )}
@@ -319,7 +233,7 @@ function CandidateCard({
   isInComparison,
   delay,
 }: {
-  candidate: Candidate;
+  candidate: FrontendCandidate;
   searchQuery?: string; // 🔥 NEW
   isSaved: boolean;
   onToggleSave: () => void;
@@ -706,7 +620,7 @@ function SkeletonCard({ delay }: { delay: number }) {
 }
 
 interface ComparisonBarProps {
-  candidates: Candidate[];
+  candidates: FrontendCandidate[];
   onRemove: (candidateId: string) => void;
   onCompare: () => void;
   onClear: () => void;
@@ -757,7 +671,7 @@ function ComparisonBar({
 }
 
 interface CandidateComparisonProps {
-  candidates: Candidate[];
+  candidates: FrontendCandidate[];
   isOpen: boolean;
   onClose: () => void;
   onRemove: (candidateId: string) => void;
@@ -836,3 +750,70 @@ function CandidateComparison({
     </div>
   );
 }
+
+const exportToCsv = (candidates: FrontendCandidate[], searchQuery: string) => {
+  // Prepare CSV headers
+  const headers = [
+    "Name",
+    "Title",
+    "Skills",
+    "Location",
+    "Experience (Years)",
+    "Visa Status",
+    "GitHub URL",
+    "LinkedIn URL",
+    "Match Score",
+    "Candidate Type",
+  ];
+
+  // Prepare CSV rows
+  const rows = candidates.map((candidate) => [
+    candidate.name || "",
+    candidate.title || "",
+    candidate.skills?.join("; ") || "",
+    candidate.location || "",
+    candidate.experience?.toString() || "",
+    candidate.visaStatus || "",
+    candidate.githubUrl || "",
+    candidate.linkedinUrl || "",
+    candidate.matchScore?.toString() || "",
+    candidate.id?.startsWith("upload_") ? "Your Upload" : "Demo",
+  ]);
+
+  // Create CSV content
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) =>
+      row
+        .map((field) =>
+          typeof field === "string" &&
+          (field.includes(",") || field.includes('"'))
+            ? `"${field}"`
+            : field
+        )
+        .join(",")
+    ),
+  ].join("\n");
+
+  // Download file
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+
+  // Generate filename with timestamp and search query
+  const timestamp = new Date().toISOString().split("T")[0];
+  const sanitizedQuery = searchQuery
+    .replace(/[^a-z0-9]/gi, "_")
+    .substring(0, 20);
+  const filename = `recruiter_radar_${
+    sanitizedQuery || "search"
+  }_${timestamp}.csv`;
+
+  link.setAttribute("download", filename);
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};

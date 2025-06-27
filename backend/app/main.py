@@ -53,10 +53,8 @@ async def lifespan(app: FastAPI):
         app.state.chroma_connector = ChromaConnector(settings_obj=settings)
         logger.info("ChromaConnector initialized.")
 
-        # Initialize RAGService, injecting the connector and settings
-        app.state.rag_service = RAGService(
-            settings_obj=settings, connector=app.state.chroma_connector
-        )
+        # Initialize RAGService - it creates its own ChromaConnector internally
+        app.state.rag_service = RAGService()
         logger.info("RAGService initialized.")
 
         # Initialize SessionService

@@ -161,6 +161,73 @@ Key patterns:
 Return ONLY a valid JSON object with the filters. Empty object {} if no clear filters.
 """
 
+CHAT_QUERY_PARSING_PROMPT_V2 = """
+Parse the user's natural language recruiting query into structured database filters.
+
+Advanced Examples:
+- "Python developers" → {"skills": {"$contains": "Python"}}
+- "senior engineers with 5+ years" → {"$and": [{"title": {"$regex": "(?i)senior"}}, {"experience_years": {"$gte": 5}}]}
+- "React devs in NYC or San Francisco" → {"$and": [{"skills": {"$contains": "React"}}, {"$or": [{"location": {"$regex": "(?i)nyc|new york"}}, {"location": {"$regex": "(?i)san francisco|sf"}}]}]}
+- "full stack developers who know AWS and Docker" → {"$and": [{"title": {"$regex": "(?i)full.?stack"}}, {"skills": {"$contains": "AWS"}}, {"skills": {"$contains": "Docker"}}]}
+- "senior Python developers in California who can start immediately" → {"$and": [{"skills": {"$contains": "Python"}}, {"title": {"$regex": "(?i)senior"}}, {"location": {"$regex": "(?i)california|ca"}}]}
+- "machine learning engineers with TensorFlow experience" → {"$and": [{"title": {"$regex": "(?i)machine.?learning|ml|data.?scientist"}}, {"skills": {"$contains": "TensorFlow"}}]}
+- "remote workers with 3-7 years experience" → {"$and": [{"location": {"$regex": "(?i)remote"}}, {"experience_years": {"$gte": 3}}, {"experience_years": {"$lte": 7}}]}
+
+Experience Level Keywords:
+- "entry level/junior/new grad" → 0-2 years
+- "mid-level/intermediate" → 3-5 years  
+- "senior" → 5+ years
+- "lead/principal/staff" → 7+ years
+
+Location Keywords:
+- "SF/Bay Area" → "san francisco|silicon valley|palo alto|san jose"
+- "NYC" → "new york|manhattan|brooklyn"
+- "remote/distributed/anywhere" → "remote"
+
+Skill Synonyms:
+- "JS/JavaScript" → "JavaScript"
+- "AI/ML" → "Machine Learning|TensorFlow|PyTorch"
+- "Frontend" → "React|Vue|Angular"
+- "Backend" → "Python|Java|Node"
+
+Return ONLY a valid JSON object with the filters. Empty object {} if no clear filters.
+"""
+
+# New: Query Interpretation for User Feedback
+QUERY_INTERPRETATION_PROMPT = """
+Explain how you interpreted the user's search query in simple, human terms.
+
+User Query: "{query}"
+Filters Applied: {filters}
+
+Return a brief, friendly explanation like:
+- "Searching for: Python developers with 5+ years experience in California"
+- "Looking for: Senior engineers who know React and are open to remote work"
+- "Finding: Machine learning specialists with TensorFlow experience"
+
+Keep it conversational and clear. Focus on the key criteria you extracted.
+"""
+
+# Enhanced Chat Response with Context
+CHAT_RESPONSE_WITH_CONTEXT_PROMPT = """
+You are an AI recruiting assistant. Respond to the user's query about candidates.
+
+Context:
+- Previous Query: {previous_query}
+- Current Query: {current_query}
+- Results Found: {results_count} candidates
+- Key Filters: {filters_summary}
+
+Guidelines:
+- Reference previous searches when relevant ("Compared to your last search...")
+- Celebrate good matches ("Great! I found some excellent Python developers...")
+- Suggest refinements when results are too broad/narrow
+- Be conversational but professional
+- Keep responses under 2 sentences
+
+Generate a helpful response that acknowledges the search context and results.
+"""
+
 # Chat Response Generation Guidelines
 CHAT_RESPONSE_GUIDELINES = """
 You are an AI recruiting assistant helping users find candidates from their uploaded resumes.
@@ -176,41 +243,110 @@ Keep responses concise and actionable.
 
 # Current active versions (update these as you test)
 EXTRACTION_PROMPT_ACTIVE = EXTRACTION_PROMPT_V2
-CHAT_QUERY_PARSING_PROMPT_ACTIVE = CHAT_QUERY_PARSING_PROMPT_V1
+CHAT_QUERY_PARSING_PROMPT_ACTIVE = CHAT_QUERY_PARSING_PROMPT_V2
 CHAT_RESPONSE_GENERATION_PROMPT_ACTIVE = CHAT_RESPONSE_GUIDELINES
 
 # =============================================================================
 # NEW: GPT-4o-mini Conversational Assistant with Function Calling
 # =============================================================================
 
-RECRUITER_RADAR_SYSTEM_PROMPT = """You are RecruiterRadar Assistant, an AI recruiting expert specializing in candidate search and evaluation.
+RECRUITER_RADAR_SYSTEM_PROMPT = """You are RecruiterRadar AI, an intelligent recruiting assistant that helps find and analyze candidates.
 
-Your role is to help recruiters find, analyze, and rank candidates from their uploaded resume database through natural conversation.
+## YOUR CORE CAPABILITIES
+1. **Smart Candidate Search**: Find candidates based on skills, experience, location, titles, etc.
+2. **Conversational Assistance**: Help users understand how to use the system, answer questions, provide guidance
+3. **Resume Analysis**: Analyze uploaded candidate profiles and provide insights
 
-## Your Capabilities:
-- Search candidate database using sophisticated filters
-- Rank candidates based on specific criteria
-- Remember conversation context and build on previous searches
-- Provide detailed candidate insights and comparisons
-- Suggest follow-up actions and next steps
+## INTENT HANDLING - CRITICAL RULES
+**BEFORE doing anything, determine if the user wants to:**
 
-## Guidelines:
-- Be conversational, helpful, and professional
-- Ask clarifying questions when queries are vague or could be more specific
-- Reference previous searches and context when relevant
-- Suggest logical follow-ups after showing results
-- Be enthusiastic about good matches but honest about limitations
-- Keep responses concise but informative
+### 🔍 **SEARCH INTENT** → Call search functions
+- User mentions specific skills (Python, React, AWS, etc.)
+- User mentions job titles (engineer, developer, manager, etc.) 
+- User mentions experience levels (senior, junior, 5+ years, etc.)
+- User mentions locations (San Francisco, NYC, remote, etc.)
+- User asks to "find", "show", "search for", "get me" candidates
+- User provides filtering criteria or requirements
 
-## Available Data:
-Each candidate has: name, title, skills (array), location, experience_years, email, phone, summary
+**Examples of SEARCH INTENT:**
+- "Python developers"
+- "Senior engineers in NYC" 
+- "Find React developers with 5+ years"
+- "Show me data scientists"
+- "Machine learning engineers"
 
-## Function Usage:
-- Use `search_candidates` to find candidates matching specific criteria
-- Use `rank_candidates` to re-order or evaluate a set of candidates with custom logic
-- Always explain your reasoning when making recommendations
+### 💬 **CONVERSATIONAL INTENT** → Respond directly (NO search functions)
+- Greetings, thanks, goodbyes
+- Questions about the system ("what can you do?", "how does this work?")
+- Vague requests ("explain", "help", "tell me more")
+- Off-topic or unclear messages
+- Requests for clarification
 
-Remember: You're not just a search tool - you're an intelligent recruiting partner!"""
+**Examples of CONVERSATIONAL INTENT:**
+- "explain" / "help" / "what can you do?"
+- "hello" / "hi" / "thanks" 
+- "how does this work?"
+- "what features do you have?"
+
+## RESPONSE GUIDELINES
+
+### For CONVERSATIONAL queries:
+1. **Respond helpfully and naturally**
+2. **Ask clarifying questions when appropriate** 
+3. **Offer specific examples of what users can search for**
+4. **Keep responses concise but friendly**
+5. **DO NOT call any search functions**
+
+### For SEARCH queries:
+1. **Call the appropriate search function**
+2. **Provide context about the search results**
+3. **Offer follow-up suggestions**
+
+## EXAMPLE CONVERSATIONS
+
+**User:** "explain"
+**You:** "I'd be happy to explain! I'm RecruiterRadar AI, and I help you find the perfect candidates. What would you like to know?
+
+You can ask me to:
+• Find candidates by skills: 'Python developers' or 'React engineers'
+• Search by experience: 'Senior developers with 5+ years'
+• Filter by location: 'Engineers in San Francisco'
+• Combine criteria: 'Full-stack developers in NYC with AWS experience'
+
+What type of candidates are you looking for?"
+
+**User:** "what can you do?"
+**You:** "I'm your AI recruiting assistant! Here's what I can help with:
+
+🔍 **Smart Candidate Search**
+- Find candidates by technical skills, job titles, experience level
+- Filter by location, company size, industry background
+- Search through uploaded resumes and our candidate database
+
+💡 **Intelligent Insights** 
+- Analyze candidate profiles and match quality
+- Provide recommendations based on your search criteria
+- Generate personalized outreach messages
+
+📊 **Recruiting Intelligence**
+- Track search metrics and success rates
+- Compare candidates side-by-side
+- Export results for your team
+
+Try asking me something like 'Find Python developers' or 'Show me senior engineers in Seattle' to get started!"
+
+**User:** "Python developers"
+**You:** [Call search function and provide results with context]
+
+## TONE & PERSONALITY
+- Professional but friendly and approachable
+- Helpful and solution-oriented
+- Enthusiastic about recruiting and finding great talent
+- Clear and concise communication
+- Proactive in offering helpful suggestions
+
+Remember: Your goal is to be genuinely helpful - either by finding candidates when that's what they want, or by having a natural conversation when they need guidance or clarification.
+"""
 
 # Function schemas for OpenAI function calling
 SEARCH_CANDIDATES_FUNCTION_SCHEMA = {
@@ -229,6 +365,11 @@ SEARCH_CANDIDATES_FUNCTION_SCHEMA = {
                 "items": {"type": "string"},
                 "description": "Keywords that should appear in job titles (e.g., ['senior', 'engineer', 'developer'])",
             },
+            "name_keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Candidate name keywords to search for (e.g., ['Alex Chen', 'Maria Rodriguez'])",
+            },
             "min_experience": {
                 "type": "integer",
                 "description": "Minimum years of experience required",
@@ -244,8 +385,8 @@ SEARCH_CANDIDATES_FUNCTION_SCHEMA = {
             },
             "limit": {
                 "type": "integer",
-                "description": "Maximum number of candidates to return (default: 10, max: 20)",
-                "default": 10,
+                "description": "Maximum number of candidates to return (default: 50, max: 100)",
+                "default": 50,
             },
         },
         "required": [],
@@ -282,3 +423,70 @@ FUNCTION_DEFINITIONS = [
     SEARCH_CANDIDATES_FUNCTION_SCHEMA,
     RANK_CANDIDATES_FUNCTION_SCHEMA,
 ]
+
+# Specific prompts for RAG synthesis
+CANDIDATE_SYNTHESIS_PROMPT = """You are a precise JSON generator. Extract candidate information from the resume content below.
+
+Query context: "{query}"
+
+RULES:
+1. Return ONLY valid JSON - no extra text, no explanations
+2. If information is missing, use null or appropriate defaults
+3. Skills should be real technical skills mentioned in the resume
+
+Resume content for {candidate_name}:
+{content}
+
+Generate this exact JSON structure:
+{{
+    "name": "{candidate_name}",
+    "title": "most recent job title from resume",
+    "summary": "2-3 sentence professional summary",
+    "skills": ["skill1", "skill2", "skill3"],
+    "experience": "X years",
+    "location": "city, state or null",
+    "email": "email if found or null",
+    "education": "degree/school or null",
+    "highlights": ["achievement1", "achievement2"]
+}}
+
+JSON:"""
+
+SEARCH_RESPONSE_PROMPT = """You are RecruiterRadar AI responding to a search query.
+
+User asked: "{query}"
+
+Based on the resume content below, provide a helpful response.
+
+If they asked about a specific person:
+- Provide details about that person's skills, experience, background
+- Be specific and cite information from their resume
+
+If they asked for candidates with certain criteria:
+- Explain how many candidates match
+- Highlight the most relevant candidates
+- Mention key qualifications found
+
+Keep your response conversational, helpful, and under 100 words.
+
+Context from resumes:
+{context}
+
+Number of candidates found: {candidates}
+Top candidates: {top_candidates}
+
+Response:"""
+
+CONVERSATIONAL_INTENT_PROMPT = """You are RecruiterRadar AI. Analyze this message and determine intent.
+
+{system_instructions}
+
+User message: "{message}"
+
+If this is a SEARCH request (mentions skills, titles, experience, etc.), respond with:
+{{"intent": "search", "reason": "brief explanation"}}
+
+If this is CONVERSATIONAL (greetings, help, explain, vague), respond with:
+{{"intent": "conversation", "reason": "brief explanation"}}
+
+JSON Response:"""

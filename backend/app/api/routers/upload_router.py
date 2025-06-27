@@ -328,8 +328,9 @@ async def upload_resume(
                     }
                 )
 
-                # Store chunk in ChromaDB
-                await rag_service.add_candidate_to_collection(
+                # Store chunk in ChromaDB using session-based collection
+                await rag_service.add_candidate_to_session_collection(
+                    session_id=session_id,
                     candidate_id=chunk["chunk_id"],
                     embedding=embedding,
                     metadata=chunk_metadata,
@@ -414,9 +415,10 @@ async def upload_resume(
             }
         )
 
-        # Store in ChromaDB
+        # Store in ChromaDB using session-based collection
         try:
-            await rag_service.add_candidate_to_collection(
+            await rag_service.add_candidate_to_session_collection(
+                session_id=session_id,
                 candidate_id=candidate_id,
                 embedding=embedding,
                 metadata=metadata,

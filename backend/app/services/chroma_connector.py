@@ -9,7 +9,7 @@ of concerns from the higher-level RAGService.
 
 import logging
 from pathlib import Path
-from typing import Any  # For settings object type hint
+from typing import Any, List  # For settings object type hint and list
 
 import chromadb
 from chromadb.utils import embedding_functions
@@ -198,8 +198,123 @@ class ChromaConnector:
                 client, self.collection_name
             )
             logger.info(f"Collection '{self.collection_name}' recreated successfully.")
+
             return self._collection
         except Exception as e:
             error_msg = f"Failed to recreate collection '{self.collection_name}': {e}"
             logger.error(error_msg, exc_info=True)
             raise ChromaCollectionError(error_msg) from e
+
+    def get_session_collection_name(self, session_id: str) -> str:
+        """
+        Generate session-specific collection name.
+
+        Args:
+            session_id: The session identifier
+
+        Returns:
+            Collection name for the session
+        """
+        # Special handling for demo data
+        if session_id == "demo_static":
+            return "demo_candidates"
+
+        # Session-isolated collections
+        return f"session_{session_id}_candidates"
+
+    def get_or_create_session_collection(self, session_id: str) -> chromadb.Collection:
+        """
+        Get or create a session-specific collection.
+
+        Args:
+            session_id: The session identifier
+
+        Returns:
+            ChromaDB collection instance for the session
+
+        Raises:
+            ChromaCollectionError: If collection creation/access fails
+        """
+        collection_name = self.get_session_collection_name(session_id)
+
+        try:
+            client = self.get_client()
+
+            # Create OpenAI embedding function with same config as main collection
+            openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+                api_key=self.settings.openai_api_key,
+                model_name=self.settings.embedding_model_name,
+            )
+
+            # Get or create the session collection
+            collection = client.get_or_create_collection(
+                name=collection_name,
+                embedding_function=openai_ef,
+                metadata={
+                    "hnsw:space": "cosine",
+                    "description": f"RecruiterRadar session {session_id} candidates",
+                    "session_id": session_id,
+                    "created_by": "session_based_architecture",
+                },
+            )
+
+            logger.info(
+                f"Session collection '{collection_name}' ready (count: {collection.count()})"
+            )
+            return collection
+
+        except Exception as e:
+            error_msg = (
+                f"Failed to get/create session collection '{collection_name}': {e}"
+            )
+            logger.error(error_msg, exc_info=True)
+            raise ChromaCollectionError(error_msg) from e
+
+    def list_session_collections(self) -> List[str]:
+        """
+        List all session-based collections.
+
+        Returns:
+            List of session collection names
+        """
+        try:
+            client = self.get_client()
+            all_collections = client.list_collections()
+
+            # Filter for session collections
+            session_collections = [
+                coll.name
+                for coll in all_collections
+                if coll.name.startswith("session_") or coll.name == "demo_candidates"
+            ]
+
+            logger.debug(f"Found {len(session_collections)} session collections")
+            return session_collections
+
+        except Exception as e:
+            logger.error(f"Failed to list session collections: {e}", exc_info=True)
+            return []
+
+    def delete_session_collection(self, session_id: str) -> bool:
+        """
+        Delete a session-specific collection.
+
+        Args:
+            session_id: The session identifier
+
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        collection_name = self.get_session_collection_name(session_id)
+
+        try:
+            client = self.get_client()
+            client.delete_collection(name=collection_name)
+            logger.info(f"Deleted session collection: '{collection_name}'")
+            return True
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to delete session collection '{collection_name}': {e}"
+            )
+            return False

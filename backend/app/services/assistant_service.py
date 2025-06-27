@@ -25,8 +25,8 @@ import openai
 from openai import AsyncOpenAI
 
 from app.core.config import settings
-from app.models.api_models import ChatResponse
-from app.services.rag_service import get_rag_service
+from app.models.api_models import ChatResponse, BulletproofChatResponse
+from app.services.rag_service import RAGService
 from app.services.response_cache import get_response_cache, should_cache_response
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,13 @@ class AssistantService:
     """OpenAI Assistant service with bulletproof fallback to existing search logic."""
 
     def __init__(self):
+        """Initialize the Assistant service."""
+        logger.info("Initializing Assistant service...")
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-        self.rag_service = get_rag_service()
+
+        # Initialize RAG service directly (not using dependency injection)
+        self.rag_service = RAGService()
+
         self.response_cache = get_response_cache()
         self.assistant_id: Optional[str] = None
         self.storage_dir = Path("backend/app/data/assistant_storage")
@@ -60,8 +65,10 @@ class AssistantService:
             "cache_misses": 0,
         }
 
-        # Cache for last search results per session (for analysis)
-        self.last_search_results: Dict[str, List[Dict[str, Any]]] = {}
+        # 🚀 PERFORMANCE: Cache for ultra-fast follow-up queries
+        self.last_search_results = {}  # session_id -> List[candidates]
+
+        logger.info("Assistant service initialized successfully.")
 
     def _init_database(self):
         """Initialize SQLite database for thread management."""
@@ -315,7 +322,7 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                                 "description": "Maximum number of candidates to return (default 10, max 25)",
                                 "minimum": 1,
                                 "maximum": 25,
-                                "default": 10,
+                                "default": 50,
                             },
                         },
                         "required": ["query"],
@@ -460,7 +467,7 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                 visa_status = arguments.get("visa_status", "any")
                 remote_preference = arguments.get("remote_preference", "any")
                 industry_background = arguments.get("industry_background", [])
-                limit = arguments.get("limit", 10)
+                limit = arguments.get("limit", 50)
 
                 # Log search details for monitoring
                 logger.info(
@@ -817,9 +824,14 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
         return suggestions[:4]  # Limit to 4 suggestions
 
     async def _run_assistant_with_timeout(
-        self, thread_id: str, message: str, timeout: int = 12
+        self, thread_id: str, message: str, timeout: int = 15
     ) -> Optional[Dict[str, Any]]:
-        """Run assistant with timeout protection."""
+        """
+        🚨 DEPRECATED: Slow Assistant API method (replaced by fast Chat Completions).
+
+        This method causes 15+ second timeouts and is no longer used in primary flow.
+        Kept for potential future use but not recommended for production.
+        """
         try:
             assistant_id = await self.get_or_create_assistant()
 
@@ -834,10 +846,19 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                     thread_id=thread_id, assistant_id=assistant_id
                 )
 
-                # Wait for completion
-                while True:
+                # Wait for completion with improved polling and timeout handling
+                max_iterations = 30  # Prevent infinite loops
+                iteration = 0
+
+                while iteration < max_iterations:
+                    iteration += 1
+
                     run = await self.client.beta.threads.runs.retrieve(
                         thread_id=thread_id, run_id=run.id
+                    )
+
+                    logger.info(
+                        f"Assistant run status: {run.status} (iteration {iteration})"
                     )
 
                     if run.status == "completed":
@@ -848,17 +869,26 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
 
                         if messages.data:
                             content = messages.data[0].content[0].text.value
+                            logger.info(
+                                f"Assistant completed successfully in {iteration} iterations"
+                            )
                             return {"response": content, "source": "assistant"}
-                        break
+                        else:
+                            logger.warning("Assistant completed but no messages found")
+                            return None
 
                     elif run.status == "requires_action":
                         # Handle function calls
                         tool_calls = run.required_action.submit_tool_outputs.tool_calls
                         tool_outputs = []
 
+                        logger.info(f"Processing {len(tool_calls)} function calls")
+
                         for tool_call in tool_calls:
                             function_name = tool_call.function.name
                             arguments = json.loads(tool_call.function.arguments)
+
+                            logger.info(f"Executing function: {function_name}")
 
                             result = await self._execute_function_call(
                                 function_name, arguments
@@ -872,25 +902,46 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                             )
 
                         # Submit tool outputs
+                        logger.info(f"Submitting {len(tool_outputs)} tool outputs")
                         await self.client.beta.threads.runs.submit_tool_outputs(
                             thread_id=thread_id,
                             run_id=run.id,
                             tool_outputs=tool_outputs,
                         )
 
+                        # Continue to next iteration after submitting outputs
+
                     elif run.status in ["failed", "cancelled", "expired"]:
                         logger.error(f"Assistant run failed with status: {run.status}")
                         return None
 
-                    # Small delay to prevent excessive polling
-                    await asyncio.sleep(0.5)
+                    elif run.status in ["queued", "in_progress"]:
+                        # Normal processing states - continue polling
+                        logger.info(f"Assistant is {run.status}, continuing to poll...")
 
+                    else:
+                        logger.warning(f"Unknown assistant run status: {run.status}")
+
+                    # Adaptive delay based on status
+                    if run.status == "requires_action":
+                        await asyncio.sleep(0.2)  # Quick check after function calls
+                    else:
+                        await asyncio.sleep(0.5)  # Normal polling interval
+
+                # If we reach here, we've exceeded max iterations
+                logger.warning(
+                    f"Assistant polling exceeded {max_iterations} iterations"
+                )
                 return None
 
             # Execute with timeout
             result = await asyncio.wait_for(run_assistant(), timeout=timeout)
-            self._record_success()
-            return result
+            if result:
+                self._record_success()
+                return result
+            else:
+                self._record_failure()
+                return None
 
         except asyncio.TimeoutError:
             logger.warning(f"Assistant timeout after {timeout} seconds")
@@ -936,7 +987,7 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                 title_keywords=title_keywords,
                 min_experience=min_experience,
                 location_keywords=location_keywords,
-                limit=10,
+                limit=50,  # 🚀 INCREASED from 10 to 50 to show more candidates
             )
 
             # Generate contextual response message
@@ -1183,14 +1234,136 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
         response += ". Here are the top matches:"
         return response
 
+    async def _fast_chat_completion(
+        self, message: str, session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        ULTRA-FAST Chat Completions API method - NO THREAD OVERHEAD.
+
+        Eliminates ALL Assistant API calls for maximum speed.
+        Uses in-memory conversation context for follow-ups.
+        """
+        try:
+            logger.info(f"Ultra-fast chat completion for session {session_id}")
+
+            # 🚀 USE shared LLMService from RAGService (no creation overhead)
+            llm_service = self.rag_service.llm_service
+
+            # 🚀 FAST in-memory conversation context (no thread calls)
+            conversation_history = []
+
+            # Get recent search context from cache if available
+            if session_id in self.last_search_results:
+                recent_results = self.last_search_results[session_id]
+                if recent_results:
+                    # Add context about recent search
+                    conversation_history.append(
+                        {
+                            "role": "assistant",
+                            "content": f"I recently found {len(recent_results)} candidates in your last search.",
+                        }
+                    )
+
+            # 🚀 ENHANCED prompt for better follow-up recognition
+            enhanced_message = message
+
+            # Detect follow-up patterns and enhance context
+            follow_up_patterns = [
+                "in ",
+                "from ",
+                "with ",
+                "more ",
+                "senior",
+                "junior",
+                "also",
+                "and",
+                "plus",
+                "california",
+                "san francisco",
+                "new york",
+                "remote",
+                "years",
+                "experience",
+            ]
+
+            message_lower = message.lower().strip()
+            is_likely_followup = any(
+                pattern in message_lower for pattern in follow_up_patterns
+            )
+
+            if is_likely_followup and len(message_lower) < 50:
+                # This looks like a follow-up refinement
+                if session_id in self.last_search_results:
+                    enhanced_message = f"Search for candidates {message}. This is a refinement of my previous search request."
+                else:
+                    enhanced_message = f"Search for candidates {message}"
+
+                logger.info(
+                    f"Enhanced follow-up query: '{message}' → '{enhanced_message}'"
+                )
+
+            # 🚀 DIRECT fast chat call - NO thread overhead
+            result = await llm_service.chat(
+                user_message=enhanced_message,
+                session_id=session_id,
+                conversation_history=conversation_history,  # Light context only
+                rag_service=self.rag_service,
+                max_function_calls=2,  # Reduce to 2 for speed
+            )
+
+            # 🚀 CACHE results for context in follow-ups
+            if result.get("candidates"):
+                self.last_search_results[session_id] = result.get("candidates", [])
+
+            logger.info(
+                f"Ultra-fast completion: {result.get('total_candidates', 0)} candidates in minimal time"
+            )
+
+            return {
+                "response": result.get(
+                    "ai_message", "I found some candidates for you."
+                ),
+                "candidates": result.get("candidates", []),
+                "source": "ultra_fast_chat",
+            }
+
+        except Exception as e:
+            logger.error(f"Ultra-fast chat completion failed: {e}")
+            logger.info(f"Ultra-fast failure details: {type(e).__name__}: {str(e)}")
+            # 🚀 TRY to recover with a simple direct search instead of returning None
+            try:
+                logger.info("Attempting recovery with direct search...")
+                # Direct RAG search as last resort before giving up
+                results = await self.rag_service.search_candidates_with_function_params(
+                    session_id=session_id,
+                    skills=[],
+                    title_keywords=[],
+                    min_experience=None,
+                    location_keywords=[],
+                    limit=50,
+                )
+
+                return {
+                    "response": f"I found {len(results)} candidates. Here are the results:",
+                    "candidates": results,
+                    "source": "ultra_fast_recovery",
+                }
+            except Exception as recovery_error:
+                logger.error(f"Ultra-fast recovery also failed: {recovery_error}")
+                return None
+
     async def bulletproof_recruiter_chat(
         self, message: str, session_id: str
     ) -> ChatResponse:
         """
-        Bulletproof chat method with assistant + fallback and intelligent caching.
+        Bulletproof chat method with FAST Chat Completions as primary + intelligent fallback.
 
-        Always returns a response - either from cache, assistant, or fallback.
-        Frontend never knows which path was used.
+        NEW SPEED-OPTIMIZED FLOW:
+        1. Fast Chat Completions API (1-3 seconds) - PRIMARY
+        2. Simple fallback (0.5 seconds) - SECONDARY
+        3. Assistant API (REMOVED from primary flow)
+
+        Always returns a response - either from cache, fast chat, or fallback.
         """
         start_time = time.time()
         self.metrics["total_requests"] += 1
@@ -1215,22 +1388,48 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
 
             self.metrics["cache_misses"] += 1
 
-            # Check circuit breaker
-            if self._is_circuit_breaker_open():
-                logger.info("Circuit breaker open, using fallback")
-                result = await self._fallback_search(message, session_id)
-            else:
-                # Try assistant first
-                thread_id = await self.get_or_create_thread(session_id)
-                result = await self._run_assistant_with_timeout(thread_id, message)
+            # 🚀 Try REAL RAG as PRIMARY path - NO MORE HARDCODED BULLSHIT!
+            logger.info("🔥 Trying REAL RAG semantic search (primary path)")
+            real_rag_result = await self.real_rag_chat(message, session_id)
 
-                if result is None:
-                    # Assistant failed, use fallback
-                    logger.info("Assistant failed, activating fallback")
-                    result = await self._fallback_search(message, session_id)
-                    self.metrics["fallback_activations"] += 1
+            if real_rag_result is not None and real_rag_result.success:
+                # REAL RAG succeeded!
+                self.metrics["assistant_successes"] += 1
+                logger.info(
+                    "✅ REAL RAG succeeded - True semantic search with embeddings!"
+                )
+
+                # Convert to the expected format
+                fast_result = {
+                    "response": real_rag_result.ai_message,
+                    "candidates": real_rag_result.candidates,
+                    "source": "real_rag",
+                }
+            else:
+                # REAL RAG failed, use intelligent fallback
+                logger.warning("❌ REAL RAG failed, trying intelligent fallback search")
+                fast_result = await self._fallback_search(message, session_id)
+
+                if fast_result is None or fast_result.get("candidates") is None:
+                    # Fallback search also failed, try ultra-fast completion
+                    logger.warning(
+                        "❌ Intelligent fallback failed, trying ultra-fast completion"
+                    )
+                    fast_result = await self._fast_chat_completion(message, session_id)
+
+                    if fast_result is None:
+                        # Everything failed, use final fallback
+                        logger.error(
+                            "❌ All search methods failed, using final fallback"
+                        )
+                        fast_result = {
+                            "response": "I'm having trouble finding candidates right now. Please try rephrasing your search or try again in a moment.",
+                            "candidates": [],
+                            "source": "emergency_fallback",
+                        }
                 else:
-                    self.metrics["assistant_successes"] += 1
+                    logger.info("✅ Intelligent fallback search succeeded")
+                    self.metrics["fallback_activations"] += 1
 
             # Update metrics
             response_time = time.time() - start_time
@@ -1240,9 +1439,9 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
             ) / self.metrics["total_requests"]
 
             # Format final response
-            candidates = result.get("candidates", [])
-            ai_message = result.get("response", "I found some candidates for you.")
-            source = result.get("source", "unknown")
+            candidates = fast_result.get("candidates", [])
+            ai_message = fast_result.get("response", "I found some candidates for you.")
+            source = fast_result.get("source", "unknown")
 
             # Cache successful responses
             if should_cache_response(candidates, source):
@@ -1257,12 +1456,13 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                 except Exception as e:
                     logger.warning(f"Failed to cache response: {e}")
 
+            # Return the final result
             return ChatResponse(
                 ai_message=ai_message,
                 candidates=candidates,
-                remaining_messages=10,  # TODO: Implement proper counting
-                processing_time_ms=int(response_time * 1000),  # Convert to milliseconds
                 source=source,
+                remaining_messages=10,
+                processing_time_ms=int(response_time * 1000),
                 response_time=response_time,
             )
 
@@ -1279,75 +1479,59 @@ Your goal: Make every recruiter interaction productive, insightful, and successf
                 response_time=emergency_time,
             )
 
-    async def cleanup_old_threads(self, hours: int = 24):
-        """Clean up threads older than specified hours."""
-        cutoff = datetime.now() - timedelta(hours=hours)
+    async def real_rag_chat(
+        self, message: str, session_id: str
+    ) -> BulletproofChatResponse:
+        """
+        🚀 REAL RAG CHAT - NO MORE HARDCODED BULLSHIT!
 
-        with sqlite3.connect(self.db_path) as conn:
-            # Get session IDs and thread IDs of threads to be deleted for cache cleanup
-            cursor = conn.execute(
-                "SELECT session_id, thread_id FROM threads WHERE last_used < ?",
-                (cutoff.isoformat(),),
+        Uses proper semantic search with embeddings instead of regex patterns.
+        This is what the system should have been from the beginning!
+        """
+        try:
+            start_time = time.time()
+            logger.info(f"🔥 REAL RAG CHAT: '{message}' in session {session_id}")
+
+            # Import here to avoid circular dependencies
+            from app.services.real_rag_service import RealRAGService
+
+            # Use the REAL RAG service
+            real_rag = RealRAGService()
+            search_result = await real_rag.search_candidates(
+                query=message, session_id=session_id, max_results=50
             )
-            old_data = cursor.fetchall()
-            old_session_ids = [row[0] for row in old_data]
-            old_threads = [row[1] for row in old_data]
 
-        # Delete old threads from OpenAI
-        for thread_id in old_threads:
-            try:
-                await self.client.beta.threads.delete(thread_id)
-            except Exception as e:
-                logger.warning(f"Failed to delete thread {thread_id}: {e}")
+            # Convert to the expected response format
+            response_time = time.time() - start_time
 
-        # Remove from database
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "DELETE FROM threads WHERE last_used < ?", (cutoff.isoformat(),)
+            # Create bulletproof response
+            response = BulletproofChatResponse(
+                ai_message=search_result["ai_message"],
+                candidates=search_result["candidates"],
+                source="real_rag",
+                response_time=response_time,
+                remaining_messages=10,  # TODO: Get from session
+                processing_time_ms=int(response_time * 1000),
+                success=search_result["success"],
             )
-            conn.commit()
 
-        # Clean up corresponding search result cache
-        for session_id in old_session_ids:
-            self.last_search_results.pop(session_id, None)
+            logger.info(
+                f"✅ REAL RAG CHAT: Completed in {response_time:.2f}s with {len(search_result['candidates'])} candidates"
+            )
+            return response
 
-        logger.info(
-            f"Cleaned up {len(old_threads)} old threads and their cached search results"
-        )
+        except Exception as e:
+            logger.error(f"❌ REAL RAG CHAT failed: {e}", exc_info=True)
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get comprehensive performance metrics."""
-        cache_stats = (
-            self.response_cache.get_cache_stats() if self.response_cache else {}
-        )
-
-        # Calculate rates
-        assistant_success_rate = 0.0
-        fallback_rate = 0.0
-        total = self.metrics["total_requests"]
-        if total > 0:
-            assistant_success_rate = (self.metrics["assistant_successes"] / total) * 100
-            fallback_rate = (self.metrics["fallback_activations"] / total) * 100
-
-        return {
-            "total_requests": total,
-            "assistant_attempts": total,  # Every request is an attempt
-            "assistant_successes": self.metrics["assistant_successes"],
-            "fallback_activations": self.metrics["fallback_activations"],
-            "circuit_breaker_status": {  # Added missing metric
-                "failures": self.circuit_breaker_failures,
-                "is_open": self._is_circuit_breaker_open(),
-                "threshold": self.circuit_breaker_threshold,
-                "reset_time": self.circuit_breaker_reset_time,
-            },
-            "performance_rates": {
-                "assistant_success_rate": round(assistant_success_rate, 1),
-                "fallback_rate": round(fallback_rate, 1),
-            },
-            "avg_response_time": self.metrics["avg_response_time"],
-            "cache_stats": cache_stats,
-            "system_health": {
-                "status": "degraded" if self._is_circuit_breaker_open() else "healthy",
-                "last_update": datetime.now().isoformat(),
-            },
-        }
+            # Fallback to emergency response
+            return BulletproofChatResponse(
+                ai_message=f"Real RAG search failed: {str(e)}. Please try again.",
+                candidates=[],
+                source="real_rag_error",
+                response_time=(
+                    time.time() - start_time if "start_time" in locals() else 0
+                ),
+                remaining_messages=10,
+                processing_time_ms=0,
+                success=False,
+            )
