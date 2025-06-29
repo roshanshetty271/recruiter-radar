@@ -1,0 +1,33 @@
+{
+  "cyber_cheetah_achieved": false,
+  "success_rate": 11.11111111111111,
+  "avg_response_time": 12.059883647494846,
+  "total_time": 108.55445528030396,
+  "test_results": {
+    "Vector Intent Detection": false,
+    "Chunked SSE Streaming": false,
+    "Persistent Save/Compare": false,
+    "Concurrent Performance": false,
+    "Error Recovery": true
+  },
+  "metrics": {
+    "tests_run": 9,
+    "successes": 1,
+    "failures": 8,
+    "response_times": [
+      12.035845518112183,
+      12.055598497390747,
+      12.073971509933472,
+      12.04748797416687,
+      12.055219650268555,
+      17.066055297851562,
+      12.050340414047241,
+      17.070045948028564,
+      2.084388017654419
+    ],
+    "cache_hits": 0,
+    "streaming_chunks": 0,
+    "intent_detections": 0,
+    "start_time": 1751074171.9314227
+  }
+}

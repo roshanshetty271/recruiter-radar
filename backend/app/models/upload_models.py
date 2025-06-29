@@ -67,8 +67,8 @@ class ExtractedResumeData(BaseModel):
 
     skills: List[str] = Field(
         default_factory=list,
-        description="List of 5-7 key technical skills",
-        max_items=10,
+        description="List of 8-12 key technical skills",
+        max_items=15,
         example=["Python", "React", "AWS", "Docker", "PostgreSQL"],
     )
 
@@ -94,9 +94,86 @@ class ExtractedResumeData(BaseModel):
 
     summary: Optional[str] = Field(
         None,
-        description="1-2 sentence professional summary",
-        max_length=500,
+        description="2-3 sentence professional summary",
+        max_length=1000,
         example="Experienced full-stack developer specializing in scalable web applications.",
+    )
+
+    # 🚀 ENHANCED RECRUITER DATA FIELDS
+    education: Optional[str] = Field(
+        None,
+        description="Highest degree and institution",
+        example="BS Computer Science, Stanford University",
+    )
+
+    certifications: List[str] = Field(
+        default_factory=list,
+        description="Professional certifications",
+        example=["AWS Solutions Architect", "PMP", "Scrum Master"],
+    )
+
+    companies: List[str] = Field(
+        default_factory=list,
+        description="3-5 most recent/notable companies",
+        example=["Google", "Microsoft", "Adobe"],
+    )
+
+    industry: Optional[str] = Field(
+        None, description="Primary industry experience", example="Financial Services"
+    )
+
+    github_url: Optional[str] = Field(
+        None, description="GitHub profile URL", example="https://github.com/sarahchen"
+    )
+
+    linkedin_url: Optional[str] = Field(
+        None,
+        description="LinkedIn profile URL",
+        example="https://linkedin.com/in/sarahchen",
+    )
+
+    portfolio_url: Optional[str] = Field(
+        None, description="Portfolio website URL", example="https://sarahchen.dev"
+    )
+
+    salary_range: Optional[str] = Field(
+        None, description="Salary expectations if mentioned", example="$120k-150k"
+    )
+
+    availability: Optional[str] = Field(
+        None, description="Notice period or availability", example="2 weeks notice"
+    )
+
+    work_authorization: Optional[str] = Field(
+        None, description="Visa/work authorization status", example="US Citizen"
+    )
+
+    remote_preference: Optional[str] = Field(
+        None, description="Remote work preference", example="Remote"
+    )
+
+    seniority_level: Optional[str] = Field(
+        None, description="Career level", example="Senior"
+    )
+
+    languages: List[str] = Field(
+        default_factory=list,
+        description="Programming and spoken languages",
+        example=["Python", "JavaScript", "Spanish", "Mandarin"],
+    )
+
+    achievements: List[str] = Field(
+        default_factory=list,
+        description="2-3 key quantified achievements",
+        example=["Reduced deployment time by 50%", "Led team of 8 engineers"],
+    )
+
+    management_experience: bool = Field(
+        default=False, description="Whether they have managed teams"
+    )
+
+    team_size_managed: Optional[int] = Field(
+        None, description="Number of people managed if applicable", example=8
     )
 
     @validator("skills", pre=True)
@@ -138,18 +215,19 @@ class ExtractedResumeData(BaseModel):
             "experience_years": self.experience_years,
             "visa_status": None,  # Not extracted by LLM for privacy
             "location": self.location,
-            "github_url": None,  # Could be extracted in future
-            "linkedin_url": None,  # Could be extracted in future
+            "github_url": self.github_url,
+            "linkedin_url": self.linkedin_url,
         }
 
     def to_chromadb_metadata(self) -> Dict[str, Any]:
         """
-        Convert to ChromaDB-compatible metadata format.
+        Convert to ChromaDB-compatible metadata format with comprehensive recruiter data.
 
         ChromaDB has specific requirements for metadata types,
         so we ensure everything is properly serialized.
         """
         return {
+            # Core fields
             "name": self.name,
             "title": self.title,
             "skills": ",".join(self.skills),  # ChromaDB prefers strings
@@ -158,6 +236,24 @@ class ExtractedResumeData(BaseModel):
             "email": self.email or "",
             "phone": self.phone or "",
             "summary": self.summary or "",
+            # 🚀 Enhanced recruiter data fields
+            "education": self.education or "",
+            "certifications": ",".join(self.certifications),
+            "companies": ",".join(self.companies),
+            "industry": self.industry or "",
+            "github_url": self.github_url or "",
+            "linkedin_url": self.linkedin_url or "",
+            "portfolio_url": self.portfolio_url or "",
+            "salary_range": self.salary_range or "",
+            "availability": self.availability or "",
+            "work_authorization": self.work_authorization or "",
+            "remote_preference": self.remote_preference or "",
+            "seniority_level": self.seniority_level or "",
+            "languages": ",".join(self.languages),
+            "achievements": ",".join(self.achievements),
+            "management_experience": self.management_experience,
+            "team_size_managed": self.team_size_managed or 0,
+            # Metadata
             "extracted_at": datetime.utcnow().isoformat(),
         }
 
@@ -251,6 +347,15 @@ class SessionData(BaseModel):
 
     conversation_history: List[ChatMessage] = Field(
         default_factory=list, description="Conversation history for chat context"
+    )
+
+    # Cyber-cheetah features: persistent save/compare functionality
+    saved_candidates: List[str] = Field(
+        default_factory=list, description="List of saved candidate IDs"
+    )
+
+    comparison_list: List[str] = Field(
+        default_factory=list, description="List of candidates in comparison (max 3)"
     )
 
     def increment_uploads(self) -> None:

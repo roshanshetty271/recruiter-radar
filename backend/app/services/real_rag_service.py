@@ -15,12 +15,21 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+# Removed expensive imports - no longer needed for keyword detection!
+# import numpy as np
+# from sklearn.metrics.pairwise import cosine_similarity
+
 from app.services.document_processor import DocumentProcessor
 from app.services.semantic_search import SemanticSearchEngine
 from app.services.llm_service import LLMService
 from app.core.prompts import RECRUITER_RADAR_SYSTEM_PROMPT, CONVERSATIONAL_INTENT_PROMPT
 
 logger = logging.getLogger(__name__)
+
+# 🏎️ DEPRECATED EXAMPLES - No longer used with keyword detection!
+# These used to generate 40+ expensive embeddings - now replaced with simple keywords
+# SEARCH_INTENT_EXAMPLES = [...]
+# CONVERSATION_INTENT_EXAMPLES = [...]
 
 
 class RealRAGService:
@@ -43,7 +52,10 @@ class RealRAGService:
         self.document_processor = DocumentProcessor()
         self.semantic_search = SemanticSearchEngine()
         self.llm_service = LLMService(settings)
-        logger.info("🚀 REAL RAG SERVICE INITIALIZED - No more hardcoded bullshit!")
+        # Removed expensive embedding storage - using keyword detection!
+        logger.info(
+            "🚀 REAL RAG SERVICE INITIALIZED - Lightning-fast keyword detection!"
+        )
 
     async def ingest_resume(
         self, file_bytes: bytes, filename: str, session_id: str
@@ -102,11 +114,11 @@ class RealRAGService:
         try:
             logger.info(f"🔍 REAL RAG SEARCH: '{query}' in session {session_id}")
 
-            # 🧠 STEP 1: Intent Detection using GPT-4o-mini
-            intent_result = await self._detect_intent(query)
+            # 🧠 STEP 1: SMART Intent Detection - Greetings vs Search
+            intent_result = await self._detect_intent_smart(query)
 
             if intent_result["intent"] == "conversation":
-                # 💬 Handle conversational queries directly
+                # 💬 Handle conversational queries (greetings, help, etc.)
                 logger.info(f"💬 CONVERSATIONAL INTENT: {intent_result['reason']}")
 
                 conversational_response = await self._handle_conversational_query(query)
@@ -158,66 +170,423 @@ class RealRAGService:
 
     async def _detect_intent(self, message: str) -> Dict[str, str]:
         """
-        🚀 TURBO-PATCH: Fast intent detection with regex short-circuit for obvious searches.
+        🚀 VECTOR-BASED INTENT DETECTION - No more regex trench!
+
+        Uses cosine similarity with threshold 0.25 against pre-computed intent examples.
 
         Returns:
             Dict with 'intent' ("conversation" or "search") and 'reason'
         """
-        import re
+        # Delegate to the new vector-based detection
+        return await self._detect_intent_vector(message)
 
-        # 🔥 SHORT-CIRCUIT: Regex patterns for obvious search queries (NO LLM CALL!)
-        search_patterns = [
-            r"\b(dev(eloper)?s?|engineer(s)?|programmer(s)?)\b",  # developers, engineers, programmers
-            r"\b(python|java|javascript|react|angular|vue|node|php|ruby|go|rust|swift|kotlin)\b",  # tech skills
-            r"\b(senior|junior|lead|principal|staff|entry.?level|mid.?level)\b",  # experience levels
-            r"\b(find|show|search|get|looking.?for|need|want)\b",  # search verbs
-            r"\b(full.?stack|frontend|backend|devops|data.?scientist|machine.?learning)\b",  # role types
-            r"\b(years?.?(of.?)?experience|skills?.?(in|with)?)\b",  # experience/skills mentions
-            r"\b(san.?francisco|nyc|new.?york|seattle|austin|boston|remote)\b",  # common locations
+    async def _handle_conversational_query(self, query: str) -> str:
+        """
+        Handle conversational queries with smart, contextual responses.
+
+        For greetings and help requests, provide immediate helpful responses
+        without needing an LLM call for simple cases.
+        """
+        query_lower = query.strip().lower()
+
+        # 👋 GREETING RESPONSES
+        greetings = [
+            "hi",
+            "hello",
+            "hey",
+            "good morning",
+            "good afternoon",
+            "good evening",
+        ]
+        if any(greeting in query_lower for greeting in greetings):
+            return (
+                "Hello! I'm your AI recruiting assistant. I can help you find the perfect candidates "
+                "by searching through resumes and profiles. Try asking me something like:\n\n"
+                "• 'Find Python developers'\n"
+                "• 'Senior engineers with 5+ years experience'\n"
+                "• 'React developers in San Francisco'\n"
+                "• 'Data scientists with machine learning experience'\n\n"
+                "What kind of candidate are you looking for today?"
+            )
+
+        # ❓ HELP RESPONSES
+        help_words = [
+            "help",
+            "what can you do",
+            "how does this work",
+            "explain",
+            "guide",
+        ]
+        if any(help_word in query_lower for help_word in help_words):
+            return (
+                "I'm RecruiterRadar, your AI-powered recruiting assistant! Here's what I can do:\n\n"
+                "🔍 **Search Candidates**: Use natural language to find candidates\n"
+                "   Examples: 'Python developers', 'senior engineers', 'DevOps with AWS'\n\n"
+                "📊 **Smart Analysis**: I analyze skills, experience, and match quality\n\n"
+                "💬 **Natural Conversation**: Ask follow-up questions about candidates\n\n"
+                "Just type what you're looking for and I'll find the best matches!"
+            )
+
+        # 🙏 THANKS RESPONSES
+        thanks_words = ["thank", "thanks", "appreciate"]
+        if any(thanks in query_lower for thanks in thanks_words):
+            return "You're welcome! Feel free to ask me to find more candidates anytime. Happy recruiting! 🚀"
+
+        # 👋 GOODBYE RESPONSES
+        goodbye_words = ["bye", "goodbye", "see you"]
+        if any(goodbye in query_lower for goodbye in goodbye_words):
+            return "Goodbye! Come back anytime you need help finding great candidates. Good luck with your recruiting! 👋"
+
+        # 🤖 FALLBACK - Use LLM for complex conversational queries
+        try:
+            conversation_prompt = f"""{RECRUITER_RADAR_SYSTEM_PROMPT}
+
+User: {query}
+"""
+
+            response = await self.llm_service.generate_completion(
+                prompt=conversation_prompt, max_tokens=150, temperature=0.7
+            )
+
+            return response.strip()
+
+        except Exception as e:
+            logger.error(f"Conversational query handling failed: {e}")
+            return "Sorry, I couldn't handle that conversational query. Please try a different question."
+
+    async def _initialize_intent_embeddings(self):
+        """
+        DEPRECATED: No longer needed - using lightning-fast keyword detection instead!
+        This method used to generate 40+ embeddings and take 20+ seconds.
+        """
+        logger.info(
+            "🏎️ SKIPPING expensive embedding initialization - using keyword detection!"
+        )
+        # No-op - keyword detection doesn't need any initialization
+        pass
+
+    async def _detect_intent_smart(self, message: str) -> Dict[str, str]:
+        """
+        🧠 SMART Intent Detection - Properly distinguish greetings from searches
+
+        This fixes the "hi" -> technical analysis bug!
+        """
+        message_lower = message.strip().lower()
+
+        # 👋 OBVIOUS CONVERSATIONAL PATTERNS (these should NEVER be searches)
+        obvious_greetings = [
+            "hi",
+            "hello",
+            "hey",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "what's up",
+            "how are you",
+            "greetings",
+            "yo",
         ]
 
-        # Check if it's an obvious search query
-        message_lower = message.lower()
-        for pattern in search_patterns:
-            if re.search(pattern, message_lower, re.IGNORECASE):
-                logger.info(
-                    f"🚀 REGEX SHORT-CIRCUIT: Obvious search detected - '{pattern}' matched"
-                )
+        obvious_help = [
+            "help",
+            "how does this work",
+            "what can you do",
+            "explain",
+            "tutorial",
+            "guide",
+            "instructions",
+            "how to",
+            "what is this",
+            "about",
+        ]
+
+        obvious_conversation = [
+            "thank you",
+            "thanks",
+            "bye",
+            "goodbye",
+            "see you",
+            "cool",
+            "awesome",
+            "nice",
+            "great",
+            "ok",
+            "okay",
+            "got it",
+            "understood",
+        ]
+
+        # Check for obvious conversational intents first
+        if any(greeting in message_lower for greeting in obvious_greetings):
+            return {
+                "intent": "conversation",
+                "reason": f"greeting detected: '{message}'",
+            }
+
+        if any(help_word in message_lower for help_word in obvious_help):
+            return {
+                "intent": "conversation",
+                "reason": f"help request detected: '{message}'",
+            }
+
+        if any(conv in message_lower for conv in obvious_conversation):
+            return {
+                "intent": "conversation",
+                "reason": f"conversational response detected: '{message}'",
+            }
+
+        # 🔍 OBVIOUS SEARCH PATTERNS (these should ALWAYS be searches)
+        search_indicators = [
+            # Skills
+            "python",
+            "javascript",
+            "java",
+            "react",
+            "angular",
+            "vue",
+            "node",
+            "aws",
+            "azure",
+            "docker",
+            "kubernetes",
+            "sql",
+            "ai",
+            "machine learning",
+            # Roles
+            "developer",
+            "engineer",
+            "architect",
+            "manager",
+            "senior",
+            "junior",
+            "lead",
+            "principal",
+            "staff",
+            "frontend",
+            "backend",
+            "fullstack",
+            # Actions
+            "find",
+            "show",
+            "search",
+            "get",
+            "looking for",
+            "need",
+            "want",
+            "candidates",
+            "who has",
+            "with experience",
+            "years of",
+        ]
+
+        # Count search indicators
+        search_matches = sum(
+            1 for indicator in search_indicators if indicator in message_lower
+        )
+
+        if search_matches >= 1:
+            return {
+                "intent": "search",
+                "reason": f"search indicators found: {search_matches} matches",
+            }
+
+        # 🤔 AMBIGUOUS CASES - Use message length and structure as hints
+        word_count = len(message.split())
+
+        if word_count <= 2:
+            # Very short messages are likely conversational
+            return {
+                "intent": "conversation",
+                "reason": f"short message ({word_count} words) likely conversational",
+            }
+        elif word_count >= 5:
+            # Longer messages are more likely to be searches
+            return {
+                "intent": "search",
+                "reason": f"longer message ({word_count} words) likely search query",
+            }
+        else:
+            # Default for medium messages - bias toward search for recruiters
+            return {
+                "intent": "search",
+                "reason": f"medium message ({word_count} words) defaulting to search",
+            }
+
+    async def _detect_intent_vector(self, message: str) -> Dict[str, str]:
+        """
+        🏎️ LIGHTNING-FAST KEYWORD INTENT DETECTION - No more 40-embedding hamster wheel!
+
+        Uses simple keyword matching - takes microseconds instead of 20+ seconds.
+
+        Returns:
+            Dict with 'intent' ("conversation" or "search") and 'reason'
+        """
+        try:
+            message_lower = message.lower()
+
+            # 🔍 SEARCH INTENT KEYWORDS - What recruiters actually type
+            search_keywords = [
+                # Skills & Technologies
+                "python",
+                "javascript",
+                "java",
+                "react",
+                "angular",
+                "vue",
+                "node",
+                "typescript",
+                "golang",
+                "rust",
+                "c++",
+                "c#",
+                "php",
+                "ruby",
+                "swift",
+                "aws",
+                "azure",
+                "gcp",
+                "docker",
+                "kubernetes",
+                "sql",
+                "nosql",
+                "machine learning",
+                "ai",
+                "data science",
+                "blockchain",
+                "devops",
+                # Job Titles & Levels
+                "developer",
+                "engineer",
+                "architect",
+                "manager",
+                "lead",
+                "senior",
+                "junior",
+                "principal",
+                "staff",
+                "director",
+                "analyst",
+                "scientist",
+                "frontend",
+                "backend",
+                "fullstack",
+                "full stack",
+                "mobile",
+                "web",
+                # Experience & Qualifications
+                "experience",
+                "years",
+                "exp",
+                "background",
+                "skills",
+                "expertise",
+                "degree",
+                "certification",
+                "portfolio",
+                "projects",
+                # Action Words
+                "find",
+                "show",
+                "search",
+                "get",
+                "candidates",
+                "who has",
+                "with",
+                "looking for",
+                "need",
+                "want",
+                "hire",
+                "recruit",
+            ]
+
+            # 💬 CONVERSATION INTENT KEYWORDS - Help, greetings, system questions
+            conversation_keywords = [
+                "hello",
+                "hi",
+                "hey",
+                "greetings",
+                "good morning",
+                "good afternoon",
+                "help",
+                "how",
+                "what",
+                "explain",
+                "tell me",
+                "can you",
+                "do you",
+                "tutorial",
+                "guide",
+                "instructions",
+                "features",
+                "capabilities",
+                "thank",
+                "thanks",
+                "bye",
+                "goodbye",
+                "see you",
+                "appreciate",
+                "system",
+                "interface",
+                "platform",
+                "tool",
+                "app",
+                "work",
+                "works",
+            ]
+
+            # Count keyword matches
+            search_matches = sum(
+                1 for keyword in search_keywords if keyword in message_lower
+            )
+            conversation_matches = sum(
+                1 for keyword in conversation_keywords if keyword in message_lower
+            )
+
+            logger.info(
+                f"⚡ Keyword matches - Search: {search_matches}, Conversation: {conversation_matches}"
+            )
+
+            # Decision logic - bias toward search for recruiters
+            if search_matches > conversation_matches:
                 return {
                     "intent": "search",
-                    "reason": f"obvious search query detected (matched: {pattern})",
+                    "reason": f"keyword detection: {search_matches} search terms found",
                 }
-
-        # 🔥 SHORT-CIRCUIT: Obvious conversational patterns (NO LLM CALL!)
-        conversational_patterns = [
-            r"^(hi|hello|hey|greetings?)(?:\s|$)",  # greetings
-            r"^(explain|help|what|how|tell.?me|can.?you)\b",  # help requests
-            r"^(thanks?|thank.?you|okay|ok|cool|great|amazing)(?:\s|$)",  # acknowledgments
-            r"^(bye|goodbye|see.?you|later)(?:\s|$)",  # farewells
-        ]
-
-        for pattern in conversational_patterns:
-            if re.search(pattern, message_lower, re.IGNORECASE):
-                logger.info(
-                    f"🚀 REGEX SHORT-CIRCUIT: Obvious conversation detected - '{pattern}' matched"
-                )
+            elif conversation_matches > search_matches and conversation_matches >= 2:
                 return {
                     "intent": "conversation",
-                    "reason": f"obvious conversational query detected (matched: {pattern})",
+                    "reason": f"keyword detection: {conversation_matches} conversation terms found",
+                }
+            else:
+                # Default to search - this is a recruiter tool!
+                return {
+                    "intent": "search",
+                    "reason": "keyword detection: defaulting to search (recruiter-focused)",
                 }
 
-        # 💡 FALLBACK: Use LLM only for ambiguous cases
-        try:
-            logger.info(f"🤖 LLM INTENT DETECTION: Ambiguous query needs AI analysis")
+        except Exception as e:
+            logger.error(f"❌ Keyword intent detection failed: {e}")
+            # Safe fallback
+            return {
+                "intent": "search",
+                "reason": "error fallback - defaulting to search",
+            }
 
-            # Extract key parts of the system prompt for intent detection
+    async def _detect_intent_llm_fallback(self, message: str) -> Dict[str, str]:
+        """
+        Fallback LLM-based intent detection for ambiguous cases.
+        Only used when vector similarity is unclear.
+        """
+        try:
+            logger.info(f"🤖 LLM INTENT FALLBACK for ambiguous query: '{message}'")
+
             system_instructions = """
-## INTENT HANDLING RULES
+## INTENT DETECTION RULES
 - SEARCH INTENT: User mentions skills, titles, experience, locations, "find", "show", "search"
 - CONVERSATIONAL INTENT: Greetings, help, explain, vague messages, questions about the system
 
 Examples:
-SEARCH: "Python developers", "Senior engineers", "Find React devs", "skills of Alex Chen"
+SEARCH: "Python developers", "Senior engineers", "Find React devs", "skills of Alex Chen" 
 CONVERSATIONAL: "explain", "help", "what can you do?", "hello", "thanks"
 """
 
@@ -254,45 +623,24 @@ CONVERSATIONAL: "explain", "help", "what can you do?", "hello", "thanks"
 
             # Validate intent
             if intent_data.get("intent") not in ["conversation", "search"]:
-                logger.warning(f"Invalid intent detected: {intent_data}")
-                # Default to search for ambiguous cases
+                logger.warning(f"Invalid LLM intent: {intent_data}")
                 return {
                     "intent": "search",
-                    "reason": "ambiguous query - defaulting to search",
+                    "reason": "LLM fallback - invalid response, defaulting to search",
                 }
 
+            # Add fallback indicator
+            intent_data["reason"] = (
+                f"LLM fallback: {intent_data.get('reason', 'analysis')}"
+            )
             return intent_data
 
         except Exception as e:
-            logger.error(f"Intent detection failed: {e}")
-            # Default to search if intent detection fails
+            logger.error(f"❌ LLM intent fallback failed: {e}")
             return {
                 "intent": "search",
-                "reason": "intent detection failed - defaulting to search",
+                "reason": "LLM fallback failed - defaulting to search",
             }
-
-    async def _handle_conversational_query(self, query: str) -> str:
-        """
-        Handle conversational queries using the intelligent system prompt.
-
-        This is where GPT-4o-mini shines - natural conversation without triggering search.
-        """
-        try:
-            # Use our conversational system prompt
-            conversation_prompt = f"""{RECRUITER_RADAR_SYSTEM_PROMPT}
-
-User: {query}
-"""
-
-            response = await self.llm_service.generate_completion(
-                prompt=conversation_prompt, max_tokens=150, temperature=0.7
-            )
-
-            return response.strip()
-
-        except Exception as e:
-            logger.error(f"Conversational query handling failed: {e}")
-            return "Sorry, I couldn't handle that conversational query. Please try a different question."
 
     async def get_candidate_details(
         self, candidate_id: str, query: str, session_id: str

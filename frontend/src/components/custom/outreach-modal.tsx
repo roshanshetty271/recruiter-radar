@@ -27,12 +27,13 @@ import { OutreachModalContainer } from "./outreach-modal-container";
 import { OutreachForm } from "./outreach-form";
 import { GenerationProgress } from "./generation-progress";
 import { api } from "@/lib/api";
-import type { Candidate, OutreachResponse } from "@/lib/types";
+import type { OutreachResponse } from "@/lib/types";
+import type { FrontendCandidate } from "@/services/types";
 
 interface OutreachModalProps {
   isOpen: boolean;
   onClose: () => void;
-  candidate: Candidate | null;
+  candidate: FrontendCandidate | null;
   onSuccess?: () => void;
 }
 
@@ -48,6 +49,8 @@ export function OutreachModal({
   const [generatedMessage, setGeneratedMessage] =
     useState<OutreachResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const [lastGenerationTime, setLastGenerationTime] = useState<number>(0);
+  const [rateLimitCooldown, setRateLimitCooldown] = useState<number>(0);
   const { toast } = useToast();
 
   // Reset state when modal closes
@@ -60,6 +63,16 @@ export function OutreachModal({
       setCopied(false);
     }
   }, [isOpen]);
+
+  // 🛡️ Rate limiting countdown
+  useEffect(() => {
+    if (rateLimitCooldown > 0) {
+      const timer = setTimeout(() => {
+        setRateLimitCooldown((prev) => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [rateLimitCooldown]);
 
   // Simulate progress during generation
   useEffect(() => {
@@ -89,6 +102,26 @@ export function OutreachModal({
   }) => {
     if (!candidate) return;
 
+    // 🛡️ Rate limiting - prevent spam (30 seconds between generations)
+    const now = Date.now();
+    const timeSinceLastGeneration = now - lastGenerationTime;
+    const cooldownPeriod = 30000; // 30 seconds
+
+    if (timeSinceLastGeneration < cooldownPeriod) {
+      const remainingSeconds = Math.ceil(
+        (cooldownPeriod - timeSinceLastGeneration) / 1000
+      );
+      setRateLimitCooldown(remainingSeconds);
+
+      toast({
+        title: "⏳ Please wait",
+        description: `Rate limit active. Try again in ${remainingSeconds} seconds to prevent token burn.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLastGenerationTime(now);
     setIsGenerating(true);
     setGenerationProgress(10);
 
@@ -221,6 +254,7 @@ export function OutreachModal({
                   <OutreachForm
                     onSubmit={handleGenerateOutreach}
                     isGenerating={isGenerating}
+                    rateLimitCooldown={rateLimitCooldown}
                   />
                 )}
               </>
@@ -368,7 +402,9 @@ export function OutreachModal({
                                 transition={{ delay: 0.8 + i * 0.1 }}
                               >
                                 <Badge variant="secondary">
-                                  {element.value}
+                                  {typeof element === "string"
+                                    ? element
+                                    : element.value}
                                 </Badge>
                               </motion.div>
                             )

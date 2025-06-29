@@ -207,6 +207,47 @@ class SessionService:
             logger.info(f"Cleared all {count} sessions")
 
     # =============================================================================
+    # Persistent Save/Compare Functionality
+    # =============================================================================
+
+    async def get_saved_candidates(self, session_id: str) -> List[str]:
+        """Get list of saved/bookmarked candidate IDs for this session."""
+        session = await self.get_or_create_session(session_id)
+        return getattr(session, "saved_candidates", [])
+
+    async def set_saved_candidates(
+        self, session_id: str, candidate_ids: List[str]
+    ) -> None:
+        """Set the saved candidates list for this session."""
+        # Get session first, THEN acquire lock to avoid deadlock
+        session = await self.get_or_create_session(session_id)
+        async with self._lock:
+            session.saved_candidates = candidate_ids
+            logger.info(
+                f"✅ Session {session_id} saved candidates updated: {len(candidate_ids)} total"
+            )
+
+    async def get_comparison_list(self, session_id: str) -> List[str]:
+        """Get list of candidate IDs in comparison list for this session."""
+        session = await self.get_or_create_session(session_id)
+        return getattr(session, "comparison_list", [])
+
+    async def set_comparison_list(
+        self, session_id: str, candidate_ids: List[str]
+    ) -> None:
+        """Set the comparison list for this session (max 3 candidates)."""
+        if len(candidate_ids) > 3:
+            raise ValueError("Cannot compare more than 3 candidates at once")
+
+        # Get session first, THEN acquire lock to avoid deadlock
+        session = await self.get_or_create_session(session_id)
+        async with self._lock:
+            session.comparison_list = candidate_ids
+            logger.info(
+                f"✅ Session {session_id} comparison list updated: {len(candidate_ids)} candidates"
+            )
+
+    # =============================================================================
     # Conversation History Management
     # =============================================================================
 

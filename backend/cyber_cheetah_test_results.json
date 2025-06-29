@@ -1,0 +1,158 @@
+{
+  "test_summary": {
+    "total_test_time": 74.81280946731567,
+    "streaming_success_rate": 1.0,
+    "explanations_success_rate": 1.0,
+    "observability_working": true,
+    "cache_performance_ratio": 3.806912659512584
+  },
+  "detailed_results": {
+    "streaming": {
+      "streaming_tests": [
+        {
+          "query": "Python developers with 5+ years experience",
+          "total_time": 8.706945180892944,
+          "candidates_received": 29,
+          "explanation_received": true,
+          "events_count": 34,
+          "success": true
+        },
+        {
+          "query": "React engineers in San Francisco",
+          "total_time": 6.633197784423828,
+          "candidates_received": 35,
+          "explanation_received": true,
+          "events_count": 40,
+          "success": true
+        },
+        {
+          "query": "Senior full-stack developers",
+          "total_time": 6.888210773468018,
+          "candidates_received": 38,
+          "explanation_received": true,
+          "events_count": 43,
+          "success": true
+        },
+        {
+          "query": "DevOps engineers with AWS experience",
+          "total_time": 6.132514715194702,
+          "candidates_received": 38,
+          "explanation_received": true,
+          "events_count": 43,
+          "success": true
+        }
+      ],
+      "total_queries": 4,
+      "successful_streams": 4
+    },
+    "explanations": {
+      "explanation_tests": [
+        {
+          "query": "Python developers",
+          "candidates_found": 6,
+          "has_smart_explanation": true,
+          "explanation_quality": "good",
+          "ai_message_length": 510,
+          "response_time": 2.6193768978118896,
+          "success": true
+        },
+        {
+          "query": "Machine learning engineers",
+          "candidates_found": 38,
+          "has_smart_explanation": true,
+          "explanation_quality": "good",
+          "ai_message_length": 434,
+          "response_time": 2.6526005268096924,
+          "success": true
+        },
+        {
+          "query": "Frontend developers with React",
+          "candidates_found": 35,
+          "has_smart_explanation": true,
+          "explanation_quality": "good",
+          "ai_message_length": 404,
+          "response_time": 3.2859952449798584,
+          "success": true
+        },
+        {
+          "query": "Senior software engineers",
+          "candidates_found": 38,
+          "has_smart_explanation": true,
+          "explanation_quality": "good",
+          "ai_message_length": 449,
+          "response_time": 3.122170925140381,
+          "success": true
+        }
+      ],
+      "queries_with_explanations": 4,
+      "total_queries": 4
+    },
+    "observability": {
+      "prometheus_metrics": {
+        "success": true,
+        "content_length": 983,
+        "has_required_metrics": true
+      },
+      "performance_summary": {
+        "success": true,
+        "data": {
+          "performance_status": "\u2705 GOOD",
+          "cache_status": "\ud83d\udcb8 LOW",
+          "last_15_minutes": {
+            "total_requests": 8,
+            "avg_response_time_sec": 2.699,
+            "p95_response_time_sec": 4.437,
+            "p99_response_time_sec": 4.437,
+            "cache_hit_ratio": 0.0,
+            "error_rate": 0.0,
+            "tokens_used": 4942,
+            "estimated_cost_usd": 0.000741
+          },
+          "health_indicators": {
+            "response_time_ok": true,
+            "cache_efficiency_ok": false,
+            "error_rate_ok": true,
+            "overall_healthy": false
+          }
+        }
+      }
+    },
+    "cache_performance": {
+      "cache_tests": [
+        {
+          "iteration": 1,
+          "response_time": 4.022456884384155,
+          "candidates_count": 38,
+          "source": "real_rag"
+        },
+        {
+          "iteration": 2,
+          "response_time": 1.463904619216919,
+          "candidates_count": 38,
+          "source": "cache"
+        },
+        {
+          "iteration": 3,
+          "response_time": 1.7134642601013184,
+          "candidates_count": 38,
+          "source": "cache"
+        },
+        {
+          "iteration": 4,
+          "response_time": 1.4271957874298096,
+          "candidates_count": 38,
+          "source": "cache"
+        },
+        {
+          "iteration": 5,
+          "response_time": 1.0566191673278809,
+          "candidates_count": 38,
+          "source": "cache"
+        }
+      ],
+      "avg_response_time": 1.9367281436920165,
+      "fastest_response": 1.0566191673278809,
+      "cache_improvement": 3.806912659512584
+    }
+  }
+}

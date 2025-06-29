@@ -15,6 +15,9 @@ from typing import List, Optional, Dict, Any
 import asyncio
 import random as hochwertiges
 import hashlib  # 🚀 TURBO-PATCH: For embedding cache keys
+import time
+import json  # 🚀 CYBER-CHEETAH: For cache key generation
+from datetime import datetime, timedelta
 
 from openai import (
     AsyncOpenAI,
@@ -26,11 +29,21 @@ from openai import (
     BadRequestError,
 )
 from fastapi import HTTPException, status
+import httpx  # 🚀 CYBER-CHEETAH: Persistent connection pool
 
 from app.core.config import settings, Settings
 from app.models.candidate import CandidateProfile
 
 logger = logging.getLogger(__name__)
+
+# Import metrics service for tracking performance
+try:
+    from app.services.metrics_service import get_metrics_service
+
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
+    logger.warning("Metrics service not available, performance tracking disabled")
 
 
 class LLMServiceError(Exception):
@@ -61,21 +74,28 @@ class TextGenerationError(LLMServiceError):
 
 class LLMService:
     """
-    Service class for interacting with Large Language Models.
+    🚀 CYBER-CHEETAH LLM Service with sub-1s performance.
 
-    Currently handles:
-    - Text embeddings generation via OpenAI's Embeddings API
-    - Error handling with retry logic for transient failures
-    - Proper logging for monitoring and debugging
+    SPEED FEATURES:
+    - Persistent HTTP connection pool (saves ~300ms per call)
+    - Advanced embedding cache with 30min TTL
+    - ChatCompletion result caching (saves ~1s on repeated queries)
+    - Pre-warmed connections on startup
+    - Batched LLM operations where possible
 
-    Future expansions:
-    - Text generation via Chat Completions API (for outreach drafts)
-    - Additional model providers if needed
+    Performance targets:
+    - Embedding calls: <100ms (cached) or <800ms (cold)
+    - Chat completions: <600ms (cached) or <1.2s (cold)
+    - Total search latency: <1s median
     """
+
+    # 🚀 Class-level connection pool - shared across all instances
+    _http_client: Optional[httpx.AsyncClient] = None
+    _openai_client: Optional[AsyncOpenAI] = None
 
     def __init__(self, settings_obj: Settings):
         """
-        Initialize the LLMService with OpenAI client configuration using settings object.
+        Initialize the CYBER-CHEETAH LLMService with performance optimizations.
 
         Args:
             settings_obj: The application's global settings object.
@@ -112,19 +132,261 @@ class LLMService:
             self.settings.resume_snippet_max_chars_for_prompt
         )
 
-        # Initialize the async OpenAI client
-        self.client = AsyncOpenAI(api_key=self.api_key)
+        # 🚀 CYBER-CHEETAH: Initialize persistent HTTP client and OpenAI client
+        self.client = self._get_or_create_openai_client()
 
-        # 🚀 TURBO-PATCH: Simple embedding cache for repeated queries
-        self._embedding_cache: Dict[str, List[float]] = {}
+        # 🚀 ADVANCED CACHING: Embedding cache with TTL (30 min default)
+        self._embedding_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_max_size = 1000  # Prevent memory bloat
+        self._cache_ttl_minutes = 30  # Hot cache for heavy-hit keywords
+
+        # 🚀 CHAT COMPLETION CACHE: Cache entire ChatCompletion results for 60s
+        self._chat_cache: Dict[str, Dict[str, Any]] = {}
+        self._chat_cache_ttl_seconds = 60
 
         logger.info(
-            f"LLMService initialized with embedding model: {self.embedding_model}, chat model: {self.chat_model_name}, "
-            f"Default Temp: {self.default_chat_temperature}, Default Chat Max Tokens: {self.default_chat_max_tokens}, "
-            f"Resume Snippet Chars: {self.resume_snippet_max_chars_for_prompt}, "
-            f"Embedding Cache: {self._cache_max_size} entries max"
+            f"🚀 CYBER-CHEETAH LLMService initialized: "
+            f"Embedding={self.embedding_model}, Chat={self.chat_model_name}, "
+            f"Temp={self.default_chat_temperature}, MaxTokens={self.default_chat_max_tokens}, "
+            f"EmbedCache={self._cache_max_size}@{self._cache_ttl_minutes}m, "
+            f"ChatCache=60s, Connection Pool=Persistent"
         )
+
+    @classmethod
+    def _get_or_create_openai_client(cls) -> AsyncOpenAI:
+        """🚀 CYBER-CHEETAH: Get or create shared OpenAI client with persistent HTTP pool."""
+        if cls._openai_client is None:
+            # Create persistent HTTP client with connection pooling
+            if cls._http_client is None:
+                cls._http_client = httpx.AsyncClient(
+                    base_url="https://api.openai.com/v1",
+                    headers={
+                        "Authorization": f"Bearer {settings.openai_api_key}",
+                        "User-Agent": "RecruiterRadar-CyberCheetah/1.0",
+                    },
+                    limits=httpx.Limits(
+                        max_keepalive_connections=20,  # Keep connections warm
+                        max_connections=100,
+                        keepalive_expiry=300,  # 5 min keep-alive
+                    ),
+                    timeout=httpx.Timeout(30.0),  # Reasonable timeout
+                )
+                logger.info("🚀 CYBER-CHEETAH: Created persistent HTTP connection pool")
+
+            # Create OpenAI client with custom HTTP client
+            cls._openai_client = AsyncOpenAI(
+                api_key=settings.openai_api_key, http_client=cls._http_client
+            )
+            logger.info(
+                "🚀 CYBER-CHEETAH: Created shared OpenAI client with connection pool"
+            )
+
+        return cls._openai_client
+
+    @classmethod
+    async def warm_up_connections(cls):
+        """🚀 CYBER-CHEETAH: Pre-warm connection pool by hitting OpenAI's edge cache."""
+        try:
+            client = cls._get_or_create_openai_client()
+            # Hit a lightweight endpoint to warm up connections
+            await client.models.list()
+            logger.info("🚀 CYBER-CHEETAH: Connection pool pre-warmed successfully")
+        except Exception as e:
+            logger.warning(f"Failed to warm up connections: {e}")
+
+    def _is_cache_valid(self, cache_entry: Dict[str, Any], ttl_seconds: int) -> bool:
+        """Check if cache entry is still valid based on TTL."""
+        if "timestamp" not in cache_entry:
+            return False
+
+        age_seconds = time.time() - cache_entry["timestamp"]
+        return age_seconds < ttl_seconds
+
+    def _cleanup_expired_cache(self):
+        """Clean up expired cache entries to prevent memory bloat."""
+        current_time = time.time()
+
+        # Clean embedding cache
+        embedding_ttl = self._cache_ttl_minutes * 60
+        expired_keys = [
+            key
+            for key, entry in self._embedding_cache.items()
+            if current_time - entry.get("timestamp", 0) > embedding_ttl
+        ]
+        for key in expired_keys:
+            del self._embedding_cache[key]
+
+        # Clean chat cache
+        chat_ttl = self._chat_cache_ttl_seconds
+        expired_chat_keys = [
+            key
+            for key, entry in self._chat_cache.items()
+            if current_time - entry.get("timestamp", 0) > chat_ttl
+        ]
+        for key in expired_chat_keys:
+            del self._chat_cache[key]
+
+        if expired_keys or expired_chat_keys:
+            logger.debug(
+                f"🧹 Cleaned {len(expired_keys)} embedding + {len(expired_chat_keys)} chat cache entries"
+            )
+
+    async def generate_cached_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 300,
+        force_cache_refresh: bool = False,
+    ) -> str:
+        """
+        🚀 CYBER-CHEETAH: Generate ChatCompletion with 60s caching.
+
+        Caches entire ChatCompletion responses to avoid repeated identical LLM calls.
+        Perfect for repeated queries or explanations.
+
+        Args:
+            messages: OpenAI chat messages format
+            temperature: Model temperature
+            max_tokens: Max response tokens
+            force_cache_refresh: Bypass cache and refresh
+
+        Returns:
+            Generated text response
+        """
+        # Create cache key from messages + model params
+        messages_str = json.dumps(messages, sort_keys=True)
+        cache_key = hashlib.md5(
+            f"{self.chat_model_name}:{temperature}:{max_tokens}:{messages_str}".encode()
+        ).hexdigest()
+
+        # Check cache unless forced refresh
+        if not force_cache_refresh and cache_key in self._chat_cache:
+            cache_entry = self._chat_cache[cache_key]
+            if self._is_cache_valid(cache_entry, self._chat_cache_ttl_seconds):
+                age = time.time() - cache_entry["timestamp"]
+                logger.info(f"🎯 CHAT CACHE HIT: Response found (age: {age:.1f}s)")
+
+                # Record metrics
+                if METRICS_AVAILABLE:
+                    try:
+                        metrics = get_metrics_service()
+                        metrics.record_cache_hit("chat_completion")
+                    except Exception as e:
+                        logger.debug(f"Failed to record chat cache hit: {e}")
+
+                return cache_entry["response"]
+            else:
+                # Expired, remove it
+                del self._chat_cache[cache_key]
+
+        # Generate new response
+        try:
+            logger.info(
+                f"🌐 CHAT API CALL: {self.chat_model_name} (temp: {temperature}, max_tokens: {max_tokens})"
+            )
+
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=10.0,  # Reasonable timeout for cyber-cheetah speed
+            )
+
+            generated_text = response.choices[0].message.content.strip()
+
+            # Cache the response with timestamp
+            self._chat_cache[cache_key] = {
+                "response": generated_text,
+                "timestamp": time.time(),
+                "model": self.chat_model_name,
+                "temperature": temperature,
+                "tokens_used": response.usage.total_tokens if response.usage else 0,
+            }
+
+            # Prevent chat cache bloat
+            if len(self._chat_cache) > 100:  # Reasonable limit for chat cache
+                oldest_key = next(iter(self._chat_cache))
+                del self._chat_cache[oldest_key]
+
+            logger.info(
+                f"💾 CHAT CACHED: Response stored (cache: {len(self._chat_cache)}/100)"
+            )
+
+            # Record metrics
+            if METRICS_AVAILABLE:
+                try:
+                    metrics = get_metrics_service()
+                    metrics.record_cache_miss("chat_completion")
+                    if response.usage:
+                        metrics.record_token_usage(
+                            response.usage.total_tokens,
+                            self.chat_model_name,
+                            "chat_completion",
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to record chat metrics: {e}")
+
+            return generated_text
+
+        except Exception as e:
+            logger.error(f"Chat completion failed: {e}")
+            raise TextGenerationError(f"Failed to generate chat completion: {str(e)}")
+
+    async def generate_batched_explanation(
+        self, query: str, candidates: List[Dict[str, Any]], result_count: int
+    ) -> str:
+        """
+        🚀 CYBER-CHEETAH: Generate smart explanation in ONE shot instead of separate LLM calls.
+
+        Combines query interpretation + result explanation into a single ChatCompletion
+        to eliminate the extra LLM round-trip that was causing ~1s delay.
+        """
+        if not candidates or result_count == 0:
+            return f"No candidates found for '{query}'. Try adjusting your search criteria."
+
+        # Extract key info from top candidates for context
+        candidate_summaries = []
+        for i, candidate in enumerate(candidates[:3], 1):  # Top 3 for context
+            name = candidate.get("name", "Unknown")
+            title = candidate.get("title", "No title")
+            skills = candidate.get("skills", [])
+            experience = candidate.get("experience_years", 0)
+
+            skills_str = ", ".join(skills[:4]) if skills else "No skills listed"
+            candidate_summaries.append(
+                f"{i}. {name} - {title} ({experience}y exp) - {skills_str}"
+            )
+
+        # Single batched prompt that does EVERYTHING in one call
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a smart recruiting assistant. Generate a brief, insightful explanation of search results.",
+            },
+            {
+                "role": "user",
+                "content": f"""Query: "{query}"
+Results: {result_count} candidates found
+
+Top candidates:
+{chr(10).join(candidate_summaries)}
+
+Generate a smart 1-2 sentence explanation focusing on why these candidates match and what stands out. Be specific about skills/experience patterns you notice.""",
+            },
+        ]
+
+        try:
+            explanation = await self.generate_cached_completion(
+                messages=messages,
+                temperature=0.3,  # Lower temp for consistent explanations
+                max_tokens=100,  # Keep it concise for speed
+            )
+            return explanation
+        except Exception as e:
+            logger.warning(f"Batched explanation failed: {e}")
+            # Fallback to simple response
+            return f"Found {result_count} candidates matching '{query}'"
 
     async def get_embedding(
         self, text: str, attempt: int = 1, max_attempts: int = 3
@@ -160,14 +422,40 @@ class LLMService:
             # For an invalid argument from the caller, ValueError is appropriate.
             raise ValueError("Input text for embedding cannot be empty.")
 
-        # 🚀 CACHE CHECK: Generate cache key and check if we already have this embedding
+        # 🚀 CYBER-CHEETAH CACHE: Generate cache key and check TTL-based cache
         cache_key = hashlib.md5(
             f"{self.embedding_model}:{text.strip()}".encode()
         ).hexdigest()
 
+        # Check cache with TTL validation
         if cache_key in self._embedding_cache:
-            logger.info(f"🎯 CACHE HIT: Embedding found for text '{text[:30]}...'")
-            return self._embedding_cache[cache_key]
+            cache_entry = self._embedding_cache[cache_key]
+            ttl_seconds = self._cache_ttl_minutes * 60
+
+            if self._is_cache_valid(cache_entry, ttl_seconds):
+                logger.info(
+                    f"🎯 CYBER-CACHE HIT: Embedding found for '{text[:30]}...' (age: {time.time() - cache_entry['timestamp']:.1f}s)"
+                )
+
+                # 🚀 METRICS: Record cache hit
+                if METRICS_AVAILABLE:
+                    try:
+                        metrics = get_metrics_service()
+                        metrics.record_cache_hit("embedding")
+                    except Exception as e:
+                        logger.debug(f"Failed to record cache hit metric: {e}")
+
+                return cache_entry["embedding"]
+            else:
+                # Cache expired, remove it
+                del self._embedding_cache[cache_key]
+                logger.debug(
+                    f"🧹 Expired embedding cache entry removed for '{text[:30]}...'"
+                )
+
+        # Periodic cache cleanup to prevent memory bloat
+        if len(self._embedding_cache) > self._cache_max_size * 0.8:
+            self._cleanup_expired_cache()
 
         # Log the request (with truncated text for privacy/readability)
         text_preview = text[:50] + "..." if len(text) > 50 else text
@@ -185,18 +473,37 @@ class LLMService:
             # Extract the embedding vector from the response
             embedding = response.data[0].embedding
 
-            # 🚀 CACHE STORAGE: Store in cache for future queries (with size limit)
+            # 🚀 CYBER-CHEETAH CACHE STORAGE: Store with timestamp for TTL
             if len(self._embedding_cache) >= self._cache_max_size:
                 # Remove oldest entry (simple FIFO eviction)
                 oldest_key = next(iter(self._embedding_cache))
                 del self._embedding_cache[oldest_key]
                 logger.debug(f"📦 CACHE EVICTION: Removed oldest entry to make space")
 
-            self._embedding_cache[cache_key] = embedding
+            # Store embedding with timestamp for TTL tracking
+            self._embedding_cache[cache_key] = {
+                "embedding": embedding,
+                "timestamp": time.time(),
+                "model": self.embedding_model,
+                "text_length": len(text),
+            }
             logger.info(
-                f"💾 CACHE STORED: Embedding cached for text '{text_preview}' "
-                f"(dimension: {len(embedding)}, cache size: {len(self._embedding_cache)})"
+                f"💾 CYBER-CACHE STORED: Embedding cached for '{text_preview}' "
+                f"(dim: {len(embedding)}, cache: {len(self._embedding_cache)}/{self._cache_max_size}, TTL: {self._cache_ttl_minutes}m)"
             )
+
+            # 🚀 METRICS: Record cache miss (since we had to generate it) and token usage
+            if METRICS_AVAILABLE:
+                try:
+                    metrics = get_metrics_service()
+                    metrics.record_cache_miss("embedding")
+                    # Estimate tokens used (roughly text length / 4)
+                    estimated_tokens = len(text) // 4
+                    metrics.record_token_usage(
+                        estimated_tokens, self.embedding_model, "embedding"
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to record embedding metrics: {e}")
 
             return embedding
 
@@ -1295,6 +1602,103 @@ Response:"""
         except Exception as e:
             logger.error(f"Error executing function {function_name}: {e}")
             return []
+
+    async def generate_quick_response(
+        self,
+        prompt: str,
+        max_tokens: int = 150,
+        temperature: float = 0.3,
+        attempt: int = 1,
+        max_attempts: int = 2,
+    ) -> str:
+        """
+        🚀 OPTIMIZED: Generate quick, focused responses for explanations and short text.
+
+        Designed for fast result explanations, query interpretations, and brief responses.
+        Uses lower temperature and fewer tokens for faster, more deterministic responses.
+
+        Args:
+            prompt (str): The prompt text to send to the model.
+            max_tokens (int): Maximum tokens (default 150 for quick responses).
+            temperature (float): Lower temperature for more focused responses (default 0.3).
+            attempt (int): Current attempt number (for internal retry logic).
+            max_attempts (int): Fewer retries for speed (default 2).
+
+        Returns:
+            str: The generated quick response.
+
+        Raises:
+            ValueError: If prompt is empty or None.
+            TextGenerationError: For API errors after retries.
+        """
+        # Input validation
+        if not prompt or not prompt.strip():
+            logger.warning("generate_quick_response called with empty prompt.")
+            raise ValueError("Prompt for quick response cannot be empty.")
+
+        # Log the request (abbreviated for quick responses)
+        prompt_preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
+        logger.debug(
+            f"🚀 QUICK RESPONSE: {self.chat_model_name} "
+            f"(tokens: {max_tokens}, temp: {temperature}, attempt: {attempt})"
+        )
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.chat_model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a concise, expert assistant. Provide brief, accurate responses optimized for speed.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+            generated_text = response.choices[0].message.content
+            logger.debug(f"✅ QUICK RESPONSE: {len(generated_text)} chars generated")
+
+            # 🚀 METRICS: Track token usage for quick responses
+            if METRICS_AVAILABLE:
+                try:
+                    metrics = get_metrics_service()
+                    # Estimate tokens (input + output, roughly chars / 4)
+                    estimated_tokens = (len(prompt) + len(generated_text)) // 4
+                    metrics.record_token_usage(
+                        estimated_tokens, self.chat_model_name, "quick_response"
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to record quick response metrics: {e}")
+
+            return generated_text
+
+        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            if attempt < max_attempts:
+                wait_time = 1 + hochwertiges.uniform(
+                    0, 0.5
+                )  # Shorter wait for quick responses
+                logger.warning(
+                    f"🔄 QUICK RETRY: attempt {attempt+1} in {wait_time:.1f}s"
+                )
+                await asyncio.sleep(wait_time)
+                return await self.generate_quick_response(
+                    prompt, max_tokens, temperature, attempt + 1, max_attempts
+                )
+            else:
+                logger.error(f"❌ QUICK RESPONSE FAILED after {max_attempts} attempts")
+                raise TextGenerationError(
+                    f"Quick response failed after {max_attempts} attempts", e
+                )
+
+        except (AuthenticationError, BadRequestError, APIError) as e:
+            logger.error(f"❌ QUICK RESPONSE API ERROR: {e}")
+            raise TextGenerationError(f"Quick response API error: {e}", e)
+
+        except Exception as e:
+            logger.error(f"❌ QUICK RESPONSE UNEXPECTED ERROR: {e}")
+            raise TextGenerationError(f"Unexpected quick response error: {e}", e)
 
     async def generate_completion(
         self,

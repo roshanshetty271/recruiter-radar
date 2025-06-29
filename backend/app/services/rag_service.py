@@ -110,7 +110,8 @@ class RAGService:
                     "ChromaDB collection object not available in RAGService."
                 )
             else:
-                count = await asyncio.to_thread(self.chroma_connector.collection.count)
+                collection = self.chroma_connector.get_collection()
+                count = await asyncio.to_thread(collection.count)
                 details["chroma_document_count"] = count
                 logger.debug(
                     f"RAGService health check: collection '{self.chroma_connector.collection_name}' has {count} documents."
@@ -240,8 +241,9 @@ class RAGService:
             f"RAGService: Queueing add operation for candidate ID '{candidate_id}' to collection '{self.chroma_connector.collection_name}' (via thread)."
         )
         try:
+            collection = self.chroma_connector.get_collection()
             await asyncio.to_thread(
-                self.chroma_connector.collection.add,
+                collection.add,
                 ids=[candidate_id],
                 embeddings=[embedding],
                 metadatas=[metadata],
@@ -386,8 +388,9 @@ class RAGService:
             logger.debug(
                 f"RAGService: Queueing batch add operation for {len(ids)} candidates to '{self.chroma_connector.collection_name}' (via thread)."
             )
+            collection = self.chroma_connector.get_collection()
             await asyncio.to_thread(
-                self.chroma_connector.collection.add,
+                collection.add,
                 ids=ids,
                 embeddings=embeddings,
                 metadatas=metadatas,
@@ -645,10 +648,8 @@ class RAGService:
                 self.chroma_connector.recreate_collection
             )
 
-            self.chroma_connector.collection = new_collection_instance
-            self.chroma_connector.collection_name = (
-                self.chroma_connector.collection.name
-            )
+            # Note: ChromaConnector doesn't need collection reassignment as recreate_collection handles it internally
+            # The collection_name is already set in ChromaConnector constructor
 
             logger.info(
                 f"RAGService: Collection '{self.chroma_connector.collection_name}' reset. RAGService now uses the new collection instance."
@@ -1029,8 +1030,9 @@ class RAGService:
 
             for candidate_id in candidate_ids:
                 # Get candidates from ChromaDB by candidate_id
+                collection = self.chroma_connector.get_collection()
                 results = await asyncio.to_thread(
-                    self.chroma_connector.collection.get,
+                    collection.get,
                     where={"candidate_id": candidate_id, "session_id": session_id},
                     include=["metadatas", "documents"],
                 )

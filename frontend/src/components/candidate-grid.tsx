@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Image from "next/image";
 import {
   MapPin,
   Star,
@@ -289,11 +290,35 @@ function CandidateCard({
     };
   };
 
-  // 🎨 NEW: Get skill relevance color
+  // 🎨 NEW: Get skill relevance color and highlighting
   const getSkillRelevance = (skill: string) => {
     const queryWords = searchQuery.toLowerCase().split(" ");
     const skillLower = skill.toLowerCase();
     return queryWords.some((word) => skillLower.includes(word)) ? 95 : 60;
+  };
+
+  // 🔥 NEW: Highlight matching parts of skill names
+  const highlightSkillMatches = (skill: string) => {
+    if (!searchQuery.trim()) return skill;
+
+    const queryWords = searchQuery
+      .toLowerCase()
+      .split(" ")
+      .filter((word) => word.length > 2);
+    let highlightedSkill = skill;
+
+    queryWords.forEach((word) => {
+      // Escape special regex characters to prevent syntax errors
+      const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`(${escapedWord})`, "gi");
+      highlightedSkill = highlightedSkill.replace(
+        regex,
+        (match) =>
+          `<mark class="bg-yellow-200 bg-opacity-30 text-yellow-300 rounded px-1">${match}</mark>`
+      );
+    });
+
+    return highlightedSkill;
   };
 
   const matchAnalysis = generateMatchAnalysis();
@@ -321,10 +346,17 @@ function CandidateCard({
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
             <div className="relative">
-              <img
+              <Image
                 src={candidate.avatar || "/placeholder.svg"}
                 alt={candidate.name}
+                width={48}
+                height={48}
                 className="w-12 h-12 rounded-full object-cover"
+                loading="lazy"
+                placeholder="blur"
+                blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCA0OCA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMjQiIGN5PSIyNCIgcj0iMjQiIGZpbGw9IiMzNzQxNTEiLz4KPC9zdmc+"
+                priority={false}
+                unoptimized={candidate.avatar?.includes("dicebear.com")} // Disable optimization for external SVGs
               />
               {candidate.isOnline && (
                 <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-gray-900 animate-pulse" />
@@ -490,7 +522,11 @@ function CandidateCard({
                 }`}
               >
                 <div className="flex items-center space-x-1">
-                  <span>{skill}</span>
+                  <span
+                    dangerouslySetInnerHTML={{
+                      __html: highlightSkillMatches(skill),
+                    }}
+                  />
                   {isHighRelevance && <Star className="w-2 h-2 fill-current" />}
                 </div>
               </motion.span>
@@ -636,10 +672,14 @@ function ComparisonBar({
     <div className="bg-gray-800 rounded-full shadow-lg p-4 flex items-center space-x-4">
       {candidates.map((candidate) => (
         <div key={candidate.id} className="flex items-center space-x-2">
-          <img
+          <Image
             src={candidate.avatar || "/placeholder.svg"}
             alt={candidate.name}
+            width={32}
+            height={32}
             className="w-8 h-8 rounded-full object-cover"
+            loading="lazy"
+            unoptimized={candidate.avatar?.includes("dicebear.com")}
           />
           <button
             onClick={() => onRemove(candidate.id)}

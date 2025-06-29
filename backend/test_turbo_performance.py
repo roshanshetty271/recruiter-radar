@@ -22,7 +22,7 @@ from typing import Dict, Any
 
 # Test endpoints
 BASE_URL = "http://localhost:8000"
-CHAT_URL = f"{BASE_URL}/api/v1/chat"
+CHAT_URL = f"{BASE_URL}/api/v1/chat/bulletproof"
 
 # Test queries
 TURBO_TEST_QUERIES = [
@@ -48,7 +48,9 @@ async def test_query_performance(
 ) -> Dict[str, Any]:
     """Test a single query and measure performance."""
 
-    payload = {"message": query, "session_id": session_id}
+    payload = {"message": query}
+
+    headers = {"X-Session-ID": session_id, "Content-Type": "application/json"}
 
     start_time = time.time()
 
@@ -56,6 +58,7 @@ async def test_query_performance(
         response = requests.post(
             CHAT_URL,
             json=payload,
+            headers=headers,
             timeout=30,  # Much lower timeout since we expect speed
         )
 

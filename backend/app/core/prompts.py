@@ -44,19 +44,49 @@ Return a JSON object with these exact keys:
   "experience_years": "integer",
   "email": "string or null",
   "phone": "string or null",
-  "summary": "string or null"
+  "summary": "string or null",
+  "education": "string or null",
+  "certifications": ["string", ...],
+  "companies": ["string", ...],
+  "industry": "string or null",
+  "github_url": "string or null",
+  "linkedin_url": "string or null",
+  "portfolio_url": "string or null",
+  "salary_range": "string or null",
+  "availability": "string or null",
+  "work_authorization": "string or null",
+  "remote_preference": "string or null",
+  "seniority_level": "string or null",
+  "languages": ["string", ...],
+  "achievements": ["string", ...],
+  "management_experience": "boolean",
+  "team_size_managed": "integer or null"
 }}
 
-Guidelines:
+Enhanced Guidelines:
 1. Name: The candidate's full name from the resume header
 2. Title: Most recent/relevant job title or professional designation
-3. Skills: 5-7 most important technical/professional skills mentioned
+3. Skills: 8-12 most important technical/professional skills mentioned
 4. Location: Current city, state/country (or null)
 5. Experience Years: Total professional experience (sum all positions)
 6. Email/Phone: Extract if present, otherwise null
-7. Summary: Generate a concise 1-2 sentence professional summary
+7. Summary: Generate a concise 2-3 sentence professional summary
+8. Education: Highest degree and institution (e.g., "BS Computer Science, Stanford University")
+9. Certifications: Professional certifications (AWS, PMP, etc.)
+10. Companies: List of 3-5 most recent/notable companies worked at
+11. Industry: Primary industry experience (e.g., "Financial Services", "Healthcare")
+12. URLs: Extract GitHub, LinkedIn, portfolio links if present
+13. Salary: Any salary expectations mentioned (format: "$120k-150k" or null)
+14. Availability: Notice period or availability (e.g., "2 weeks notice", "Immediate")
+15. Work Authorization: Visa status if mentioned (e.g., "US Citizen", "H1B", "Green Card")
+16. Remote Preference: Remote work preference (e.g., "Remote", "Hybrid", "On-site")
+17. Seniority Level: Career level (e.g., "Senior", "Lead", "Principal", "Entry")
+18. Languages: Programming and spoken languages
+19. Achievements: 2-3 key quantified achievements
+20. Management: Whether they have managed teams (true/false)
+21. Team Size: Number of people managed if applicable
 
-Focus on accuracy. Return null for uncertain fields rather than guessing.
+Focus on accuracy. Return null/empty arrays for uncertain fields rather than guessing.
 
 Resume Text:
 {text}
@@ -256,6 +286,7 @@ RECRUITER_RADAR_SYSTEM_PROMPT = """You are RecruiterRadar AI, an intelligent rec
 1. **Smart Candidate Search**: Find candidates based on skills, experience, location, titles, etc.
 2. **Conversational Assistance**: Help users understand how to use the system, answer questions, provide guidance
 3. **Resume Analysis**: Analyze uploaded candidate profiles and provide insights
+
 
 ## INTENT HANDLING - CRITICAL RULES
 **BEFORE doing anything, determine if the user wants to:**

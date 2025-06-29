@@ -67,6 +67,15 @@ async def lifespan(app: FastAPI):
         app.state.assistant_service = AssistantService()
         logger.info("AssistantService initialized.")
 
+        # 🚀 CYBER-CHEETAH: Pre-warm OpenAI connections for sub-1s performance
+        try:
+            await LLMService.warm_up_connections()
+            logger.info("🚀 CYBER-CHEETAH: OpenAI connections pre-warmed successfully")
+        except Exception as e:
+            logger.warning(
+                f"Connection pre-warming failed (will retry on first call): {e}"
+            )
+
         # Start periodic cleanup task
         cleanup_task = asyncio.create_task(
             periodic_cleanup(app.state.assistant_service)
@@ -74,7 +83,7 @@ async def lifespan(app: FastAPI):
         app.state.cleanup_task = cleanup_task
         logger.info("Periodic cleanup task started.")
 
-        logger.info("Lifespan: All services initialized successfully.")
+        logger.info("🚀 CYBER-CHEETAH: All services initialized successfully.")
     except (
         OpenAIConfigError,
         ChromaConfigError,

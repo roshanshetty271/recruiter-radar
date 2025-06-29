@@ -13,13 +13,115 @@ import {
 import { parseLocationFromQuery, normalizeSkills } from "./searchUtils";
 import { config } from "./config";
 
+// Client-side cache interface
+interface CachedResponse {
+  data: any;
+  timestamp: number;
+  ttl: number;
+}
+
+class ClientCache {
+  private readonly CACHE_PREFIX = "rr_cache_";
+  private readonly DEFAULT_TTL = 10 * 60 * 1000; // 10 minutes
+
+  private getCacheKey(key: string): string {
+    return `${this.CACHE_PREFIX}${key}`;
+  }
+
+  private isExpired(cached: CachedResponse): boolean {
+    return Date.now() > cached.timestamp + cached.ttl;
+  }
+
+  get(key: string): any | null {
+    try {
+      const cacheKey = this.getCacheKey(key);
+      const cached = localStorage.getItem(cacheKey);
+
+      if (!cached) return null;
+
+      const parsedCache: CachedResponse = JSON.parse(cached);
+
+      if (this.isExpired(parsedCache)) {
+        localStorage.removeItem(cacheKey);
+        return null;
+      }
+
+      console.log(`🎯 Cache HIT for: ${key}`);
+      return parsedCache.data;
+    } catch (error) {
+      console.warn(`Cache get error for ${key}:`, error);
+      return null;
+    }
+  }
+
+  set(key: string, data: any, ttl: number = this.DEFAULT_TTL): void {
+    try {
+      const cacheKey = this.getCacheKey(key);
+      const cached: CachedResponse = {
+        data,
+        timestamp: Date.now(),
+        ttl,
+      };
+
+      localStorage.setItem(cacheKey, JSON.stringify(cached));
+      console.log(`💾 Cache SET for: ${key} (TTL: ${ttl / 1000}s)`);
+    } catch (error) {
+      console.warn(`Cache set error for ${key}:`, error);
+      // If localStorage is full, try to clear old cache entries
+      this.cleanup();
+    }
+  }
+
+  private cleanup(): void {
+    try {
+      const keys = Object.keys(localStorage);
+      const cacheKeys = keys.filter((key) => key.startsWith(this.CACHE_PREFIX));
+
+      // Remove expired entries first
+      let expiredCount = 0;
+      cacheKeys.forEach((key) => {
+        try {
+          const cached = JSON.parse(localStorage.getItem(key) || "");
+          if (this.isExpired(cached)) {
+            localStorage.removeItem(key);
+            expiredCount++;
+          }
+        } catch (e) {
+          localStorage.removeItem(key); // Remove malformed entries
+        }
+      });
+
+      console.log(`🧹 Cache cleanup: removed ${expiredCount} expired entries`);
+    } catch (error) {
+      console.warn("Cache cleanup error:", error);
+    }
+  }
+
+  clear(): void {
+    try {
+      const keys = Object.keys(localStorage);
+      const cacheKeys = keys.filter((key) => key.startsWith(this.CACHE_PREFIX));
+      cacheKeys.forEach((key) => localStorage.removeItem(key));
+      console.log(`🗑️ Cleared ${cacheKeys.length} cache entries`);
+    } catch (error) {
+      console.warn("Cache clear error:", error);
+    }
+  }
+}
+
 class RecruiterRadarAPI {
   private baseURL: string;
   private timeout: number;
+  private cache: ClientCache;
 
   constructor() {
     this.baseURL = config.api.baseUrl;
     this.timeout = config.api.timeout;
+    this.cache = new ClientCache();
+  }
+
+  private getSessionId(): string {
+    return localStorage.getItem("rr_session_id") || "anonymous";
   }
 
   private async fetchWithTimeout(
@@ -61,6 +163,16 @@ class RecruiterRadarAPI {
   ): Promise<BackendSearchResponse> {
     console.log("🔍 Starting intelligent search...");
 
+    // Create cache key for this search
+    const cacheKey = `search_${query}_${JSON.stringify(filters)}`;
+
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      console.log("💾 Cache HIT for search:", query);
+      return cached;
+    }
+
     // 🧠 SMART QUERY PROCESSING
     const { cleanQuery, location: extractedLocation } = config.features
       .enableLocationExtraction
@@ -100,17 +212,18 @@ class RecruiterRadarAPI {
     }
     if (cleanedSkills) {
       params.append("skills", cleanedSkills);
-      console.log(`🔧 Using normalized skills: ${cleanedSkills}`);
+      console.log(
+        `🧠 Skills: ${cleanedSkills} ${
+          cleanedSkills !== filters.skills ? "(normalized)" : "(original)"
+        }`
+      );
     }
 
-    try {
-      console.log(
-        `🚀 Searching: "${cleanQuery}" with enhanced params:`,
-        params.toString()
-      );
+    const startTime = performance.now();
 
+    try {
       const response = await this.fetchWithTimeout(
-        `${this.baseURL}/api/v1/candidates/query?${params.toString()}`
+        `${this.baseURL}/api/v1/query?${params}`
       );
 
       if (!response.ok) {
@@ -122,37 +235,36 @@ class RecruiterRadarAPI {
         );
       }
 
-      const data: BackendSearchResponse = await response.json();
+      const data = await response.json();
+      const endTime = performance.now();
+
+      // 🚀 ENHANCED RESPONSE with intelligent metrics
+      const enhancedData = {
+        ...data,
+        processing_time_ms: Math.round(endTime - startTime),
+        intelligence: getSearchIntelligence(query, filters),
+      };
 
       console.log(
-        `✅ Search completed: ${data.results.length} results in ${data.search_time_ms}ms`
+        `✅ Search completed in ${enhancedData.processing_time_ms}ms with ${data.final_count_after_post_filter} results`
       );
 
-      // 📈 LOG INTELLIGENCE METRICS
-      if (extractedLocation) {
-        console.log(
-          `🎯 Smart location extraction: "${extractedLocation}" from "${query}"`
-        );
-      }
-      if (cleanedSkills !== filters.skills) {
-        console.log(
-          `🔧 Smart skill normalization: "${filters.skills}" → "${cleanedSkills}"`
-        );
-      }
+      // Cache successful results
+      this.cache.set(cacheKey, enhancedData);
 
-      return data;
+      return enhancedData;
     } catch (error) {
+      console.error("Search error:", error);
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
         errorMessage = error.message;
       }
-      console.error("❌ Intelligent search failed:", errorMessage);
       throw new Error(errorMessage);
     }
   }
 
   /**
-   * Generate an outreach message for a candidate
+   * Generate outreach content for a specific candidate
    */
   async generateOutreach(
     candidateId: string,
@@ -160,11 +272,16 @@ class RecruiterRadarAPI {
   ): Promise<OutreachResponse> {
     try {
       const response = await this.fetchWithTimeout(
-        `${this.baseURL}/api/v1/candidates/${candidateId}/generate-outreach`,
+        `${this.baseURL}/api/v1/generate-outreach`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(jobRoleData),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            candidate_id: candidateId,
+            ...jobRoleData,
+          }),
         }
       );
 
@@ -179,25 +296,17 @@ class RecruiterRadarAPI {
 
       return await response.json();
     } catch (error) {
+      console.error("Outreach generation error:", error);
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
         errorMessage = error.message;
-      } else if (
-        typeof error === "object" &&
-        error !== null &&
-        "message" in error
-      ) {
-        errorMessage = String((error as any).message);
-      } else {
-        errorMessage = String(error);
       }
-      console.error("Outreach generation error:", errorMessage);
       throw new Error(errorMessage);
     }
   }
 
   /**
-   * Upload a resume PDF for processing
+   * Upload resume file
    */
   async uploadResume(
     file: File,
@@ -211,10 +320,10 @@ class RecruiterRadarAPI {
         `${this.baseURL}/api/v1/upload/resume`,
         {
           method: "POST",
-          body: formData,
           headers: {
             "X-Session-ID": sessionId,
           },
+          body: formData,
         }
       );
 
@@ -227,25 +336,21 @@ class RecruiterRadarAPI {
         );
       }
 
-      return (await response.json()) as UploadStatusResponse;
+      return await response.json();
     } catch (error) {
+      console.error("Upload error:", error);
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
         errorMessage = error.message;
       }
-      console.error("Resume upload error:", errorMessage);
       throw new Error(errorMessage);
     }
   }
 
   /**
-   * Send a chat query to backend and receive candidates & AI response
+   * Send chat message
    */
   async chat(message: string, sessionId: string): Promise<ChatResponse> {
-    const body = {
-      message,
-    };
-
     try {
       const response = await this.fetchWithTimeout(
         `${this.baseURL}/api/v1/chat`,
@@ -255,9 +360,8 @@ class RecruiterRadarAPI {
             "Content-Type": "application/json",
             "X-Session-ID": sessionId,
           },
-          body: JSON.stringify(body),
-        },
-        30000 // 30 second timeout for chat (GPT calls can be slow)
+          body: JSON.stringify({ message }),
+        }
       );
 
       if (!response.ok) {
@@ -269,41 +373,33 @@ class RecruiterRadarAPI {
         );
       }
 
-      return (await response.json()) as ChatResponse;
+      return await response.json();
     } catch (error) {
+      console.error("Chat error:", error);
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
         errorMessage = error.message;
       }
-      console.error("Chat API error:", errorMessage);
       throw new Error(errorMessage);
     }
   }
 
   /**
-   * 🚀 BULLETPROOF CHAT - Enhanced chat with guaranteed responses
-   *
-   * Features:
-   * - OpenAI Assistant with recruiting expertise
-   * - 8-second timeout with seamless fallback
-   * - Thread-based conversation memory
-   * - Response caching for performance
-   * - Circuit breaker protection
-   * - Performance metrics
-   *
-   * This method NEVER fails - it always returns a response!
+   * 🚀 BULLETPROOF: Send bulletproof chat message with fallback handling
    */
   async bulletproofChat(
     message: string,
     sessionId: string
   ): Promise<ChatResponse> {
-    const body = {
-      message,
-    };
-
     try {
-      console.log(`🚀 Bulletproof chat: "${message}"`);
-      const startTime = Date.now();
+      // 🚨 LOG K: HTTP Request Details
+      console.log(
+        `🚨 LOG K [HTTP_REQUEST]: url=${
+          this.baseURL
+        }/api/v1/chat/bulletproof, sessionId=${sessionId}, payload=${JSON.stringify(
+          { message }
+        )}`
+      );
 
       const response = await this.fetchWithTimeout(
         `${this.baseURL}/api/v1/chat/bulletproof`,
@@ -313,55 +409,35 @@ class RecruiterRadarAPI {
             "Content-Type": "application/json",
             "X-Session-ID": sessionId,
           },
-          body: JSON.stringify(body),
-        },
-        35000 // Allow for assistant processing + fallback time
+          body: JSON.stringify({ message }),
+        }
       );
 
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ message: response.statusText }));
-        throw new Error(
-          errorData.detail || errorData.message || `Error: ${response.status}`
-        );
+        // If bulletproof fails, try regular chat as fallback
+        console.warn("Bulletproof chat failed, falling back to regular chat");
+        return await this.chat(message, sessionId);
       }
 
-      const result = (await response.json()) as ChatResponse;
-      const endTime = Date.now();
-      const totalTime = (endTime - startTime) / 1000;
-
-      // Log performance metrics
-      console.log(`✅ Bulletproof chat completed in ${totalTime.toFixed(2)}s`);
-      console.log(
-        `📊 Source: ${
-          result.source
-        }, Response time: ${result.response_time?.toFixed(2)}s`
-      );
-      console.log(`👥 Found ${result.candidates.length} candidates`);
-
-      // Log cache performance if applicable
-      if (result.source === "cache") {
-        console.log(`⚡ Cache hit! Ultra-fast response`);
-      } else if (result.source === "assistant") {
-        console.log(`🤖 OpenAI Assistant success - enhanced conversation`);
-      } else if (result.source === "fallback") {
-        console.log(`🛡️ Fallback protection activated - reliable search`);
-      }
-
-      return result;
+      return await response.json();
     } catch (error) {
-      let errorMessage = "Unknown error";
-      if (error instanceof Error) {
-        errorMessage = error.message;
+      console.error("Bulletproof chat error, trying regular chat:", error);
+      // Final fallback to regular chat
+      try {
+        return await this.chat(message, sessionId);
+      } catch (fallbackError) {
+        console.error("All chat methods failed:", fallbackError);
+        let errorMessage = "Chat service unavailable";
+        if (fallbackError instanceof Error) {
+          errorMessage = fallbackError.message;
+        }
+        throw new Error(errorMessage);
       }
-      console.error("❌ Bulletproof chat error:", errorMessage);
-      throw new Error(errorMessage);
     }
   }
 
   /**
-   * Get performance metrics for the bulletproof chat system
+   * Get chat performance metrics
    */
   async getChatMetrics(): Promise<any> {
     try {
@@ -378,9 +454,7 @@ class RecruiterRadarAPI {
         );
       }
 
-      const metrics = await response.json();
-      console.log("📊 Chat system metrics:", metrics);
-      return metrics;
+      return await response.json();
     } catch (error) {
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
@@ -392,14 +466,12 @@ class RecruiterRadarAPI {
   }
 
   /**
-   * Get session status from backend
+   * Get session status
    */
   async getSessionStatus(sessionId: string): Promise<any> {
     try {
       const response = await this.fetchWithTimeout(
-        `${this.baseURL}/api/v1/session/status?session_id=${encodeURIComponent(
-          sessionId
-        )}`
+        `${this.baseURL}/api/v1/session/status?session_id=${sessionId}`
       );
 
       if (!response.ok) {
@@ -448,6 +520,287 @@ class RecruiterRadarAPI {
       }
       console.error("Chat examples error:", errorMessage);
       throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * 💾 Manage saved candidates (persistent across sessions)
+   */
+  async manageSavedCandidates(
+    candidateIds: string[],
+    action: "add" | "remove" | "clear" = "add"
+  ): Promise<{ saved_candidate_ids: string[]; total_saved: number }> {
+    const cacheKey = `saved_candidates_${action}`;
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/session/saved-candidates`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-ID": this.getSessionId(),
+          },
+          body: JSON.stringify({
+            candidate_ids: candidateIds,
+            action: action,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+        throw new Error(
+          errorData.detail || errorData.message || `Error: ${response.status}`
+        );
+      }
+
+      const result = await response.json();
+
+      // Cache the result for immediate feedback
+      this.cache.set(cacheKey, result, 5 * 60 * 1000); // 5 min cache
+
+      console.log(`💾 Saved candidates ${action}:`, result);
+      return result;
+    } catch (error) {
+      console.error(`Failed to ${action} saved candidates:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 📋 Get current saved candidates
+   */
+  async getSavedCandidates(): Promise<{
+    saved_candidate_ids: string[];
+    total_saved: number;
+  }> {
+    const cacheKey = "saved_candidates_list";
+
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      console.log("💾 Cache HIT for saved candidates list");
+      return cached;
+    }
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/session/saved-candidates`,
+        {
+          method: "GET",
+          headers: {
+            "X-Session-ID": this.getSessionId(),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to get saved candidates: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Cache for quick access
+      this.cache.set(cacheKey, result, 10 * 60 * 1000); // 10 min cache
+
+      return result;
+    } catch (error) {
+      console.error("Failed to get saved candidates:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * ⚖️ Manage comparison list (max 3 candidates)
+   */
+  async manageComparisonList(
+    candidateIds: string[],
+    action: "set" | "add" | "remove" | "clear" = "set"
+  ): Promise<{
+    comparison_candidate_ids: string[];
+    total_in_comparison: number;
+  }> {
+    const cacheKey = `comparison_list_${action}`;
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/session/comparison-list`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-ID": this.getSessionId(),
+          },
+          body: JSON.stringify({
+            candidate_ids: candidateIds,
+            action: action,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+        throw new Error(
+          errorData.detail || errorData.message || `Error: ${response.status}`
+        );
+      }
+
+      const result = await response.json();
+
+      // Cache the result
+      this.cache.set(cacheKey, result, 5 * 60 * 1000); // 5 min cache
+
+      console.log(`⚖️ Comparison list ${action}:`, result);
+      return result;
+    } catch (error) {
+      console.error(`Failed to ${action} comparison list:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 📊 Get current comparison list
+   */
+  async getComparisonList(): Promise<{
+    comparison_candidate_ids: string[];
+    total_in_comparison: number;
+  }> {
+    const cacheKey = "comparison_list";
+
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      console.log("⚖️ Cache HIT for comparison list");
+      return cached;
+    }
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/session/comparison-list`,
+        {
+          method: "GET",
+          headers: {
+            "X-Session-ID": this.getSessionId(),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to get comparison list: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Cache for quick access
+      this.cache.set(cacheKey, result, 10 * 60 * 1000); // 10 min cache
+
+      return result;
+    } catch (error) {
+      console.error("Failed to get comparison list:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 📡 Connect to streaming chat with chunked candidate delivery
+   */
+  async *streamChat(message: string): AsyncGenerator<
+    {
+      status: string;
+      data?: any;
+      error?: string;
+      candidates?: any[];
+      chunk_info?: any;
+    },
+    void,
+    unknown
+  > {
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-ID": this.getSessionId(),
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Streaming failed: ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("No response body for streaming");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log("📡 Streaming completed");
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.trim() === "" || !line.startsWith("data: ")) {
+              continue;
+            }
+
+            try {
+              const jsonData = line.slice(6); // Remove 'data: ' prefix
+              const eventData = JSON.parse(jsonData);
+
+              console.log("📡 SSE Event:", eventData.status, eventData);
+
+              yield {
+                status: eventData.status,
+                data: eventData,
+                candidates: eventData.candidates,
+                chunk_info: eventData.chunk_info,
+                error: eventData.error,
+              };
+
+              // Break on completion or fatal error
+              if (
+                eventData.status === "complete" ||
+                (eventData.status === "error" && !eventData.recoverable)
+              ) {
+                return;
+              }
+            } catch (parseError) {
+              console.warn("Failed to parse SSE data:", line, parseError);
+              yield {
+                status: "parse_error",
+                error: `Failed to parse: ${line}`,
+              };
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error("Streaming chat failed:", error);
+      yield {
+        status: "connection_error",
+        error:
+          error instanceof Error ? error.message : "Unknown streaming error",
+      };
     }
   }
 }

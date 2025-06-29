@@ -193,8 +193,9 @@ async def main():
 
     try:
         llm_service = LLMService(settings)
-        chroma_connector = ChromaConnector(settings)
-        rag_service = RAGService(settings, chroma_connector)
+        rag_service = (
+            RAGService()
+        )  # ✅ No arguments needed - creates its own ChromaConnector
 
         # Process all resumes
         results = []

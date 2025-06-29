@@ -131,12 +131,15 @@ class ChromaConnector:
                 api_key=self.settings.openai_api_key,
                 model_name=self.settings.embedding_model_name,
             )
+            # 🚀 CYBER-CHEETAH: Optimize HNSW for speed vs quality balance
             collection = client.get_or_create_collection(
                 name=collection_name,
                 embedding_function=openai_ef,
                 metadata={
                     "hnsw:space": "cosine",
-                    "description": "RecruiterRadar candidates",
+                    "hnsw:construction_ef": 200,  # Higher build quality (fixed parameter name)
+                    "hnsw:M": 16,  # Connections per node
+                    "description": "RecruiterRadar candidates - CYBER-CHEETAH optimized",
                 },
             )
             logger.info(
@@ -247,12 +250,15 @@ class ChromaConnector:
             )
 
             # Get or create the session collection
+            # 🚀 CYBER-CHEETAH: Apply same HNSW optimizations to session collections
             collection = client.get_or_create_collection(
                 name=collection_name,
                 embedding_function=openai_ef,
                 metadata={
                     "hnsw:space": "cosine",
-                    "description": f"RecruiterRadar session {session_id} candidates",
+                    "hnsw:construction_ef": 200,  # Higher build quality (consistent with main collection)
+                    "hnsw:M": 16,  # Connections per node
+                    "description": f"RecruiterRadar session {session_id} candidates - CYBER-CHEETAH optimized",
                     "session_id": session_id,
                     "created_by": "session_based_architecture",
                 },

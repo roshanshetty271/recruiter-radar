@@ -23,9 +23,14 @@ interface OutreachFormProps {
     additionalInstructions: string;
   }) => void;
   isGenerating: boolean;
+  rateLimitCooldown?: number;
 }
 
-export function OutreachForm({ onSubmit, isGenerating }: OutreachFormProps) {
+export function OutreachForm({
+  onSubmit,
+  isGenerating,
+  rateLimitCooldown = 0,
+}: OutreachFormProps) {
   const [jobTitle, setJobTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [tone, setTone] = useState("professional");
@@ -167,8 +172,8 @@ export function OutreachForm({ onSubmit, isGenerating }: OutreachFormProps) {
       >
         <Button
           type="submit"
-          disabled={isGenerating || !jobTitle}
-          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+          disabled={isGenerating || !jobTitle || rateLimitCooldown > 0}
+          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50"
         >
           {isGenerating ? (
             <motion.div
@@ -180,7 +185,11 @@ export function OutreachForm({ onSubmit, isGenerating }: OutreachFormProps) {
           ) : (
             <Sparkles className="h-4 w-4 mr-2" />
           )}
-          {isGenerating ? "Generating AI Message..." : "Generate AI Outreach"}
+          {rateLimitCooldown > 0
+            ? `Rate limited (${rateLimitCooldown}s)`
+            : isGenerating
+            ? "Generating AI Message..."
+            : "Generate AI Outreach"}
         </Button>
       </motion.div>
     </form>

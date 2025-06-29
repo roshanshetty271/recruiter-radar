@@ -323,7 +323,6 @@ class ChatRequest(BaseModel):
 
     message: str = Field(
         ...,
-        min_length=1,
         max_length=500,
         description="User's chat message/query",
         example="Show me Python developers with 5+ years experience",

@@ -47,7 +47,7 @@ class SemanticSearchEngine:
         query: str,
         session_id: str,
         max_results: int = 50,
-        min_similarity: float = 0.3,
+        min_similarity: float = 0.1,  # 🚀 QUICK FIX: Lower threshold for more results
     ) -> Dict[str, Any]:
         """
         REAL semantic search using embeddings.
@@ -74,9 +74,43 @@ class SemanticSearchEngine:
 
             if not search_results:
                 logger.warning("No search results found")
+
+                # 🎯 PERFECTION FIX: Detect person name searches and provide helpful suggestions
+                import re
+
+                person_name_patterns = [
+                    r"\b(show|find|get|tell me about)\s+([A-Z][a-z]+ [A-Z][a-z]+)\b",  # "show me John Smith"
+                    r"\b([A-Z][a-z]+ [A-Z][a-z]+)$",  # "John Smith" at end
+                    r"^([A-Z][a-z]+ [A-Z][a-z]+)\b",  # "John Smith" at start
+                ]
+
+                searched_name = None
+                for pattern in person_name_patterns:
+                    match = re.search(pattern, query)
+                    if match:
+                        # Extract the name from the appropriate group
+                        searched_name = (
+                            match.group(2) if match.lastindex >= 2 else match.group(1)
+                        )
+                        break
+
+                if searched_name:
+                    # Person name search that found nothing - provide helpful response
+                    ai_response = (
+                        f"I couldn't find a candidate named '{searched_name}' in the database. "
+                        f"Try searching by skills, experience level, or job title instead. "
+                        f"For example: 'Python developers' or 'senior engineers'."
+                    )
+                else:
+                    # General search that found nothing
+                    ai_response = (
+                        "I couldn't find any candidates matching your search criteria. "
+                        f"Try adjusting your search terms or being more specific about skills or experience."
+                    )
+
                 return {
                     "candidates": [],
-                    "ai_response": "I couldn't find any candidates matching your search criteria.",
+                    "ai_response": ai_response,
                     "total_chunks": 0,
                     "query_interpretation": query,
                 }
@@ -98,8 +132,15 @@ class SemanticSearchEngine:
             # Limit to requested max results
             candidates = candidates[:max_results]
 
-            # 🚀 TURBO-PATCH: Simple response generation (NO LLM CALL!)
-            ai_response = self._generate_fast_response(query, candidates)
+            # 🚀 CYBER-CHEETAH: Use batched explanation for smarter responses
+            try:
+                ai_response = await self.llm_service.generate_batched_explanation(
+                    query=query, candidates=candidates, result_count=len(candidates)
+                )
+            except Exception as e:
+                logger.warning(f"Batched explanation failed, using fallback: {e}")
+                # Fallback to fast response
+                ai_response = self._generate_fast_response(query, candidates)
 
             logger.info(f"✅ SEMANTIC SEARCH: Found {len(candidates)} candidates")
 
@@ -130,38 +171,60 @@ class SemanticSearchEngine:
             # Get main collection with actual data (not empty session collection)
             chroma_connector = ChromaConnector(settings_obj=settings)
 
-            # 🚀 SEARCH THE MAIN COLLECTION WITH REAL DATA!
-            # First try session-specific collection, then fall back to main collection
+            # 🚀 QUICK FIX: Always use main collection first for reliability
+            # This simplifies the collection logic that was causing query failures
             try:
-                session_collection = chroma_connector.get_or_create_session_collection(
-                    session_id
-                )
-                # Check if session collection has data
-                session_count = session_collection.count()
-                if session_count > 0:
-                    collection = session_collection
-                    logger.info(
-                        f"Using session collection with {session_count} documents"
-                    )
-                else:
-                    # Session is empty, use main collection with demo data
-                    collection = chroma_connector.get_collection()
-                    main_count = collection.count()
-                    logger.info(
-                        f"Session collection empty, using main collection with {main_count} documents"
-                    )
-            except Exception:
-                # Fallback to main collection
                 collection = chroma_connector.get_collection()
                 main_count = collection.count()
-                logger.info(f"Using main collection with {main_count} documents")
+                logger.info(
+                    f"🚀 DEBUG: Using main collection with {main_count} documents"
+                )
 
-            # Perform similarity search on the collection with actual data
+                # 🚀 QUICK DEBUG: Log collection details
+                if main_count > 0:
+                    # Get a sample to see what data looks like
+                    sample = collection.peek(limit=3)
+                    logger.info(
+                        f"🚀 DEBUG: Sample documents in collection: {len(sample.get('documents', []))}"
+                    )
+                    if sample.get("metadatas") and len(sample["metadatas"]) > 0:
+                        first_metadata = sample["metadatas"][0]
+                        logger.info(
+                            f"🚀 DEBUG: Sample metadata keys: {list(first_metadata.keys()) if first_metadata else 'None'}"
+                        )
+                else:
+                    logger.warning("🚀 DEBUG: Main collection is EMPTY!")
+
+                # If main collection is empty, try session collection as backup
+                if main_count == 0:
+                    session_collection = (
+                        chroma_connector.get_or_create_session_collection(session_id)
+                    )
+                    session_count = session_collection.count()
+                    if session_count > 0:
+                        collection = session_collection
+                        logger.info(
+                            f"Main collection empty, using session collection with {session_count} documents"
+                        )
+            except Exception as e:
+                logger.warning(f"Collection access failed: {e}, trying fallback")
+                # Last resort fallback
+                collection = chroma_connector.get_collection()
+
+            # 🚀 CYBER-CHEETAH: Adaptive efSearch based on query size for speed optimization
+            # For small queries (≤10 results), use efSearch=32 for speed
+            # For larger queries (>10 results), use efSearch=64 for quality
+            ef_search = 32 if max_results <= 10 else 64
+
+            # 🚀 QUICK FIX: More permissive search to get results
             results = await asyncio.to_thread(
                 collection.query,
                 query_embeddings=[query_embedding],
-                n_results=max_results,
+                n_results=min(
+                    max_results * 2, 100
+                ),  # Search for more results, filter later
                 include=["documents", "metadatas", "distances"],
+                where=None,  # No metadata filtering to avoid missing results
             )
 
             # Transform results into structured format
@@ -204,7 +267,10 @@ class SemanticSearchEngine:
         # Group chunks by candidate
         candidate_chunks = {}
         for result in search_results:
-            candidate_name = result["metadata"].get("candidate_name", "Unknown")
+            # 🚀 FIX: Use correct metadata field names from logs
+            candidate_name = result["metadata"].get(
+                "name", "Unknown"
+            )  # Changed from candidate_name
             candidate_id = result["metadata"].get("candidate_id", "unknown")
 
             if candidate_id not in candidate_chunks:
@@ -230,10 +296,20 @@ class SemanticSearchEngine:
             first_chunk = candidate_data["chunks"][0]
             metadata = first_chunk["metadata"]
 
-            # Build candidate profile from pre-computed metadata (NO LLM CALLS!)
+            # 🚀 DEBUG: Log actual metadata to verify field names
+            logger.info(
+                f"🚀 DEBUG METADATA for {candidate_data['name']}: {list(metadata.keys())}"
+            )
+            logger.info(
+                f"🚀 DEBUG VALUES: name='{metadata.get('name')}', title='{metadata.get('title')}', exp='{metadata.get('experience_years')}'"
+            )
+
+            # 🚀 FIX: Build candidate profile using CORRECT metadata field names
             candidate_profile = {
                 "id": candidate_data["candidate_id"],
-                "name": metadata.get("candidate_name", candidate_data["name"]),
+                "name": metadata.get(
+                    "name", candidate_data["name"]
+                ),  # Fixed field name
                 "title": metadata.get("title", "Software Engineer"),
                 "summary": metadata.get(
                     "summary",
@@ -244,9 +320,10 @@ class SemanticSearchEngine:
                     if isinstance(metadata.get("skills"), list)
                     else []
                 ),
-                "experience": metadata.get("experience", "3-5 years"),
-                "location": metadata.get("location"),
+                "experience": f"{metadata.get('experience_years', 0)} years",  # Fixed field name
+                "location": metadata.get("location", "Location not specified"),
                 "email": metadata.get("email"),
+                "phone": metadata.get("phone"),  # Added phone field
                 "education": metadata.get("education"),
                 "highlights": (
                     metadata.get(
@@ -260,12 +337,27 @@ class SemanticSearchEngine:
                 "relevance_score": round(candidate_data["total_similarity"], 2),
                 "matched_chunks": len(candidate_data["chunks"]),
                 "filename": candidate_data["filename"],
+                "session_id": metadata.get("session_id"),  # Added session tracking
             }
 
             candidates.append(candidate_profile)
 
         # Sort by relevance (highest total similarity first)
         candidates.sort(key=lambda x: x["relevance_score"], reverse=True)
+
+        # 🚨 LOG E: Candidates After Grouping
+        logger.info(
+            f"🚨 LOG E [CANDIDATE_GROUPING]: grouped_candidates_count={len(candidates)}"
+        )
+        if candidates:
+            sample_candidate = candidates[0]
+            logger.info(
+                f"🚨 LOG E [CANDIDATE_GROUPING]: top_candidate_name='{sample_candidate.get('name', 'NO_NAME')}', relevance_score={sample_candidate.get('relevance_score')}, skills={sample_candidate.get('skills', [])}"
+            )
+        else:
+            logger.warning(
+                f"🚨 LOG E [CANDIDATE_GROUPING]: ⚠️ NO CANDIDATES AFTER GROUPING!"
+            )
 
         return candidates
 
@@ -291,7 +383,7 @@ class SemanticSearchEngine:
         """
         context_snippets = []
         for result in search_results[:10]:  # Top 10 chunks for context
-            candidate = result["metadata"].get("candidate_name", "Unknown")
+            candidate = result["metadata"].get("name", "Unknown")  # Fixed field name
             content = result["content"][:200]  # First 200 chars
             context_snippets.append(f"From {candidate}: {content}")
 
@@ -304,10 +396,26 @@ class SemanticSearchEngine:
             top_candidates=", ".join([c["name"] for c in candidates[:3]]),
         )
 
+        # 🚨 LOG F: LLM Input - Before AI Response Generation
+        logger.info(
+            f"🚨 LOG F [LLM_INPUT]: query='{query}', candidates_count={len(candidates)}, context_snippets_count={len(context_snippets)}"
+        )
+        if candidates:
+            top_candidate_names = [c["name"] for c in candidates[:3]]
+            logger.info(
+                f"🚨 LOG F [LLM_INPUT]: top_candidates_for_prompt={top_candidate_names}"
+            )
+        logger.info(
+            f"🚨 LOG F [LLM_INPUT]: prompt_preview='{response_prompt[:300]}...'"
+        )
+
         try:
             ai_response = await self.llm_service.generate_completion(
                 prompt=response_prompt, max_tokens=150, temperature=0.7
             )
+
+            # 🚨 LOG G: LLM Output - After AI Response Generation
+            logger.info(f"🚨 LOG G [LLM_OUTPUT]: ai_response='{ai_response[:200]}...'")
 
             return ai_response.strip()
 

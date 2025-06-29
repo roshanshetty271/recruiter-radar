@@ -28,6 +28,26 @@ export function ChatSection({
     scrollToBottom();
   }, [messages, isTyping]);
 
+  // 🚨 LOG J: Duplicate Render Detector
+  useEffect(() => {
+    console.log(
+      `🚨 LOG J [CHAT_RENDER]: messages_count=${
+        messages.length
+      }, isTyping=${isTyping}, timestamp=${Date.now()}`
+    );
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      console.log(
+        `🚨 LOG J [CHAT_RENDER]: last_message_role=${
+          lastMessage.role
+        }, content_preview='${lastMessage.content.substring(
+          0,
+          50
+        )}...', candidates_count=${lastMessage.candidates?.length || 0}`
+      );
+    }
+  }, [messages, isTyping]);
+
   // If no messages and not typing, don't render anything
   if (messages.length === 0 && !isTyping) {
     return null;

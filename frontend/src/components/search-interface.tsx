@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Mic,
   Filter,
@@ -62,6 +62,10 @@ export function SearchInterface({
   const [showFilters, setShowFilters] = useState(false);
   const [activeFilters, setActiveFilters] = useState(0);
   const [filters, setFilters] = useState({});
+  const [lastQuery, setLastQuery] = useState("");
+
+  // 🎯 Refs for keyboard shortcuts
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 🧠 Enhanced AI Intelligence State
   const [debouncedQuery, setDebouncedQuery] = useState(query);
@@ -73,6 +77,36 @@ export function SearchInterface({
 
   // 🚀 Smart Query Refinements (appear after search)
   const [refinements, setRefinements] = useState<QueryRefinement[]>([]);
+
+  // 🎯 Keyboard shortcuts - "/" to focus, "↑" for last query
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // "/" to focus search input
+      if (
+        e.key === "/" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        document.activeElement !== inputRef.current
+      ) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+
+      // "↑" to resurface last query (when input is focused and empty)
+      if (
+        e.key === "ArrowUp" &&
+        document.activeElement === inputRef.current &&
+        !query.trim() &&
+        lastQuery
+      ) {
+        e.preventDefault();
+        setQuery(lastQuery);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [query, lastQuery]);
 
   // 🚀 Debounced query for real-time analysis
   useEffect(() => {
@@ -255,7 +289,9 @@ export function SearchInterface({
   const handleChat = async () => {
     if (!query.trim() || isTyping || remainingMessages <= 0) return;
 
-    onChat(query);
+    const currentQuery = query.trim();
+    setLastQuery(currentQuery); // Store for ↑ shortcut
+    onChat(currentQuery);
     setQuery(""); // Clear input after sending
     setShowSuggestions(true); // Show suggestions for next query
   };
@@ -337,6 +373,7 @@ export function SearchInterface({
             </div>
 
             <Input
+              ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyPress={handleKeyPress}

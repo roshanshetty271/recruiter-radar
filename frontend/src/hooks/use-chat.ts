@@ -118,6 +118,11 @@ export function useBulletproofChat(): UseBulletproofChatReturn {
       setMessages((prev) => [...prev, userMessage]);
 
       try {
+        // 🚨 LOG H: Frontend API Call Start
+        console.log(
+          `🚨 LOG H [FRONTEND_API_CALL]: message='${message}', sessionId=${sessionId}, useBulletproof=${useBulletproof}, timestamp=${Date.now()}`
+        );
+
         console.log(
           `🚀 Sending ${
             useBulletproof ? "bulletproof" : "standard"
@@ -128,6 +133,29 @@ export function useBulletproofChat(): UseBulletproofChatReturn {
         const response = useBulletproof
           ? await apiService.bulletproofChat(message, sessionId)
           : await apiService.chat(message, sessionId);
+
+        // 🚨 LOG I: Frontend API Response Received
+        console.log(
+          `🚨 LOG I [FRONTEND_API_RESPONSE]: source=${
+            response.source
+          }, candidateCount=${
+            response.candidates.length
+          }, ai_message_preview='${response.ai_message.substring(0, 100)}...'`
+        );
+        if (response.candidates.length > 0) {
+          const candidateNames = response.candidates
+            .slice(0, 3)
+            .map((c) => c.name || "NO_NAME");
+          console.log(
+            `🚨 LOG I [FRONTEND_API_RESPONSE]: first_3_candidate_names=${JSON.stringify(
+              candidateNames
+            )}`
+          );
+        } else {
+          console.warn(
+            `🚨 LOG I [FRONTEND_API_RESPONSE]: ⚠️ RECEIVED EMPTY CANDIDATES ARRAY!`
+          );
+        }
 
         console.log(`✅ Chat response received:`, {
           source: response.source,
