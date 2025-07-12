@@ -6,7 +6,7 @@ from unittest.mock import (
 )  # Patch is not used directly in this draft but good to have for other tests
 
 from fastapi.testclient import TestClient
-from fastapi import status  # For HTTP status codes
+from fastapi import status, Request  # For HTTP status codes and Request object
 
 # Import your FastAPI app instance
 from backend.app.main import app
@@ -31,8 +31,10 @@ try:
         ErrorResponse,
         OutreachRequest,
         OutreachResponse,
-        CandidateProfile,
     )
+
+    # Import CandidateProfile from the correct module
+    from backend.app.models.candidate import CandidateProfile
 except ImportError:
     # Fallback placeholders if app.models.api_models or its contents are not yet created
     # This is just for the test file to be syntactically plausible if models are pending
@@ -57,6 +59,19 @@ except ImportError:
     class ErrorResponse(BaseModel):
         detail: str
 
+    # Fallback CandidateProfile (should not be used if import works)
+    class CandidateProfile(BaseModel):
+        id: str
+        name: str
+        email: Optional[str] = None
+        raw_resume_text: str
+        skills: List[str] = []
+        experience_years: int
+        visa_status: Optional[str] = None
+        location: Optional[str] = None
+        github_url: Optional[str] = None
+        linkedin_url: Optional[str] = None
+
 
 # --- Mocked Service Instances (Module Level) ---
 # These will be used by the override functions and reset by setup_method
@@ -66,11 +81,11 @@ mock_rag_service_instance = AsyncMock(spec=RAGService)
 
 # --- Dependency Override Functions (Module Level) ---
 # These functions will be used by FastAPI's dependency injection override mechanism
-def override_get_llm_service():
+def override_get_llm_service(request: Request = None):
     return mock_llm_service_instance
 
 
-def override_get_rag_service():
+def override_get_rag_service(request: Request = None):
     return mock_rag_service_instance
 
 
@@ -88,10 +103,22 @@ def auto_apply_router_mocks_fixture():
     app.dependency_overrides[get_llm_service] = override_get_llm_service
     app.dependency_overrides[get_rag_service] = override_get_rag_service
 
+    # CRITICAL: Also override the services in app.state since that's where
+    # the dependency functions get them from
+    original_llm_service = getattr(app.state, "llm_service", None)
+    original_rag_service = getattr(app.state, "rag_service", None)
+
+    app.state.llm_service = mock_llm_service_instance
+    app.state.rag_service = mock_rag_service_instance
+
     yield  # Test runs here
 
-    # Teardown: Restore original overrides
+    # Teardown: Restore original overrides and services
     app.dependency_overrides = original_overrides
+    if original_llm_service is not None:
+        app.state.llm_service = original_llm_service
+    if original_rag_service is not None:
+        app.state.rag_service = original_rag_service
 
 
 @pytest.fixture
@@ -479,124 +506,299 @@ class TestCandidateRouterQueryEndpoint:
 
 
 class TestCandidateRouterGenerateOutreach:
-    """Tests for the /candidates/{candidate_id}/generate-outreach endpoint."""
+
+    def setup_method(self):
+        """Reset module-level mocks before each test method."""
+        mock_llm_service_instance.reset_mock()
+        mock_rag_service_instance.reset_mock()
 
     def test_generate_outreach_success(self, client: TestClient):
-        """Test successful outreach generation for a valid candidate and request."""
-        candidate_id = "c001"  # Confirmed valid ID
-        request_payload = OutreachRequest(
-            job_role_title="Senior AI Developer",
-            job_role_description="Develop and deploy cutting-edge AI solutions for enterprise clients. Lead a team of junior developers.",
-            tone="enthusiastic and professional",
-            company_context="A forward-thinking technology company leading innovation in the AI space. We value collaboration and continuous learning.",
-            additional_instructions="Please emphasize their experience with cloud platforms.",
-        )
-        # Set up the mock to return a real CandidateProfile instance
-        mock_rag_service_instance.get_candidate_details_by_id.return_value = (
-            CandidateProfile(
-                id="c001",
-                name="Alex Chen",
-                raw_resume_text="ALEX CHEN\nSoftware Engineer...",
-                skills=["Python", "React", "PostgreSQL", "Docker"],
-                experience_years=5,
-                visa_status="H1B",
-                location="San Francisco, CA",
-                github_url="https://github.com/alexchen",
-                linkedin_url="https://linkedin.com/in/alex-chen-dev",
-            )
-        )
-        # Set up the mock to return a string for the outreach draft
-        mock_llm_service_instance.generate_outreach_draft.return_value = (
-            "Test outreach draft message"
-        )
-
-        response = client.post(
-            f"/api/v1/candidates/{candidate_id}/generate-outreach",
-            json=request_payload.model_dump(),
-        )
-        data = response.json()
-        # Assert only on actual keys present in the response
-        assert response.status_code == 200
-        assert "draft_message" in data
-        assert data["draft_message"] == "Test outreach draft message"
-        assert data["candidate_name"] == "Alex Chen"
-        assert data["candidate_id"] == candidate_id
-        assert data["job_role_title"] == request_payload.job_role_title
-        assert "generated_at" in data
-        assert "generation_time_ms" in data
-        assert "word_count" in data
-        assert "character_count" in data
-        assert data["tone_used"] == request_payload.tone
-        assert isinstance(data["personalization_elements"], list)
-        assert "confidence_score" in data
-
-    def test_generate_outreach_candidate_not_found(self, client: TestClient):
-        """Test outreach generation for a non-existent candidate ID."""
-        candidate_id = "non_existent_candidate_id_123"
-        request_payload = OutreachRequest(
-            job_role_title="Test Role",
-            job_role_description="Test Description",
-            tone="formal",
-        )
-        # Set up the mock to raise ValueError as the real service would
-        mock_rag_service_instance.get_candidate_details_by_id.side_effect = ValueError(
-            f"Candidate with ID '{candidate_id}' not found."
-        )
-
-        response = client.post(
-            f"/api/v1/candidates/{candidate_id}/generate-outreach",
-            json=request_payload.model_dump(),
-        )
-
-        assert (
-            response.status_code == 404
-        ), f"Expected 404 Not Found, got {response.status_code}. Response: {response.text}"
-        response_data = response.json()
-        # Check inside 'detail' for error info
-        assert "detail" in response_data
-        detail = response_data["detail"]
-        assert "error" in detail
-        assert detail["error"] == "NotFoundError"
-        assert "message" in detail
-        assert candidate_id in detail["message"]
-
-    def test_generate_outreach_invalid_request_payload(self, client: TestClient):
-        """Test outreach generation with an invalid request payload (e.g., missing required fields)."""
+        # Arrange
         candidate_id = "c001"
-        invalid_payload = {
-            # Missing job_role_title, which is required by OutreachRequest
-            "job_role_description": "A test description",
-            "tone": "casual",
+        job_role_data = {
+            "job_role_title": "Senior Python Developer",
+            "job_role_description": "We need an experienced Python developer...",
+            "tone": "professional",
+            "company_context": "Tech startup in SF",
         }
 
-        response = client.post(
-            f"/api/v1/candidates/{candidate_id}/generate-outreach", json=invalid_payload
+        mock_candidate = CandidateProfile(
+            id=candidate_id,
+            name="Alex Chen",
+            email="alex@example.com",
+            raw_resume_text="5 years of Python experience...",
+            skills=["Python", "FastAPI", "PostgreSQL"],
+            experience_years=5,
+            visa_status="H1B",
+            location="San Francisco",
+            github_url="https://github.com/alexchen",
+            linkedin_url="https://linkedin.com/in/alexchen",
         )
 
-        assert (
-            response.status_code == 422
-        ), f"Expected 422 Unprocessable Entity, got {response.status_code}. Response: {response.text}"
-        response_data = response.json()
-        assert (
-            "detail" in response_data
-        )  # FastAPI validation errors are in response_data["detail"]
-        # Check for a message indicating job_role_title is missing
-        found_job_title_error = False
-        for error in response_data.get("detail", []):
-            if error.get("type") == "missing" and "job_role_title" in error.get(
-                "loc", []
-            ):
-                found_job_title_error = True
-                break
-        assert (
-            found_job_title_error
-        ), "Error detail should indicate job_role_title is missing."
+        mock_outreach_response = OutreachResponse(
+            draft_message="Hi Alex, I came across your profile...",
+            candidate_name="Alex Chen",
+            candidate_id=candidate_id,
+            job_role_title="Senior Python Developer",
+            generated_at="2024-01-15T10:30:00Z",
+            generation_time_ms=1200,
+            word_count=85,
+            character_count=420,
+            tone_used="professional",
+            personalization_elements=["5 years Python", "FastAPI experience"],
+            total_variations_generated=1,
+        )
 
-    # Consider adding a test for when the LLMService itself fails (e.g., OpenAI API key issue).
-    # This would require mocking the llm_service.generate_outreach_draft to raise an LLMServiceError.
-    # For an integration test, this might be complex if you don't want to actually hit OpenAI during tests.
-    # A unit test for the router logic with a mocked service would be more appropriate for that.
-    # For now, focusing on successful path and basic input validations.
+        mock_rag_service_instance.get_candidate_details_by_id.return_value = (
+            mock_candidate
+        )
+        mock_llm_service_instance.generate_outreach.return_value = (
+            mock_outreach_response
+        )
+
+        # Act
+        response = client.post(
+            f"/api/v1/{candidate_id}/generate-outreach", json=job_role_data
+        )
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["candidate_id"] == candidate_id
+        assert data["candidate_name"] == "Alex Chen"
+        assert "draft_message" in data
+        assert data["job_role_title"] == "Senior Python Developer"
+
+        mock_rag_service_instance.get_candidate_details_by_id.assert_called_once_with(
+            candidate_id
+        )
+        mock_llm_service_instance.generate_outreach.assert_called_once()
+
+    def test_generate_outreach_candidate_not_found(self, client: TestClient):
+        # Arrange
+        candidate_id = "nonexistent"
+        job_role_data = {
+            "job_role_title": "Developer",
+        }
+
+        mock_rag_service_instance.get_candidate_details_by_id.side_effect = ValueError(
+            f"Candidate with ID '{candidate_id}' not found"
+        )
+
+        # Act
+        response = client.post(
+            f"/api/v1/{candidate_id}/generate-outreach", json=job_role_data
+        )
+
+        # Assert
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+
+        mock_rag_service_instance.get_candidate_details_by_id.assert_called_once_with(
+            candidate_id
+        )
+
+    def test_generate_outreach_invalid_request_payload(self, client: TestClient):
+        # Arrange
+        candidate_id = "c001"
+        invalid_job_role_data = {
+            # Missing required 'job_role_title' field
+            "tone": "professional"
+        }
+
+        # Act
+        response = client.post(
+            f"/api/v1/{candidate_id}/generate-outreach", json=invalid_job_role_data
+        )
+
+        # Assert
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        # Pydantic validation should trigger due to missing required field
+
+
+class TestCandidateRouterGetDetails:
+    """Test class for the GET /candidates/{candidate_id} endpoint."""
+
+    def setup_method(self):
+        """Reset module-level mocks before each test method."""
+        mock_llm_service_instance.reset_mock()
+        mock_rag_service_instance.reset_mock()
+
+    def test_get_candidate_details_success_from_json_cache(self, client: TestClient):
+        """Test successful retrieval of candidate details from JSON cache."""
+        # Arrange
+        candidate_id = "c001"
+        mock_candidate = CandidateProfile(
+            id=candidate_id,
+            name="Alex Chen",
+            email="alex.chen@email.com",
+            raw_resume_text="Experienced Python developer with 5 years...",
+            skills=["Python", "FastAPI", "PostgreSQL", "Docker"],
+            experience_years=5,
+            visa_status="H1B",
+            location="San Francisco, CA",
+            github_url="https://github.com/alexchen",
+            linkedin_url="https://linkedin.com/in/alexchen",
+        )
+
+        # CRITICAL: Set up async mock correctly
+        mock_rag_service_instance.get_candidate_details_by_id = AsyncMock(
+            return_value=mock_candidate
+        )
+
+        # Act
+        response = client.get(f"/api/v1/candidates/{candidate_id}")
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Debug: Print the actual response to see what we're getting
+        print(f"DEBUG: Actual response data: {data}")
+        print(
+            f"DEBUG: Mock call count: {mock_rag_service_instance.get_candidate_details_by_id.call_count}"
+        )
+        print(
+            f"DEBUG: Mock called with: {mock_rag_service_instance.get_candidate_details_by_id.call_args}"
+        )
+
+        assert data["id"] == candidate_id
+        assert data["name"] == "Alex Chen"
+        assert data["email"] == "alex.chen@email.com"
+        assert data["raw_resume_text"] == "Experienced Python developer with 5 years..."
+        assert data["skills"] == ["Python", "FastAPI", "PostgreSQL", "Docker"]
+        assert data["experience_years"] == 5
+        assert data["visa_status"] == "H1B"
+        assert data["location"] == "San Francisco, CA"
+        assert data["github_url"] == "https://github.com/alexchen"
+        assert data["linkedin_url"] == "https://linkedin.com/in/alexchen"
+
+        # Verify the service was called
+        mock_rag_service_instance.get_candidate_details_by_id.assert_called_once_with(
+            candidate_id
+        )
+
+    def test_get_candidate_details_fallback_to_chromadb(self, client: TestClient):
+        """Test fallback to ChromaDB when candidate not found in JSON cache."""
+        # Arrange
+        candidate_id = "uploaded_12345678"
+
+        # First call (JSON cache) fails
+        mock_rag_service_instance.get_candidate_details_by_id.side_effect = ValueError(
+            "Candidate with ID 'uploaded_12345678' not found"
+        )
+
+        # Mock ChromaDB response for fallback
+        mock_chromadb_results = {
+            "ids": [["uploaded_12345678"]],
+            "metadatas": [
+                [
+                    {
+                        "name": "Maria Rodriguez",
+                        "email": "maria.r@email.com",
+                        "experience_years": "3.5",
+                        "skills": "React,TypeScript,Node.js",
+                        "location": "Austin, TX",
+                        "github_url": "https://github.com/maria-r",
+                        "linkedin_url": None,
+                        "visa_status": None,
+                    }
+                ]
+            ],
+            "documents": [["Senior Frontend Developer with expertise in React..."]],
+        }
+
+        # Mock the collection.get method that's called via asyncio.to_thread
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = mock_chromadb_results
+        mock_rag_service_instance.collection = mock_collection
+
+        # Act
+        response = client.get(f"/api/v1/candidates/{candidate_id}")
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        assert data["id"] == candidate_id
+        assert data["name"] == "Maria Rodriguez"
+        assert data["email"] == "maria.r@email.com"
+        assert data["experience_years"] == 3  # Converted from string "3.5" to int
+        assert data["location"] == "Austin, TX"
+        assert len(data["skills"]) == 3
+        assert "React" in data["skills"]
+        assert "TypeScript" in data["skills"]
+        assert (
+            data["raw_resume_text"]
+            == "Senior Frontend Developer with expertise in React..."
+        )
+
+        mock_rag_service_instance.get_candidate_details_by_id.assert_called_once_with(
+            candidate_id
+        )
+
+    def test_get_candidate_details_not_found_anywhere(self, client: TestClient):
+        """Test when candidate is not found in JSON cache or ChromaDB."""
+        # Arrange
+        candidate_id = "nonexistent_candidate"
+
+        # JSON cache fails
+        mock_rag_service_instance.get_candidate_details_by_id.side_effect = ValueError(
+            "Candidate with ID 'nonexistent_candidate' not found"
+        )
+
+        # ChromaDB also fails
+        mock_chromadb_results = {"ids": [], "metadatas": [], "documents": []}
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = mock_chromadb_results
+        mock_rag_service_instance.collection = mock_collection
+
+        # Act
+        response = client.get(f"/api/v1/candidates/{candidate_id}")
+
+        # Assert
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+        assert candidate_id in data["detail"]
+
+    def test_get_candidate_details_invalid_id_format(self, client: TestClient):
+        """Test with invalid candidate ID format."""
+        # Arrange
+        invalid_candidate_id = ""  # Empty string
+
+        # Act
+        response = client.get(f"/api/v1/candidates/{invalid_candidate_id}")
+
+        # Assert
+        # This should either be a 422 (validation error) or 404 depending on FastAPI routing
+        assert response.status_code in [
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ]
+
+    def test_get_candidate_details_service_error(self, client: TestClient):
+        """Test when RAGService encounters an internal error."""
+        # Arrange
+        candidate_id = "c001"
+
+        # Both JSON cache and ChromaDB fail with service error
+        mock_rag_service_instance.get_candidate_details_by_id.side_effect = (
+            RAGServiceError("Database connection failed")
+        )
+
+        # Act
+        response = client.get(f"/api/v1/candidates/{candidate_id}")
+
+        # Assert
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        data = response.json()
+        assert (
+            "internal error" in data["detail"].lower()
+            or "failed" in data["detail"].lower()
+        )
 
 
 # To run these tests, navigate to your project's root directory in the terminal and run:

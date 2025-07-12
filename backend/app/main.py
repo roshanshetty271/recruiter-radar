@@ -142,6 +142,8 @@ Built with ❤️ by the RecruiterRadar team.
 origins = [
     "http://localhost:3000",  # Next.js default dev port
     "http://127.0.0.1:3000",
+    "http://localhost:8000",  # Add backend URL
+    "http://127.0.0.1:8000",  # Add backend URL with 127.0.0.1
 ]
 
 # Optional: make it config driven by adding settings.frontend_url to origins
@@ -280,6 +282,18 @@ async def health_check(request: Request):
     # return JSONResponse(status_code=503, content=health_status)
 
     return JSONResponse(status_code=200, content=health_status)
+
+
+# Add after the health endpoint
+@app.get("/test", include_in_schema=False)
+async def test_endpoint(request: Request):
+    """Simple test endpoint to verify backend is receiving requests."""
+    logger.info("🔥 TEST ENDPOINT CALLED - Backend is receiving requests!")
+    return {
+        "message": "Backend is working!",
+        "timestamp": datetime.utcnow().isoformat(),
+        "request_id": getattr(request.state, "request_id", "unknown"),
+    }
 
 
 # Include API routers

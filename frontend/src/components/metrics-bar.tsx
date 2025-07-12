@@ -13,28 +13,31 @@ import {
   MessageSquare,
   Sparkles,
 } from "lucide-react";
+import { useSavedCandidates } from "@/hooks/use-saved-candidates";
 
 interface MetricsBarProps {
   totalSearches?: number;
   totalResults?: number;
   searchTimeMs?: number;
-  outreachGenerated?: number; // 🔥 NEW PROP
+  outreachGenerated?: number;
+  onSavedClick?: () => void;
 }
 
 export function MetricsBar({
   totalSearches = 0,
   totalResults = 0,
   searchTimeMs = 0,
-  outreachGenerated = 0, // 🔥 NEW PROP
+  outreachGenerated = 0,
+  onSavedClick,
 }: MetricsBarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [sessionTime, setSessionTime] = useState(0);
+  const { count: savedCount } = useSavedCandidates();
   const [metrics, setMetrics] = useState({
     candidatesFound: 0,
-    timeSaved: 0,
     efficiencyRank: 0,
     activeSearches: 0,
-    outreachMessages: 0, // 🔥 NEW METRIC
+    outreachMessages: 0,
   });
 
   useEffect(() => {
@@ -50,36 +53,28 @@ export function MetricsBar({
     // Update metrics when search results come in
     setMetrics((prev) => ({
       ...prev,
-      candidatesFound: totalResults || prev.candidatesFound,
-      activeSearches: totalSearches || prev.activeSearches,
-      outreachMessages: outreachGenerated || prev.outreachMessages, // 🔥 NEW
-      // Assume each manual search would take 15 minutes (0.25 hours)
-      timeSaved:
-        totalSearches > 0 ? (totalSearches * 0.25).toFixed(1) : prev.timeSaved,
+      candidatesFound: totalResults || 0,
+      activeSearches: totalSearches || 0,
+      outreachMessages: outreachGenerated || 0,
       // Calculate efficiency based on search time (faster = higher %)
+      // Also boost efficiency if user has saved candidates (power user bonus!)
       efficiencyRank:
         searchTimeMs > 0
-          ? Math.min(99, Math.max(70, 100 - searchTimeMs / 100))
-          : prev.efficiencyRank,
+          ? Math.min(
+              99,
+              Math.max(70, 100 - searchTimeMs / 100) + (savedCount > 10 ? 5 : 0)
+            )
+          : savedCount > 10
+          ? 5
+          : 0,
     }));
-  }, [totalSearches, totalResults, searchTimeMs, outreachGenerated]); // 🔥 UPDATED DEPS
-
-  useEffect(() => {
-    // Animate metrics on load if no real metrics exist yet
-    if (totalSearches === 0) {
-      const timer = setTimeout(() => {
-        setMetrics({
-          candidatesFound: 1247,
-          timeSaved: 23.5,
-          efficiencyRank: 94,
-          activeSearches: 8,
-          outreachMessages: 42, // 🔥 NEW DEMO VALUE
-        });
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [totalSearches]);
+  }, [
+    totalSearches,
+    totalResults,
+    searchTimeMs,
+    outreachGenerated,
+    savedCount,
+  ]);
 
   useEffect(() => {
     // Session timer
@@ -127,10 +122,12 @@ export function MetricsBar({
             />
 
             <MetricItem
-              icon={<Clock className="w-4 h-4 text-green-400" />}
-              label="Time Saved"
-              value={`${metrics.timeSaved}h`}
-              glow
+              icon={<Star className="w-4 h-4 text-yellow-500" />}
+              label="Saved"
+              value={savedCount.toString()}
+              highlight={savedCount > 0}
+              onClick={onSavedClick}
+              clickable={true}
             />
 
             <MetricItem
@@ -146,7 +143,6 @@ export function MetricsBar({
               value={metrics.activeSearches.toString()}
             />
 
-            {/* 🔥 NEW OUTREACH METRIC */}
             <MetricItem
               icon={<MessageSquare className="w-4 h-4 text-purple-400" />}
               label="Outreach"
@@ -178,7 +174,10 @@ function MetricItem({
   animate = false,
   glow = false,
   lightning = false,
-  sparkle = false, // 🔥 NEW PROP
+  sparkle = false,
+  highlight = false,
+  onClick,
+  clickable = false,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -186,31 +185,62 @@ function MetricItem({
   animate?: boolean;
   glow?: boolean;
   lightning?: boolean;
-  sparkle?: boolean; // 🔥 NEW PROP
+  sparkle?: boolean;
+  highlight?: boolean;
+  onClick?: () => void;
+  clickable?: boolean;
 }) {
   return (
     <div
-      className={`flex items-center space-x-2 group cursor-pointer relative ${
-        glow ? "text-green-400" : sparkle ? "text-purple-400" : "text-gray-300"
+      className={`flex items-center space-x-2 group relative transition-all duration-200 ${
+        glow
+          ? "text-green-400"
+          : sparkle
+          ? "text-purple-400"
+          : highlight
+          ? "text-yellow-500"
+          : "text-gray-300"
+      } ${
+        clickable
+          ? "cursor-pointer hover:bg-white/10 rounded-lg px-3 py-1.5 hover:scale-105"
+          : "cursor-pointer"
+      } ${
+        highlight && clickable
+          ? "bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-lg px-3 py-1.5"
+          : ""
       }`}
+      onClick={onClick}
     >
-      {/* 🔥 NEW: Sparkle effect for outreach */}
       {sparkle && (
         <div className="absolute -top-1 -right-1">
           <Sparkles className="w-3 h-3 text-purple-400 animate-pulse" />
         </div>
       )}
 
+      {highlight && clickable && parseInt(value) > 0 && (
+        <div className="absolute -top-1 -right-1">
+          <span className="text-xs text-yellow-500 font-bold animate-pulse">
+            NEW
+          </span>
+        </div>
+      )}
+
       <div
         className={`${animate ? "animate-pulse" : ""} ${
           lightning ? "animate-bounce" : ""
-        } ${sparkle ? "animate-pulse" : ""}`}
+        } ${sparkle ? "animate-pulse" : ""} ${
+          highlight ? "drop-shadow-lg" : ""
+        }`}
       >
         {icon}
       </div>
       <div className="text-sm">
         <div className="text-xs opacity-60">{label}</div>
-        <div className="font-semibold group-hover:scale-110 transition-transform">
+        <div
+          className={`font-semibold group-hover:scale-110 transition-transform ${
+            highlight ? "text-yellow-500" : ""
+          }`}
+        >
           {value}
         </div>
       </div>

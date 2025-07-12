@@ -2,53 +2,62 @@
  * Helper functions for RecruiterRadar frontend
  */
 import type {
-  BackendCandidate,
   FrontendCandidate,
   SearchResponse,
+  BackendCandidate,
 } from "../lib/types";
+import type { BackendCandidateResult, BackendSearchResponse } from "./types";
 
 /**
  * 🔄 MAP BACKEND TO FRONTEND FORMAT
  * Transforms backend search results to frontend-expected format
  */
 export function mapBackendCandidatesToFrontend(
-  backendResponse: SearchResponse
+  backendResponse: SearchResponse | BackendSearchResponse
 ): FrontendCandidate[] {
-  return backendResponse.results.map((candidate, index) => ({
-    id: candidate.id,
-    name: formatCandidateName(candidate.name),
-    title:
-      extractTitleFromContext(candidate.match_context) ||
-      formatSkillsAsTitle(candidate.skills) ||
-      `${candidate.experience_years}+ years experience`,
-    location: candidate.location || "Remote",
-    distance: calculateDistance(candidate.location) || "0.5 mi",
-    matchScore: calculateMatchScore(candidate.relevance_score),
-    experience: candidate.experience_years || 0,
-    skills: candidate.skills || [],
-    isOnline: Math.random() > 0.3,
-    isVerified: Math.random() > 0.5,
-    avatar: generateAvatar(candidate.name),
-    // Additional fields
-    match_context: candidate.match_context,
-    visa_status: candidate.visa_status,
-    github_url: candidate.github_url,
-    linkedin_url: candidate.linkedin_url,
-  }));
+  return backendResponse.results.map((candidate, index) => {
+    // Cast to any to access potentially missing properties safely
+    const candidateAny = candidate as any;
+
+    return {
+      id: candidate.id,
+      name: formatCandidateName(candidate.name),
+      title:
+        extractTitleFromContext(candidateAny.match_context) ||
+        formatSkillsAsTitle(candidate.skills) ||
+        `${candidateAny.experience_years || 0}+ years experience`,
+      location: candidateAny.location || "Remote",
+      distance: calculateDistance(candidateAny.location) || "0.5 mi",
+      matchScore: calculateMatchScore(candidateAny.relevance_score),
+      experience: candidateAny.experience_years || 0,
+      skills: candidate.skills || [],
+      isOnline: Math.random() > 0.3,
+      isVerified: Math.random() > 0.5,
+      avatar: generateAvatar(candidate.name),
+      // Preserve email for outreach / contact actions
+      email: candidateAny.email,
+      // Additional fields
+      match_context: candidateAny.match_context,
+      visa_status: candidateAny.visa_status,
+      github_url: candidateAny.github_url,
+      linkedin_url: candidateAny.linkedin_url,
+      // 🏷️ SOURCE TRACKING: Add source information for visual distinction
+      source: candidateAny.source || "demo",
+      uploadedAt: candidateAny.uploaded_at,
+      originalFilename: candidateAny.original_filename,
+    };
+  });
 }
 
 /**
  * 📊 EXTRACT SEARCH METRICS
  * Gets search performance metrics from backend response
  */
-export function getSearchMetrics(backendResponse: SearchResponse) {
+export function getSearchMetrics(response: any) {
   return {
-    totalResults: backendResponse.final_count_after_post_filter || 0,
-    searchTimeMs: backendResponse.processing_time_ms || 0,
-    queryInterpretation: backendResponse.query_interpretation_notes || null,
-    topMatchedSkills: backendResponse.top_matched_query_skills || [],
-    retrievedBeforeFilter:
-      backendResponse.retrieved_count_before_post_filter || 0,
+    totalResults: response.total_results ?? response.results?.length ?? 0,
+    searchTimeMs: response.processing_time_ms ?? response.search_time_ms ?? 0,
+    queryInterpretation: response.query_interpretation ?? null,
   };
 }
 

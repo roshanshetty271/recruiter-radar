@@ -6,7 +6,7 @@ for representing candidate information, skills, and resume data.
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, Field, HttpUrl, validator
+from pydantic import BaseModel, Field, HttpUrl, validator, EmailStr
 
 
 class CandidateProfile(BaseModel):
@@ -23,6 +23,13 @@ class CandidateProfile(BaseModel):
 
     name: str = Field(
         ..., description="Full name of the candidate", example="Alex Johnson"
+    )
+
+    # Optional email – used for deduplication when uploading resumes
+    email: Optional[EmailStr] = Field(
+        None,
+        description="Candidate's primary email address (used for deduplication)",
+        example="alex.johnson@example.com",
     )
 
     raw_resume_text: str = Field(
@@ -79,6 +86,7 @@ class CandidateProfile(BaseModel):
             "example": {
                 "id": "c001",
                 "name": "Alex Chen",
+                "email": "alex.chen@example.com",
                 "raw_resume_text": "ALEX CHEN\nSoftware Engineer...\n\nEXPERIENCE...",
                 "skills": ["Python", "React", "PostgreSQL", "Docker"],
                 "experience_years": 5,

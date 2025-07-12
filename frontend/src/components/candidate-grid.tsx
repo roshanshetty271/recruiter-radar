@@ -17,11 +17,17 @@ import {
   TrendingUp,
   ChevronDown,
   ChevronUp,
+  Upload,
+  Database,
 } from "lucide-react";
-import { Button } from "@/src/components/ui/button";
-import { Badge } from "@/src/components/ui/badge";
-import { Progress } from "@/src/components/ui/progress";
-import { Separator } from "@/src/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
+import { ViewProfileModal } from "@/components/custom/view-profile-modal";
+import { useSavedCandidates } from "@/hooks/use-saved-candidates";
+import { toast } from "@/hooks/use-toast";
+import { CandidateComparison as CandidateComparisonModal } from "./candidate-comparison";
 
 interface Candidate {
   id: string;
@@ -35,6 +41,9 @@ interface Candidate {
   isOnline: boolean;
   isVerified: boolean;
   avatar: string;
+  source?: string; // 'demo' or 'uploaded_resume_batch'
+  uploadedAt?: string;
+  originalFilename?: string;
 }
 
 export function CandidateGrid({
@@ -42,28 +51,40 @@ export function CandidateGrid({
   isLoading,
   searchQuery = "", // 🔥 NEW
   onGenerateOutreach, // 🔥 NEW
+  totalCandidates, // 🔥 NEW
 }: {
   candidates: Candidate[];
   isLoading: boolean;
   searchQuery?: string; // 🔥 NEW
   onGenerateOutreach?: (candidateId: string) => void; // 🔥 NEW
+  totalCandidates: number; // 🔥 NEW
 }) {
-  const [savedCandidates, setSavedCandidates] = useState<Set<string>>(
-    new Set()
-  );
+  const { saveCandidate, removeCandidate, isSaved } = useSavedCandidates();
   const [comparisonCandidates, setComparisonCandidates] = useState<Candidate[]>(
     []
   );
   const [showComparison, setShowComparison] = useState(false);
 
-  const toggleSave = (candidateId: string) => {
-    const newSaved = new Set(savedCandidates);
-    if (newSaved.has(candidateId)) {
-      newSaved.delete(candidateId);
+  const toggleSave = (candidate: Candidate) => {
+    if (isSaved(candidate.id)) {
+      removeCandidate(candidate.id);
+      toast({
+        title: "⭐ Removed from Saved",
+        description: `${candidate.name} removed from saved candidates`,
+      });
     } else {
-      newSaved.add(candidateId);
+      saveCandidate({
+        id: candidate.id,
+        name: candidate.name,
+        skills: candidate.skills,
+        experience_years: candidate.experience,
+        location: candidate.location,
+      });
+      toast({
+        title: "⭐ Saved Candidate",
+        description: `${candidate.name} added to saved candidates`,
+      });
     }
-    setSavedCandidates(newSaved);
   };
 
   const addToComparison = (candidate: Candidate) => {
@@ -132,11 +153,16 @@ export function CandidateGrid({
   return (
     <div className="space-y-6">
       {/* 🔥 NEW: Enhanced Results Header */}
-      <div className="flex items-center justify-between">
+      <div
+        className="flex items-center justify-between"
+        data-candidate-results
+        data-testid="candidate-results"
+        id="candidate-results-header"
+      >
         <div className="flex items-center space-x-4">
           <h2 className="text-lg font-semibold text-white flex items-center space-x-2">
             <Brain className="w-5 h-5 text-purple-400" />
-            <span>Found {candidates.length} AI-matched candidates</span>
+            <span>Found {totalCandidates} AI-matched candidates</span>
           </h2>
           {searchQuery && (
             <div className="text-sm text-gray-400 bg-gray-800/50 px-3 py-1 rounded-full">
@@ -166,7 +192,7 @@ export function CandidateGrid({
         )}
 
         {/* Comparison Modal */}
-        <CandidateComparison
+        <CandidateComparisonModal
           candidates={comparisonCandidates}
           isOpen={showComparison}
           onClose={() => setShowComparison(false)}
@@ -178,8 +204,8 @@ export function CandidateGrid({
             key={candidate.id}
             candidate={candidate}
             searchQuery={searchQuery} // 🔥 NEW
-            isSaved={savedCandidates.has(candidate.id)}
-            onToggleSave={() => toggleSave(candidate.id)}
+            isSaved={isSaved(candidate.id)}
+            onToggleSave={() => toggleSave(candidate)}
             onAddToComparison={() => addToComparison(candidate)}
             onGenerateOutreach={() => onGenerateOutreach?.(candidate.id)} // 🔥 NEW
             isInComparison={comparisonCandidates.some(
@@ -215,6 +241,7 @@ function CandidateCard({
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [showAIAnalysis, setShowAIAnalysis] = useState(false); // 🔥 NEW
+  const [open, setOpen] = useState(false);
 
   // 🧠 NEW: Generate AI match analysis
   const generateMatchAnalysis = () => {
@@ -319,43 +346,60 @@ function CandidateCard({
           </div>
 
           {/* Enhanced Match Score */}
-          <div className="relative w-12 h-12">
-            <svg className="w-12 h-12 transform -rotate-90">
-              <defs>
-                <linearGradient
-                  id={`gradient-${candidate.id}`}
-                  x1="0%"
-                  y1="0%"
-                  x2="100%"
-                  y2="0%"
-                >
-                  <stop offset="0%" stopColor="#8b5cf6" />
-                  <stop offset="100%" stopColor="#3b82f6" />
-                </linearGradient>
-              </defs>
-              <circle
-                cx="24"
-                cy="24"
-                r="20"
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth="3"
-                fill="none"
-              />
-              <circle
-                cx="24"
-                cy="24"
-                r="20"
-                stroke={`url(#gradient-${candidate.id})`}
-                strokeWidth="3"
-                fill="none"
-                strokeDasharray={`${candidate.matchScore * 1.26} 126`}
-                className="transition-all duration-1000"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-xs font-bold text-white">
-                {candidate.matchScore}%
-              </span>
+          <div className="flex flex-col items-end space-y-2">
+            {/* 🏷️ SOURCE BADGE */}
+            <div className="flex items-center">
+              {candidate.source === "uploaded_resume_batch" ? (
+                <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs px-2 py-1">
+                  <Upload className="w-3 h-3 mr-1" />
+                  Uploaded
+                </Badge>
+              ) : (
+                <Badge className="bg-gray-700/50 text-gray-400 border-gray-700 text-xs px-2 py-1">
+                  <Database className="w-3 h-3 mr-1" />
+                  Demo
+                </Badge>
+              )}
+            </div>
+
+            <div className="relative w-12 h-12">
+              <svg className="w-12 h-12 transform -rotate-90">
+                <defs>
+                  <linearGradient
+                    id={`gradient-${candidate.id}`}
+                    x1="0%"
+                    y1="0%"
+                    x2="100%"
+                    y2="0%"
+                  >
+                    <stop offset="0%" stopColor="#8b5cf6" />
+                    <stop offset="100%" stopColor="#3b82f6" />
+                  </linearGradient>
+                </defs>
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  stroke="rgba(255,255,255,0.1)"
+                  strokeWidth="3"
+                  fill="none"
+                />
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  stroke={`url(#gradient-${candidate.id})`}
+                  strokeWidth="3"
+                  fill="none"
+                  strokeDasharray={`${candidate.matchScore * 1.26} 126`}
+                  className="transition-all duration-1000"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-white">
+                  {candidate.matchScore}%
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -484,10 +528,25 @@ function CandidateCard({
           <Button
             variant="outline"
             className="w-full border-white/20 text-white hover:bg-white/10 group"
+            onClick={() => setOpen(true)}
           >
             <span>View Profile</span>
             <ExternalLink className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
           </Button>
+
+          {open && (
+            <ViewProfileModal
+              open={open}
+              onClose={() => setOpen(false)}
+              candidate={{
+                id: candidate.id,
+                name: candidate.name,
+                professional_summary: candidate.title,
+                skills: candidate.skills,
+                experience_years: candidate.experience,
+              }}
+            />
+          )}
 
           {/* 🔥 ENHANCED: Action buttons with AI outreach */}
           <div className="flex space-x-2">
@@ -621,19 +680,19 @@ function ComparisonBar({
   );
 }
 
-interface CandidateComparisonProps {
+interface LegacyCandidateComparisonProps {
   candidates: Candidate[];
   isOpen: boolean;
   onClose: () => void;
   onRemove: (candidateId: string) => void;
 }
 
-function CandidateComparison({
+function LegacyCandidateComparison({
   candidates,
   isOpen,
   onClose,
   onRemove,
-}: CandidateComparisonProps) {
+}: LegacyCandidateComparisonProps) {
   if (!isOpen) return null;
 
   return (

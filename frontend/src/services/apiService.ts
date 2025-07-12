@@ -6,6 +6,10 @@ import {
   BackendSearchResponse,
   OutreachRequestBody,
   OutreachResponse,
+  CandidateProfile,
+  CandidateInsightsResponse,
+  ComparisonAnalysisResponse,
+  ComparisonRequest,
 } from "./types";
 import { parseLocationFromQuery, normalizeSkills } from "./searchUtils";
 import { config } from "./config";
@@ -44,12 +48,14 @@ class RecruiterRadarAPI {
   }
 
   /**
-   * Search for candidates matching the query and filters
+   * Search for candidates matching the query and filters with pagination support
    */
   async searchCandidates(
     query: string,
     filters: {
-      limit?: number;
+      page?: number;
+      page_size?: number;
+      limit?: number; // Legacy support
       location?: string;
       visa_status?: string;
       min_experience?: number;
@@ -57,6 +63,8 @@ class RecruiterRadarAPI {
     } = {}
   ): Promise<BackendSearchResponse> {
     console.log("🔍 Starting intelligent search...");
+    console.log("🔧 DEBUG - Search called with:", { query, filters });
+    console.log("🔧 DEBUG - Base URL:", this.baseURL);
 
     // 🧠 SMART QUERY PROCESSING
     const { cleanQuery, location: extractedLocation } = config.features
@@ -70,10 +78,28 @@ class RecruiterRadarAPI {
         ? normalizeSkills(filters.skills)
         : filters.skills;
 
-    // 📊 BUILD ENHANCED PARAMETERS
+    // 📊 BUILD ENHANCED PARAMETERS with Pagination
     const params = new URLSearchParams({
       q: cleanQuery || query, // Use cleaned query for better semantic matching
     });
+
+    // 📄 PAGINATION PARAMETERS
+    if (filters.page !== undefined && filters.page > 0) {
+      params.append("page", String(filters.page));
+    }
+    if (filters.page_size !== undefined && filters.page_size > 0) {
+      params.append("page_size", String(filters.page_size));
+    }
+
+    // Legacy support for limit parameter
+    if (
+      filters.limit !== undefined &&
+      filters.limit > 0 &&
+      !filters.page_size
+    ) {
+      params.append("limit", String(filters.limit));
+      console.log("🔄 Using legacy limit parameter for backward compatibility");
+    }
 
     // Use extracted location if no explicit location filter
     const finalLocation = filters.location || extractedLocation;
@@ -84,10 +110,6 @@ class RecruiterRadarAPI {
           extractedLocation ? "(auto-extracted)" : "(manual)"
         }`
       );
-    }
-
-    if (filters.limit && filters.limit > 0) {
-      params.append("limit", String(filters.limit));
     }
     if (filters.visa_status) {
       params.append("visa_status", filters.visa_status);
@@ -100,26 +122,66 @@ class RecruiterRadarAPI {
       console.log(`🔧 Using normalized skills: ${cleanedSkills}`);
     }
 
-    try {
-      console.log(
-        `🚀 Searching: "${cleanQuery}" with enhanced params:`,
-        params.toString()
-      );
+    const finalUrl = `${
+      this.baseURL
+    }/api/v1/candidates/query?${params.toString()}`;
+    console.log("🔧 DEBUG - Final request URL:", finalUrl);
 
-      const response = await this.fetchWithTimeout(
-        `${this.baseURL}/api/v1/candidates/query?${params.toString()}`
+    try {
+      console.log("🚀 Making request to backend...");
+
+      const response = await this.fetchWithTimeout(finalUrl);
+
+      console.log(
+        "✅ Response received:",
+        response.status,
+        response.statusText
       );
 
       if (!response.ok) {
+        console.error(
+          "❌ Response not OK:",
+          response.status,
+          response.statusText
+        );
         const errorData = await response
           .json()
           .catch(() => ({ message: response.statusText }));
-        throw new Error(
-          errorData.detail || errorData.message || `Error: ${response.status}`
-        );
+
+        // Handle backend error format (FastAPI ErrorResponse)
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+        if (errorData) {
+          if (typeof errorData === "string") {
+            errorMessage = errorData;
+          } else if (errorData.detail) {
+            // FastAPI validation error format
+            if (typeof errorData.detail === "string") {
+              errorMessage = errorData.detail;
+            } else if (Array.isArray(errorData.detail)) {
+              // FastAPI validation error array
+              errorMessage = errorData.detail
+                .map((err: any) => err.msg || String(err))
+                .join(", ");
+            } else if (typeof errorData.detail === "object") {
+              // FastAPI ErrorResponse format
+              errorMessage =
+                errorData.detail.message ||
+                errorData.detail.error ||
+                String(errorData.detail);
+            }
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        }
+
+        throw new Error(errorMessage);
       }
 
       const data: BackendSearchResponse = await response.json();
+      console.log("✅ Data parsed:", data);
 
       console.log(
         `✅ Search completed: ${data.results.length} results in ${data.search_time_ms}ms`
@@ -139,6 +201,7 @@ class RecruiterRadarAPI {
 
       return data;
     } catch (error) {
+      console.error("💥 Request failed with error:", error);
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
         errorMessage = error.message;
@@ -169,12 +232,43 @@ class RecruiterRadarAPI {
         const errorData = await response
           .json()
           .catch(() => ({ message: response.statusText }));
-        throw new Error(
-          errorData.detail || errorData.message || `Error: ${response.status}`
-        );
+
+        // Handle backend error format (FastAPI ErrorResponse)
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+        if (errorData) {
+          if (typeof errorData === "string") {
+            errorMessage = errorData;
+          } else if (errorData.detail) {
+            // FastAPI validation error format
+            if (typeof errorData.detail === "string") {
+              errorMessage = errorData.detail;
+            } else if (Array.isArray(errorData.detail)) {
+              // FastAPI validation error array
+              errorMessage = errorData.detail
+                .map((err: any) => err.msg || String(err))
+                .join(", ");
+            } else if (typeof errorData.detail === "object") {
+              // FastAPI ErrorResponse format
+              errorMessage =
+                errorData.detail.message ||
+                errorData.detail.error ||
+                String(errorData.detail);
+            }
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        }
+
+        throw new Error(errorMessage);
       }
 
-      return await response.json();
+      const result = await response.json();
+      console.log("API Response Structure:", result); // DEBUG
+      console.log("Keys in response:", Object.keys(result)); // DEBUG
+      return result;
     } catch (error) {
       let errorMessage = "Unknown error";
       if (error instanceof Error) {
@@ -189,6 +283,196 @@ class RecruiterRadarAPI {
         errorMessage = String(error);
       }
       console.error("Outreach generation error:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Batch upload up to 10 resume files
+   */
+  async uploadBatch(files: File[]): Promise<{ task_id: string }> {
+    if (!files.length) throw new Error("No files provided");
+
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+
+    const response = await this.fetchWithTimeout(
+      `${this.baseURL}/api/v1/candidates/upload-batch`,
+      {
+        method: "POST",
+        body: form,
+      },
+      config.api.longTimeout
+    );
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: response.statusText }));
+
+      // Handle backend error format (FastAPI ErrorResponse)
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+      if (errorData) {
+        if (typeof errorData === "string") {
+          errorMessage = errorData;
+        } else if (errorData.detail) {
+          // FastAPI validation error format
+          if (typeof errorData.detail === "string") {
+            errorMessage = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            // FastAPI validation error array
+            errorMessage = errorData.detail
+              .map((err: any) => err.msg || String(err))
+              .join(", ");
+          } else if (typeof errorData.detail === "object") {
+            // FastAPI ErrorResponse format
+            errorMessage =
+              errorData.detail.message ||
+              errorData.detail.error ||
+              String(errorData.detail);
+          }
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    return await response.json();
+  }
+
+  async getBatchStatus(task_id: string): Promise<any> {
+    const response = await this.fetchWithTimeout(
+      `${this.baseURL}/api/v1/candidates/batch-status/${task_id}`,
+      { method: "GET" }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Failed to fetch batch status");
+    }
+    return await response.json();
+  }
+
+  async getCandidateInsights(candidateId: string): Promise<any> {
+    const response = await this.fetchWithTimeout(
+      `${this.baseURL}/api/v1/candidates/${candidateId}/insights`
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Failed to fetch insights");
+    }
+    return await response.json();
+  }
+
+  /**
+   * Get complete candidate details by ID
+   */
+  async getCandidateDetails(candidateId: string): Promise<CandidateProfile> {
+    console.log(`[API] Starting fetch for candidate details: ${candidateId}`);
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/candidates/${candidateId}`
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error(
+          `[API] Error fetching candidate ${candidateId}:`,
+          errorData
+        );
+        throw new Error(
+          errorData.detail || "Failed to fetch candidate details"
+        );
+      }
+      const data = await response.json();
+      console.log(`[API] Successfully fetched candidate ${candidateId}:`, data);
+      return data;
+    } catch (error) {
+      console.error(
+        `[API] Network error fetching candidate ${candidateId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * 🤖 AI Hiring Advisor: Analyze multiple candidates for comparison
+   *
+   * This is the game-changing feature that saves recruiters 2-3 hours per comparison!
+   */
+  async analyzeComparison(
+    request: ComparisonRequest
+  ): Promise<ComparisonAnalysisResponse> {
+    console.log("🤖 Starting AI Hiring Advisor analysis...", request);
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.baseURL}/api/v1/candidates/analyze-comparison`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+        config.api.longTimeout // Allow extra time for AI analysis
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: response.statusText }));
+
+        // Handle backend error format
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+        if (errorData) {
+          if (typeof errorData === "string") {
+            errorMessage = errorData;
+          } else if (errorData.detail) {
+            if (typeof errorData.detail === "string") {
+              errorMessage = errorData.detail;
+            } else if (Array.isArray(errorData.detail)) {
+              errorMessage = errorData.detail
+                .map((err: any) => err.msg || String(err))
+                .join(", ");
+            } else if (typeof errorData.detail === "object") {
+              errorMessage =
+                errorData.detail.message ||
+                errorData.detail.error ||
+                String(errorData.detail);
+            }
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      const result: ComparisonAnalysisResponse = await response.json();
+
+      console.log(
+        `✅ AI Hiring Advisor completed in ${result.processing_time_ms}ms. ` +
+          `Winner: ${result.winner.candidate_name} (${result.winner.confidence}% confidence)`
+      );
+
+      return result;
+    } catch (error) {
+      let errorMessage = "AI comparison analysis failed";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      console.error("❌ AI Hiring Advisor failed:", errorMessage);
       throw new Error(errorMessage);
     }
   }
@@ -229,4 +513,69 @@ export function getSearchIntelligence(
     originalQuery,
     cleanedQuery: cleanQuery,
   };
+}
+
+export async function getCandidateInsights(
+  candidateId: string
+): Promise<CandidateInsightsResponse> {
+  const response = await fetch(
+    `${config.api.baseUrl}/api/v1/candidates/${candidateId}/insights`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to fetch candidate insights");
+  }
+
+  return response.json();
+}
+
+// 🆕 NEW: Complete candidate details endpoint
+export async function getCandidateDetails(
+  candidateId: string
+): Promise<CandidateProfile> {
+  console.log(`[API] Starting fetch for candidate details: ${candidateId}`);
+  try {
+    const response = await fetch(
+      `${config.api.baseUrl}/api/v1/candidates/${candidateId}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error(
+        `[API] Error fetching candidate ${candidateId}:`,
+        errorData
+      );
+      throw new Error(errorData.detail || "Failed to fetch candidate details");
+    }
+
+    const data = await response.json();
+    console.log(`[API] Successfully fetched candidate ${candidateId}:`, data);
+    return data;
+  } catch (error) {
+    console.error(
+      `[API] Network error fetching candidate ${candidateId}:`,
+      error
+    );
+    throw error;
+  }
+}
+
+// 🤖 AI Hiring Advisor: Analyze multiple candidates for comparison
+export async function analyzeComparison(
+  request: ComparisonRequest
+): Promise<ComparisonAnalysisResponse> {
+  return apiService.analyzeComparison(request);
 }

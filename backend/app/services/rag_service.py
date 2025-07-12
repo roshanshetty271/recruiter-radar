@@ -75,44 +75,67 @@ class RAGService:
 
     def __init__(self, settings_obj: Any, connector: ChromaConnector):
         """
-        Initialize the RAG service with a pre-configured ChromaConnector.
+        Initialize the RAGService with the provided settings and ChromaDB connector.
 
         Args:
-            settings_obj: The application settings object (can be used for RAG-specific settings if any).
-            connector: An initialized instance of ChromaConnector.
-
-        Raises:
-            RAGServiceError: If the provided connector is invalid or collection access fails.
+            settings_obj: Configuration object containing OPENAI_API_KEY, model names, ChromaDB settings, etc.
+            connector: An initialized ChromaConnector instance.
         """
         self.settings = settings_obj
         self.connector = connector
-        try:
-            logger.info("Initializing ChromaConnector for RAGService...")
-            self.collection = self.connector.get_collection()
-            if not self.collection:
-                # This case should ideally be caught by connector.get_collection() raising an error
-                raise ChromaConnectionError(
-                    "ChromaConnector returned None for collection."
-                )
-            self.collection_name = self.collection.name
-            logger.info(
-                f"RAGService initialized successfully using ChromaConnector for collection '{self.collection_name}'."
-            )
-        except ChromaConnectionError as e:
-            logger.error(
-                f"Failed to initialize RAGService: Error obtaining collection from ChromaConnector: {e}",
-                exc_info=True,
-            )
-            raise RAGServiceError(
-                f"RAGService initialization failed: Connector error - {e}"
-            ) from e
-        except Exception as e:
-            logger.error(
-                f"Unexpected error during RAGService initialization: {e}", exc_info=True
-            )
-            raise RAGServiceError(
-                f"Unexpected error initializing RAGService: {e}"
-            ) from e
+        self.collection = connector.get_collection()  # Obtain collection via connector
+        self.collection_name = connector.collection_name
+        self.logger = logging.getLogger(__name__)
+        # Use a dict keyed by candidate_id → CandidateProfile for O(1) look-ups.
+        # An empty list (previous implementation) broke `.get()` calls and downstream fallbacks.
+        self._candidates_cache: Dict[str, CandidateProfile] = {}
+        self._cache_loaded = False
+
+        self.logger.info(
+            f"RAGService initialized with collection '{self.collection_name}'"
+        )
+
+    def _sanitize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Sanitize metadata for ChromaDB storage - remove None values and ensure proper types.
+
+        ChromaDB only accepts str, int, float, bool values in metadata.
+        Any None values will cause TypeErrors during storage.
+
+        Args:
+            metadata: Raw metadata dictionary
+
+        Returns:
+            Cleaned metadata dictionary safe for ChromaDB storage
+        """
+        sanitized = {}
+
+        for key, value in metadata.items():
+            if value is not None:
+                # ChromaDB only accepts str, int, float, bool
+                if isinstance(value, (list, dict)):
+                    # Convert complex types to string
+                    sanitized[key] = str(value) if value else ""
+                elif isinstance(value, bool):
+                    sanitized[key] = value
+                elif isinstance(value, (int, float)):
+                    sanitized[key] = value
+                else:
+                    # Everything else as string
+                    sanitized[key] = str(value) if value else ""
+            # Skip None values entirely - don't include them in metadata
+
+        # Add source tracking if not present
+        if "source" not in sanitized:
+            sanitized["source"] = "demo"
+
+        # Add upload timestamp for uploaded candidates
+        if sanitized.get("source") == "uploaded_resume_batch":
+            from datetime import datetime
+
+            sanitized["uploaded_at"] = datetime.utcnow().isoformat()
+
+        return sanitized
 
     async def health_check(self) -> Dict[str, Any]:
         """
@@ -159,7 +182,7 @@ class RAGService:
         document_text: Optional[str] = None,
     ):
         """
-        Asynchronously adds a single candidate profile to the ChromaDB collection.
+        Asynchronously adds a single candidate profile to the ChromaDB collection with robust deduplication.
         Uses asyncio.to_thread for the synchronous ChromaDB `add` operation.
 
         Args:
@@ -183,23 +206,119 @@ class RAGService:
             )
             raise ValueError(f"Embedding for candidate {candidate_id} cannot be empty.")
 
-        logger.debug(
-            f"RAGService: Queueing add operation for candidate ID '{candidate_id}' to collection '{self.collection_name}' (via thread)."
+        # --- ROBUST DEDUPLICATION LOGIC ---
+        # Normalize email and name for comparison
+        email = (
+            metadata.get("email", "").lower().strip() if metadata.get("email") else None
         )
+        name = metadata.get("name", "").lower().strip() if metadata.get("name") else ""
+
+        # Update metadata with normalized email
+        if email:
+            metadata["email"] = email
+
+        existing_id = None
+
+        # 1. Try email match (most reliable)
+        if email:
+            try:
+                results = await asyncio.to_thread(
+                    self.collection.get,
+                    where={"email": email},
+                    # IDs are returned by default, no need to include them
+                )
+                ids = results.get("ids", [])
+                if ids and len(ids) > 0:
+                    existing_id = ids[0]
+                    logger.info(
+                        f"🔍 DEDUP: Found existing candidate by email '{email}' -> ID: {existing_id}"
+                    )
+            except Exception as e:
+                logger.warning(f"Email deduplication check failed for {email}: {e}")
+
+        # 2. If no email match, try name-based deduplication (fallback)
+        if not existing_id and name:
+            try:
+                # Get all candidates to check names (ChromaDB doesn't support case-insensitive search)
+                all_candidates = await asyncio.to_thread(
+                    self.collection.get,
+                    limit=2000,  # Reasonable limit for MVP
+                    include=["metadatas"],  # IDs are returned by default
+                )
+
+                for idx, cand_metadata in enumerate(
+                    all_candidates.get("metadatas", [])
+                ):
+                    if not cand_metadata:
+                        continue
+
+                    cand_name = cand_metadata.get("name", "").lower().strip()
+                    cand_email = (
+                        cand_metadata.get("email", "").lower().strip()
+                        if cand_metadata.get("email")
+                        else None
+                    )
+
+                    # Check if same person by name and email combo
+                    if email and cand_email == email:
+                        # This should have been caught in email check, but safety net
+                        existing_id = all_candidates["ids"][idx]
+                        logger.info(
+                            f"🔍 DEDUP: Found existing candidate by backup email check '{email}' -> ID: {existing_id}"
+                        )
+                        break
+                    elif name and cand_name == name and not email and not cand_email:
+                        # Only match by name if neither has email (avoid false positives)
+                        existing_id = all_candidates["ids"][idx]
+                        logger.info(
+                            f"🔍 DEDUP: Found existing candidate by name '{name}' (no emails) -> ID: {existing_id}"
+                        )
+                        break
+
+            except Exception as e:
+                logger.warning(
+                    f"Name-based deduplication check failed for '{name}': {e}"
+                )
+
+        # 3. Sanitize metadata before storage (CRITICAL FIX for ChromaDB None values)
+        clean_metadata = self._sanitize_metadata(metadata)
+        logger.info(
+            f"🧹 Sanitized metadata for candidate {candidate_id}: source={clean_metadata.get('source')}"
+        )
+
+        # 4. Perform update or add operation
         try:
-            await asyncio.to_thread(
-                self.collection.add,
-                ids=[candidate_id],
-                embeddings=[embedding],
-                metadatas=[metadata],
-                documents=[document_text] if document_text is not None else None,
-            )
-            logger.info(
-                f"RAGService: Successfully added/updated candidate ID '{candidate_id}' in collection '{self.collection_name}'."
-            )
+            if existing_id:
+                # UPDATE existing candidate
+                logger.info(
+                    f"📝 UPDATING existing candidate {existing_id} instead of creating duplicate"
+                )
+                await asyncio.to_thread(
+                    self.collection.update,
+                    ids=[existing_id],
+                    embeddings=[embedding],
+                    metadatas=[clean_metadata],
+                    documents=[document_text] if document_text is not None else None,
+                )
+                logger.info(
+                    f"✅ RAGService: Successfully updated candidate ID '{existing_id}' in collection '{self.collection_name}'"
+                )
+            else:
+                # ADD new candidate
+                logger.info(f"➕ ADDING new candidate {candidate_id}")
+                await asyncio.to_thread(
+                    self.collection.add,
+                    ids=[candidate_id],
+                    embeddings=[embedding],
+                    metadatas=[clean_metadata],
+                    documents=[document_text] if document_text is not None else None,
+                )
+                logger.info(
+                    f"✅ RAGService: Successfully added candidate ID '{candidate_id}' in collection '{self.collection_name}'"
+                )
         except Exception as e:
             logger.error(
-                f"RAGService: Threaded add failed for candidate ID '{candidate_id}' to collection '{self.collection_name}': {e}",
+                f"❌ RAGService: Failed to add/update candidate ID '{candidate_id}' to collection '{self.collection_name}': {e}",
                 exc_info=True,
             )
             raise DocumentStorageError(
@@ -210,18 +329,21 @@ class RAGService:
         self, candidates_data: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Asynchronously adds multiple candidates to the collection in batch.
-        Uses asyncio.to_thread for the synchronous ChromaDB `add` operation.
-        Performs initial validation on input data before batching.
+        Asynchronously adds multiple candidates to the collection, applying
+        robust, individual deduplication logic for each.
+
+        This method iterates through the provided candidate data and calls
+        the `add_candidate_to_collection` method for each one, ensuring
+        that the same email/name-based upsert logic is applied consistently.
 
         Args:
-            candidates_data: List of candidate data dictionaries.
+            candidates_data: A list of dictionaries, where each dictionary
+                             contains the data for a single candidate, including
+                             'candidate_id', 'embedding', 'metadata', and 'document_text'.
 
         Returns:
-            Dict with batch operation results and statistics.
-
-        Raises:
-            DocumentStorageError: If the batch addition fails at the ChromaDB level.
+            A dictionary summarizing the batch operation, including counts of
+            successful additions/updates and any failures.
         """
         if not candidates_data:
             logger.warning("RAGService: No candidates provided for batch add.")
@@ -233,81 +355,46 @@ class RAGService:
             }
 
         logger.info(
-            f"RAGService: Preparing batch add for {len(candidates_data)} candidates to '{self.collection_name}'."
+            f"RAGService: Starting batch add for {len(candidates_data)} candidates, applying individual deduplication..."
         )
-        ids, embeddings, metadatas, documents = [], [], [], []
-        initial_processing_errors = []
-        valid_for_db_batch = 0
 
+        tasks = []
         for i, data_item in enumerate(candidates_data):
-            candidate_id = data_item.get("candidate_id")
-            embedding = data_item.get("embedding")
-            if (
-                not candidate_id
-                or not isinstance(candidate_id, str)
-                or not candidate_id.strip()
-            ):
-                err_msg = f"Batch item {i}: Missing or invalid candidate_id."
-                logger.error(err_msg)
-                initial_processing_errors.append(err_msg)
-                continue
-            if not embedding or not isinstance(embedding, list) or len(embedding) == 0:
-                err_msg = f"Batch item {i} (ID: {candidate_id}): Missing or invalid embedding."
-                logger.error(err_msg)
-                initial_processing_errors.append(err_msg)
-                continue
+            # Create a task for each candidate addition/update
+            task = self.add_candidate_to_collection(
+                candidate_id=data_item.get("candidate_id", f"missing_id_{i}"),
+                embedding=data_item.get("embedding", []),
+                metadata=data_item.get("metadata", {}),
+                document_text=data_item.get("document_text"),
+            )
+            tasks.append(task)
 
-            ids.append(candidate_id)
-            embeddings.append(embedding)
-            metadatas.append(data_item.get("metadata", {}))
-            documents.append(data_item.get("document_text"))
-            valid_for_db_batch += 1
+        # Run all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        if not ids:
-            logger.warning(
-                "RAGService: No valid candidates to batch add after initial validation."
-            )
-            return {
-                "total_candidates_received": len(candidates_data),
-                "successfully_added_to_db": 0,
-                "initial_processing_errors_count": len(initial_processing_errors),
-                "db_errors_count": 0,
-                "error_details": initial_processing_errors
-                or ["No valid candidates after validation"],
-            }
+        successful_count = 0
+        failed_count = 0
+        errors = []
 
-        try:
-            logger.debug(
-                f"RAGService: Queueing batch add operation for {len(ids)} candidates to '{self.collection_name}' (via thread)."
-            )
-            await asyncio.to_thread(
-                self.collection.add,
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                documents=(
-                    documents if any(d is not None for d in documents) else None
-                ),
-            )
-            logger.info(
-                f"RAGService: Successfully batch added {len(ids)} candidates to collection '{self.collection_name}'."
-            )
-            return {
-                "total_candidates_received": len(candidates_data),
-                "valid_for_db_batch": valid_for_db_batch,
-                "successfully_added_to_db": len(ids),
-                "initial_processing_errors_count": len(initial_processing_errors),
-                "db_errors_count": 0,
-                "error_details": initial_processing_errors,
-            }
-        except Exception as e:
-            logger.error(
-                f"RAGService: Threaded batch DB insertion failed for {len(ids)} candidates: {e}",
-                exc_info=True,
-            )
-            raise DocumentStorageError(
-                f"Batch insertion into collection '{self.collection_name}' failed: {e}"
-            ) from e
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_count += 1
+                error_msg = f"Failed to process candidate {i} (ID: {candidates_data[i].get('candidate_id', 'N/A')}): {str(result)}"
+                logger.error(error_msg, exc_info=result)
+                errors.append(error_msg)
+            else:
+                successful_count += 1
+
+        logger.info(
+            f"Batch processing complete. Successful: {successful_count}, Failed: {failed_count}"
+        )
+
+        return {
+            "total_candidates": len(candidates_data),
+            "successful": successful_count,
+            "failed": failed_count,
+            "errors": errors,
+        }
 
     async def similarity_search(
         self,
@@ -357,6 +444,26 @@ class RAGService:
                 k=k,
                 filters=filters,
             )
+
+            # 🔍 RAW SEARCH RESULTS LOGGING
+            logger.info(f"🔍 RAW SEARCH RESULTS from ChromaDB (query: '{query_text}'):")
+            logger.info(
+                f"   📊 Found {len(results)} candidates (from {count_before_post_filter} before post-filtering)"
+            )
+            for i, result in enumerate(results, 1):
+                metadata = result.get("metadata", {})
+                distance = result.get("distance", 1.0)
+                relevance = 1.0 - float(distance) if distance is not None else 0.0
+                logger.info(
+                    f"   {i:2d}. {metadata.get('name', 'Unknown')} (ID: {result.get('id', 'N/A')}) "
+                    f"- Distance: {distance:.4f}, Relevance: {relevance:.3f}"
+                )
+                logger.info(f"       Skills: {metadata.get('skills', 'N/A')}")
+                logger.info(
+                    f"       Location: {metadata.get('location', 'N/A')} | Experience: {metadata.get('experience_years', 'N/A')} years"
+                )
+            logger.info("-" * 60)
+
             logger.info(
                 f"RAGService: Similarity search completed. Candidates found (after post-filter, limited by k): {len(results)}. Candidates before post-filter: {count_before_post_filter}."
             )
@@ -497,8 +604,14 @@ class RAGService:
                 )
                 raise  # Re-raise the RAGServiceError to indicate cache problem
 
-        # Retrieve candidate
-        # Ensure candidate_id is stripped for lookup, consistent with how it might be stored if IDs have whitespace
+        # If, for any reason, the cache was corrupted into a non-dict structure, reload it once.
+        if not isinstance(self._candidates_cache, dict):
+            logger.warning(
+                "_candidates_cache had unexpected type – reloading candidates JSON file."
+            )
+            await self._load_candidates_cache()
+
+        # Retrieve candidate (dict lookup)
         cleaned_candidate_id = candidate_id.strip()
         candidate = self._candidates_cache.get(cleaned_candidate_id)
 
@@ -512,6 +625,81 @@ class RAGService:
             f"Retrieved candidate '{candidate.name}' (ID: {cleaned_candidate_id})"
         )
         return candidate
+
+    async def get_candidate_from_chroma_by_id(
+        self, candidate_id: str
+    ) -> Optional[CandidateProfile]:
+        """
+        Fetch a single candidate's details directly from ChromaDB by their ID.
+
+        Args:
+            candidate_id: The unique ID of the candidate.
+
+        Returns:
+            A CandidateProfile object if found, otherwise None.
+
+        Raises:
+            RAGServiceError: If data from ChromaDB is inconsistent or a database error occurs.
+        """
+        try:
+            logger.info(f"Querying ChromaDB for candidate_id: {candidate_id}")
+            results = await asyncio.to_thread(
+                self.collection.get,
+                ids=[candidate_id],
+                include=["metadatas", "documents"],
+            )
+
+            logger.debug(
+                f"Raw ChromaDB results for {candidate_id}: {results}"
+            )  # Added debug log
+
+            if not results or not results.get("ids"):
+                logger.warning(f"No results from ChromaDB for ID: {candidate_id}")
+                return None
+
+            # --- Data Consistency Check ---
+            # ChromaDB should return parallel lists. If we got an ID, we must get metadata.
+            metadatas = results.get("metadatas", [])
+            ids = results.get("ids", [])
+            if not metadatas or len(metadatas) != len(ids):
+                error_msg = f"Inconsistent data from ChromaDB for ID '{candidate_id}': Found {len(ids)} IDs but {len(metadatas)} metadatas."
+                logger.error(error_msg)
+                return None  # Changed: Return None instead of raising
+
+            # Assuming one result is returned for the given ID
+            metadata = metadatas[0]
+            # Use .get with a default for documents list for extra safety
+            document = (
+                results.get("documents", [""])[0] if results.get("documents") else ""
+            )
+
+            # Reconstruct the CandidateProfile object from ChromaDB data
+            candidate_data = {
+                "id": metadata.get("candidate_id", candidate_id),
+                "name": metadata.get("name"),
+                "email": metadata.get("email"),
+                "location": metadata.get("location"),
+                "experience_years": int(metadata.get("experience_years", 0)),
+                "skills": (
+                    metadata.get("skills", "").split(",")
+                    if metadata.get("skills")
+                    else []
+                ),
+                "raw_resume_text": document,
+                "github_url": metadata.get("github_url"),
+                "linkedin_url": metadata.get("linkedin_url"),
+                "visa_status": metadata.get("visa_status"),
+            }
+            return CandidateProfile(**candidate_data)
+
+        except Exception as e:
+            logger.error(
+                f"Unexpected error fetching candidate from ChromaDB by ID '{candidate_id}': {e}",
+                exc_info=True,
+            )
+            raise RAGServiceError(
+                f"A database error occurred while fetching candidate '{candidate_id}'."
+            ) from e
 
     async def get_all_candidate_ids(self) -> List[str]:
         """Get list of all available candidate IDs (useful for testing/validation)."""

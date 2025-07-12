@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Search, Clock, Zap, Users, Settings, X } from "lucide-react";
-import { Input } from "@/src/components/ui/input";
+import { Input } from "@/components/ui/input";
 
 const QUICK_ACTIONS = [
   {

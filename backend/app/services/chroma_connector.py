@@ -104,12 +104,14 @@ class ChromaConnector:
 
     def _initialize_client(self) -> chromadb.Client:
         """Initializes and returns a persistent ChromaDB client."""
-        chroma_path_str = self.settings.chroma_db_path
+        # Use the guaranteed absolute path from the settings
+        chroma_path_str = self.settings.chroma_db_full_path
         logger.info(f"Initializing ChromaDB PersistentClient at: {chroma_path_str}")
         try:
+            # The path from settings is now a string representing an absolute path
             chroma_path = Path(chroma_path_str)
-            chroma_path.parent.mkdir(parents=True, exist_ok=True)
-            client = chromadb.PersistentClient(path=str(chroma_path))
+            chroma_path.mkdir(parents=True, exist_ok=True)  # Still good practice
+            client = chromadb.PersistentClient(path=chroma_path_str)
             logger.info(
                 f"ChromaDB PersistentClient initialized at '{chroma_path_str}'."
             )

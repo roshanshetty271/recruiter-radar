@@ -2,21 +2,26 @@
 
 import { useState, useEffect } from "react";
 import { MetricsBar } from "@/components/metrics-bar";
-import { HeroSection } from "@/components/hero-section";
 import { SearchInterface } from "@/components/search-interface";
 import { TalentHeatMap } from "@/components/talent-heat-map";
 import { CandidateGrid } from "@/components/candidate-grid";
 import { CommandPalette } from "@/components/command-palette";
 import { AnimatedBackground } from "@/components/animated-background";
 import { OutreachModal } from "@/components/custom/outreach-modal"; // FE-6 IMPORT
+import { ResumeUpload } from "@/components/custom/resume-upload"; // Upload component
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Search, Upload, Star } from "lucide-react";
 // Import our services
-import { api } from "../lib/api";
+import { apiService } from "@/services/apiService";
 import {
   mapBackendCandidatesToFrontend,
   getSearchMetrics,
 } from "../services/helpers";
 import { toast } from "@/hooks/use-toast";
 import type { FrontendCandidate } from "../lib/types";
+import { CandidatePagination } from "@/components/candidate-pagination";
+import type { PaginationInfo } from "@/lib/types";
+import { useSavedCandidates } from "@/hooks/use-saved-candidates";
 
 // Define SearchMetrics type locally
 interface SearchMetrics {
@@ -46,6 +51,11 @@ export default function Dashboard() {
     queryInterpretation: null,
   });
 
+  // Saved candidates functionality
+  const { savedCandidates } = useSavedCandidates();
+  const [showSavedCandidates, setShowSavedCandidates] =
+    useState<boolean>(false);
+
   // FE-6: Outreach modal state
   const [isOutreachModalOpen, setIsOutreachModalOpen] = useState(false);
   const [selectedCandidateForOutreach, setSelectedCandidateForOutreach] =
@@ -74,6 +84,13 @@ export default function Dashboard() {
 
   const [errorMessage, setErrorMessage] = useState<string>("");
 
+  // 📄 PAGINATION STATE
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(20);
+  const [paginationInfo, setPaginationInfo] = useState<PaginationInfo | null>(
+    null
+  );
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -85,6 +102,143 @@ export default function Dashboard() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // Handle URL parameters for OAuth returns
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const candidateId = urlParams.get("candidate");
+    const action = urlParams.get("action");
+    const gmailStatus = urlParams.get("gmail");
+    const errorStatus = urlParams.get("error");
+
+    if (candidateId && action === "outreach") {
+      // Search for the specific candidate and open outreach modal
+      const searchForCandidate = async () => {
+        try {
+          setIsLoading(true);
+          // Use a broad search to find candidates, then filter by ID
+          const response = await apiService.searchCandidates("", {
+            page: 1,
+            page_size: 50,
+          });
+
+          // Map candidates and update state the same way as handleSearch does
+          const mappedCandidates = mapBackendCandidatesToFrontend(response);
+          setCandidates(mappedCandidates);
+
+          // NEW ➜ Update search metrics & pagination so header counts are correct
+          const metrics = getSearchMetrics(response);
+          setSearchMetrics({
+            totalResults: metrics.totalResults || mappedCandidates.length,
+            searchTimeMs: metrics.searchTimeMs || 0,
+            queryInterpretation: metrics.queryInterpretation,
+          });
+
+          if (response.pagination) {
+            setPaginationInfo(response.pagination);
+          }
+
+          const targetCandidate = mappedCandidates.find(
+            (c) => c.id === candidateId
+          );
+
+          if (targetCandidate) {
+            setSelectedCandidateForOutreach(targetCandidate);
+            setIsOutreachModalOpen(true);
+            setHasSearched(true);
+
+            // Show appropriate toast based on Gmail status
+            if (gmailStatus === "connected") {
+              toast({
+                title: "🎉 Gmail Connected!",
+                description: `Your message to ${targetCandidate.name} will be sent automatically.`,
+              });
+            } else if (errorStatus) {
+              const errorMessages = {
+                auth_failed:
+                  "Gmail connection was cancelled. You can still copy your message.",
+                connection_failed:
+                  "Gmail connection failed. You can still copy your message.",
+              } as const;
+              toast({
+                title: "Connection Issue",
+                description:
+                  errorMessages[errorStatus as keyof typeof errorMessages] ||
+                  "There was an issue with Gmail connection.",
+                variant: "destructive",
+              });
+            } else {
+              // Just opened the modal after OAuth redirect
+              toast({
+                title: "Welcome Back!",
+                description: `Continuing your outreach to ${targetCandidate.name}`,
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Failed to find candidate:", error);
+          toast({
+            title: "Candidate Not Found",
+            description: "Could not find the candidate you were working with.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsLoading(false);
+          // Clean up URL parameters
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      };
+
+      searchForCandidate();
+    }
+  }, []);
+
+  // Handle saved candidates view toggle
+  const handleSavedClick = () => {
+    setShowSavedCandidates(!showSavedCandidates);
+    if (!showSavedCandidates && savedCandidates.length > 0) {
+      // Convert saved candidates to frontend format for display
+      const savedAsFrontend: FrontendCandidate[] = savedCandidates.map(
+        (saved) => ({
+          id: saved.id,
+          name: saved.name,
+          title: "Saved Candidate", // Required field
+          skills: saved.skills,
+          experience: saved.experience_years,
+          location: saved.location || "Not specified",
+          matchScore: 1.0, // High relevance for saved candidates
+          isOnline: false, // Default value
+          isVerified: true, // Assume saved candidates are verified
+          avatar: "/placeholder-user.jpg", // Default avatar
+          distance: "",
+          visaStatus: "Not specified",
+          githubUrl: "",
+          linkedinUrl: "",
+        })
+      );
+      setCandidates(savedAsFrontend);
+      setHasSearched(true);
+
+      toast({
+        title: "⭐ Saved Candidates",
+        description: `Showing ${savedCandidates.length} saved candidates`,
+      });
+    } else if (showSavedCandidates) {
+      // Reset to normal view
+      setCandidates([]);
+      setHasSearched(false);
+
+      toast({
+        title: "🔍 Search Mode",
+        description: "Back to search interface",
+      });
+    } else {
+      toast({
+        title: "📝 No Saved Candidates",
+        description: "Save candidates from search results to see them here",
+      });
+    }
+  };
 
   // FE-6: Updated handler for generating outreach messages
   const handleGenerateOutreach = async (candidateId: string) => {
@@ -121,33 +275,46 @@ export default function Dashboard() {
       outreachGenerated: prev.outreachGenerated + 1,
     }));
 
-    toast({
-      title: "🎉 Outreach Generated!",
-      description: "Your AI-powered message is ready to send",
-    });
+    // Note: Specific toast messages are now handled within OutreachModal
+    // This function just updates session metrics
   };
 
   const handleSearch = async (
     query: string,
-    filters: Partial<typeof activeFilters> = {}
+    filters: Partial<typeof activeFilters> = {},
+    page: number = 1,
+    resetPagination: boolean = true
   ) => {
+    // Exit saved candidates view when searching
+    setShowSavedCandidates(false);
+
     setSearchQuery(query);
     setHasSearched(true);
     setErrorMessage(""); // Clear error on new search
     setIsLoading(true);
 
-    // Update session metrics
-    setSessionMetrics((prev) => ({
-      ...prev,
-      totalSearches: prev.totalSearches + 1,
-    }));
+    // Reset to page 1 for new searches, keep current page for pagination navigation
+    const targetPage = resetPagination ? 1 : page;
+    if (resetPagination) {
+      setCurrentPage(1);
+    }
+
+    // Only update session metrics for NEW searches, not pagination
+    if (resetPagination) {
+      setSessionMetrics((prev) => ({
+        ...prev,
+        totalSearches: prev.totalSearches + 1,
+      }));
+    }
 
     try {
-      // Call the API service with the query and filters
-      const searchResults = await api.searchCandidates(query, {
+      // Call the API service with the query, filters, and pagination
+      const searchResults = await apiService.searchCandidates(query, {
         ...activeFilters,
         ...filters,
-      });
+        page: targetPage,
+        page_size: pageSize,
+      } as any);
 
       // Map the backend data to the format expected by our frontend
       const mappedCandidates = mapBackendCandidatesToFrontend(searchResults);
@@ -161,10 +328,17 @@ export default function Dashboard() {
         queryInterpretation: metrics.queryInterpretation || null,
       });
 
+      // 📄 SET PAGINATION INFO
+      if (searchResults.pagination) {
+        setPaginationInfo(searchResults.pagination);
+        setCurrentPage(searchResults.pagination.current_page);
+      }
+
       setIsLoading(false);
 
-      // Show success toast if there are results
-      if (mappedCandidates.length > 0) {
+      // 🔧 FIX: Only show toast for NEW searches, not pagination
+      // 🔧 FIX: Show total results count, not page results count
+      if (resetPagination && mappedCandidates.length > 0) {
         const timeStr = metrics.searchTimeMs
           ? `${metrics.searchTimeMs.toFixed(2)}ms`
           : "lightning fast";
@@ -172,27 +346,55 @@ export default function Dashboard() {
         toast({
           title: "🎯 AI Search Complete",
           description: `Found ${
-            metrics.totalResults || mappedCandidates.length
-          } candidates in ${timeStr} with intelligent matching`,
+            metrics.totalResults ||
+            searchResults.pagination?.total_candidates ||
+            mappedCandidates.length
+          } candidates in ${timeStr}`,
         });
-      } else {
+      } else if (resetPagination && mappedCandidates.length === 0) {
         toast({
-          title: "No results found",
-          description: "Try adjusting your search query or filters",
+          title: "🔍 No Results",
+          description: "Try adjusting your search terms or filters",
           variant: "destructive",
         });
       }
-    } catch (error: any) {
-      const message =
-        error && error.message ? error.message : "Please try again";
-      setErrorMessage(message);
-      console.error("Search failed:", error);
-      toast({
-        title: "Search failed",
-        description: message,
-        variant: "destructive",
-      });
+
+      // 🔧 FIX: Auto-scroll to candidate grid on pagination (not new searches)
+      if (!resetPagination) {
+        // Scroll to candidate results header (includes "Found X candidates" text)
+        setTimeout(() => {
+          // Use the ID selector for most reliable targeting
+          const resultsHeader = document.getElementById(
+            "candidate-results-header"
+          );
+
+          if (resultsHeader) {
+            // Get the header position and add offset for better visibility
+            const headerRect = resultsHeader.getBoundingClientRect();
+            const offsetTop = window.pageYOffset + headerRect.top - 120; // 120px from top for better view
+
+            window.scrollTo({
+              top: Math.max(0, offsetTop), // Ensure we don't scroll above page top
+              behavior: "smooth",
+            });
+          }
+        }, 200); // Enough time for content to render
+      }
+    } catch (error) {
+      console.error("Search error:", error);
       setIsLoading(false);
+      setErrorMessage(
+        error instanceof Error ? error.message : "An unexpected error occurred"
+      );
+
+      // Only show error toast for NEW searches
+      if (resetPagination) {
+        toast({
+          title: "❌ Search Error",
+          description: "Failed to search candidates. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -204,6 +406,39 @@ export default function Dashboard() {
     if (hasSearched && searchQuery) {
       handleSearch(searchQuery, filters);
     }
+  };
+
+  // 📄 PAGINATION HANDLERS
+  const handlePageChange = (page: number) => {
+    if (searchQuery && paginationInfo) {
+      setCurrentPage(page);
+      handleSearch(searchQuery, activeFilters, page, false);
+    }
+  };
+
+  const handlePageSizeChange = async (newPageSize: number) => {
+    // Update page size immediately
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset to page 1
+
+    // Trigger search with new page size if we have a query
+    if (searchQuery) {
+      await handleSearch(searchQuery, activeFilters, 1, true);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (paginationInfo?.has_next) {
+      handlePageChange(currentPage + 1);
+    }
+  };
+
+  const handleExportAll = async () => {
+    toast({
+      title: "🚀 Export Feature",
+      description:
+        "Export functionality coming soon! This will download all search results as CSV.",
+    });
   };
 
   return (
@@ -231,38 +466,177 @@ export default function Dashboard() {
           totalResults={searchMetrics.totalResults}
           searchTimeMs={searchMetrics.searchTimeMs}
           outreachGenerated={sessionMetrics.outreachGenerated}
+          onSavedClick={handleSavedClick}
         />
 
-        <main className="container mx-auto px-4 pt-20">
-          {!hasSearched ? (
-            <HeroSection onSearch={handleSearch} />
-          ) : (
-            <div className="space-y-8">
-              <SearchInterface
-                onSearch={handleSearch}
-                initialQuery={searchQuery}
-                onFilterChange={handleFilterChange}
-              />
+        <main className="container mx-auto px-4">
+          {/* Hero Header - Always Visible */}
+          <div className="text-center space-y-6 pt-32 pb-8">
+            <h1 className="text-6xl md:text-7xl font-black text-white from-white via-purple-200 to-blue-200 bg-clip-text text-transparent animate-pulse">
+              Recruiter Radar
+            </h1>
+            <p className="text-lg md:text-xl text-gray-300 max-w-2xl mx-auto">
+              {showSavedCandidates
+                ? `⭐ Viewing ${savedCandidates.length} saved candidates`
+                : "AI-powered talent discovery. Find the perfect candidates with semantic search."}
+            </p>
+          </div>
 
-              <div className="grid lg:grid-cols-4 gap-8">
-                <div className="lg:col-span-1">
-                  <TalentHeatMap />
-                </div>
-                <div className="lg:col-span-3">
-                  <CandidateGrid
-                    candidates={candidates.map((c) => ({
-                      ...c,
-                      distance: c.distance ?? "",
-                      experience: c.experience ?? 0,
-                    }))}
-                    isLoading={isLoading}
-                    searchQuery={searchQuery}
-                    onGenerateOutreach={handleGenerateOutreach}
+          {/* Search Interface - Always Visible */}
+          <div className="max-w-6xl mx-auto mb-8 px-4">
+            <Tabs defaultValue="search" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-8 bg-gray-800/50 border border-gray-700">
+                <TabsTrigger
+                  value="search"
+                  className="flex items-center gap-2 data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+                >
+                  <Search className="w-4 h-4" />
+                  Search Candidates
+                </TabsTrigger>
+                <TabsTrigger
+                  value="upload"
+                  className="flex items-center gap-2 data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload Resume
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="search" className="space-y-8">
+                {!showSavedCandidates && (
+                  <SearchInterface
+                    onSearch={handleSearch}
+                    initialQuery={searchQuery}
+                    onFilterChange={handleFilterChange}
                   />
-                </div>
-              </div>
-            </div>
-          )}
+                )}
+
+                {/* Results or Welcome State */}
+                {hasSearched ? (
+                  <div className="space-y-8">
+                    {showSavedCandidates && (
+                      <div className="text-center mb-6">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                          <Star className="w-4 h-4 text-yellow-500" />
+                          <span className="text-yellow-500 font-medium">
+                            Saved Candidates
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid lg:grid-cols-4 gap-8">
+                      <div className="lg:col-span-1">
+                        <TalentHeatMap />
+                      </div>
+                      <div className="lg:col-span-3 space-y-6">
+                        <CandidateGrid
+                          candidates={candidates.map((c) => ({
+                            ...c,
+                            distance: c.distance ?? "",
+                            experience: c.experience ?? 0,
+                          }))}
+                          isLoading={isLoading}
+                          searchQuery={
+                            showSavedCandidates
+                              ? "Saved Candidates"
+                              : searchQuery
+                          }
+                          onGenerateOutreach={handleGenerateOutreach}
+                          totalCandidates={
+                            showSavedCandidates
+                              ? savedCandidates.length
+                              : searchMetrics.totalResults
+                          }
+                        />
+
+                        {/* 📄 PAGINATION COMPONENT - Only show for search results, not saved */}
+                        {paginationInfo &&
+                          !isLoading &&
+                          !showSavedCandidates && (
+                            <CandidatePagination
+                              pagination={paginationInfo}
+                              onPageChange={handlePageChange}
+                              onPageSizeChange={handlePageSizeChange}
+                              onLoadMore={handleLoadMore}
+                              onExportAll={handleExportAll}
+                              loading={isLoading}
+                              showLoadMore={true}
+                              showExport={true}
+                            />
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-8 max-w-3xl mx-auto py-12">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <button
+                        onClick={() =>
+                          handleSearch(
+                            "Senior React Developer in San Francisco"
+                          )
+                        }
+                        className="group relative p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 hover:border-purple-400/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className="text-white/90 group-hover:text-white transition-colors">
+                            Senior React Developer in SF
+                          </span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          handleSearch("Product Manager with AI experience")
+                        }
+                        className="group relative p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 hover:border-purple-400/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className="text-white/90 group-hover:text-white transition-colors">
+                            Product Manager with AI experience
+                          </span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => handleSearch("Remote DevOps Engineer")}
+                        className="group relative p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 hover:border-purple-400/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className="text-white/90 group-hover:text-white transition-colors">
+                            Remote DevOps Engineer
+                          </span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          handleSearch("UX Designer at Series B startups")
+                        }
+                        className="group relative p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 hover:border-purple-400/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className="text-white/90 group-hover:text-white transition-colors">
+                            UX Designer at Series B startups
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+
+                    <p className="text-gray-400 text-sm">
+                      Try searching above or click on one of these popular
+                      examples
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="upload" className="space-y-8">
+                <ResumeUpload />
+              </TabsContent>
+            </Tabs>
+          </div>
         </main>
       </div>
 

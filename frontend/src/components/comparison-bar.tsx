@@ -1,7 +1,7 @@
 "use client";
 
 import { X, ContrastIcon as Versus, Trash2 } from "lucide-react";
-import { Button } from "@/src/components/ui/button";
+import { Button } from "@/components/ui/button";
 
 interface Candidate {
   id: number;

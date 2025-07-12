@@ -141,11 +141,21 @@ class AppSettings(BaseSettings):
             return backend_directory / self.app_candidate_data_path
 
     @property
-    def chroma_db_full_path(self) -> Path:
-        """Get full path to ChromaDB directory."""
-        return Path("backend") / self.app_chroma_db_path
+    def chroma_db_full_path(self) -> str:
+        """
+        Get the absolute path to the ChromaDB directory.
+        This ensures that both the ingestion script and the FastAPI application
+        reference the exact same database location, regardless of the
+        current working directory.
+        """
+        # Path(__file__) is .../backend/app/core/app_config.py
+        # .parent.parent.parent gives the .../backend/ directory
+        backend_dir = Path(__file__).resolve().parent.parent.parent
+        absolute_path = backend_dir / self.app_chroma_db_path
+        return str(absolute_path)
 
     @property
     def effective_chroma_persist_directory(self) -> str:
-        """Get the ChromaDB persist directory to use."""
-        return self.app_chroma_persist_directory or self.app_chroma_db_path
+        """Get the ChromaDB persist directory to use, ensuring it's an absolute path."""
+        # This now returns the guaranteed absolute path.
+        return self.chroma_db_full_path

@@ -13,4 +13,14 @@ flake8
 pre-commit
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
+python-multipart>=0.0.6  # For file uploads in FastAPI
+PyMuPDF>=1.23.0  # For PDF text extraction (fitz)
+python-docx>=0.8.11  # For DOCX text extraction
+python-magic>=0.4.27  # For file type detection
+email-validator>=2.0.0  # Required for pydantic EmailStr validation
+
+# 🔍 OCR Dependencies for image-based PDF fallback
+pytesseract>=0.3.10  # OCR engine for extracting text from images
+pdf2image>=1.17.0  # Convert PDF pages to images for OCR
+Pillow>=10.0.0  # Image processing library (required by pdf2image)
  

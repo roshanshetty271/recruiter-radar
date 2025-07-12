@@ -194,10 +194,13 @@ async def process_single_candidate(
             )
             return False
 
-        # Step 5b: Prepare Metadata
+        # Step 5b: Prepare Metadata (with email normalization)
+        normalized_email = candidate.email.lower().strip() if candidate.email else ""
+
         metadata = {
             "candidate_id": str(candidate.id),
             "name": str(candidate.name or ""),
+            "email": normalized_email,  # Use normalized email
             "skills": ", ".join(candidate.skills) if candidate.skills else "",
             "experience_years": (
                 int(candidate.experience_years)

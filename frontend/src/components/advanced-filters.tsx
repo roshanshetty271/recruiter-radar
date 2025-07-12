@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { MapPin, Globe, Clock, Code, X } from "lucide-react";
-import { Input } from "@/src/components/ui/input";
-import { Button } from "@/src/components/ui/button";
-import { Slider } from "@/src/components/ui/slider";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 
 export function AdvancedFilters({
   onFiltersChange,
@@ -90,7 +90,9 @@ export function AdvancedFilters({
           </label>
           <Input
             value={location}
-            onChange={(e) => setLocation(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setLocation(e.target.value)
+            }
             placeholder="San Francisco, Remote, etc."
             className="bg-white/5 border-white/10 text-white placeholder-gray-400"
           />
@@ -153,8 +155,12 @@ export function AdvancedFilters({
           <div className="flex space-x-2">
             <Input
               value={newSkill}
-              onChange={(e) => setNewSkill(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && addSkill(newSkill)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNewSkill(e.target.value)
+              }
+              onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                e.key === "Enter" && addSkill(newSkill)
+              }
               placeholder="Add skill..."
               className="bg-white/5 border-white/10 text-white placeholder-gray-400"
             />

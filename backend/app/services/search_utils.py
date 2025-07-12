@@ -86,6 +86,11 @@ def skills_match_fuzzy(
     normalized_required = [normalize_skill(s) for s in required_skills]
     normalized_candidate = [normalize_skill(s) for s in candidate_skills]
 
+    logger.info(
+        f"🔍 Skills matching: Required: {required_skills} → {normalized_required}"
+    )
+    logger.info(f"   Candidate skills: {candidate_skills} → {normalized_candidate}")
+
     # Build expanded candidate skills including synonyms
     expanded_candidate_skills = set(normalized_candidate)
     for skill in normalized_candidate:
@@ -93,13 +98,23 @@ def skills_match_fuzzy(
             if skill in group:
                 expanded_candidate_skills.update(group)
 
+    # Skills that should NOT match as substrings (common conflicts)
+    CONFLICTING_SKILLS = {
+        "java": ["javascript", "js"],  # java should not match javascript
+        "c": ["c++", "c#"],  # c should not match c++ or c#
+        "go": ["golang"],  # go might conflict but golang is ok
+        "r": ["react", "ruby"],  # R language should not match React
+    }
+
     # Check each required skill
     for req_skill in normalized_required:
         found = False
+        match_reason = "No match"
 
         # First check if it's in expanded skills (includes synonyms)
         if req_skill in expanded_candidate_skills:
             found = True
+            match_reason = "Exact/Synonym match"
         else:
             # Check fuzzy matching
             for cand_skill in expanded_candidate_skills:
@@ -107,16 +122,39 @@ def skills_match_fuzzy(
                 similarity = SequenceMatcher(None, req_skill, cand_skill).ratio()
                 if similarity >= threshold:
                     found = True
+                    match_reason = f"Fuzzy match with '{cand_skill}' (similarity: {similarity:.2f})"
                     break
 
-                # Also check if one contains the other
-                if req_skill in cand_skill or cand_skill in req_skill:
-                    found = True
-                    break
+                # Check substring matches, but exclude known conflicts
+                is_conflicting = False
+                if req_skill in CONFLICTING_SKILLS:
+                    conflicting_skills = CONFLICTING_SKILLS[req_skill]
+                    if cand_skill in conflicting_skills:
+                        is_conflicting = True
+                        logger.info(
+                            f"   ⚠️  Blocked conflicting match: '{req_skill}' vs '{cand_skill}'"
+                        )
+
+                if not is_conflicting:
+                    # Only allow substring matching for non-conflicting skills
+                    # And require minimum length to avoid false matches
+                    if len(req_skill) >= 3 and len(cand_skill) >= 3:
+                        if req_skill in cand_skill or cand_skill in req_skill:
+                            found = True
+                            match_reason = f"Substring match with '{cand_skill}'"
+                            break
+
+        logger.info(
+            f"   🎯 '{req_skill}': {match_reason} → {'✅ MATCH' if found else '❌ NO MATCH'}"
+        )
 
         if not found:
+            logger.info(
+                f"   🚫 Candidate rejected: Missing required skill '{req_skill}'"
+            )
             return False
 
+    logger.info(f"   ✅ Candidate accepted: All required skills found")
     return True
 
 
@@ -344,6 +382,11 @@ def enhance_search_query(
         "extracted_experience": None,
         "enhanced_filters": existing_filters.copy(),
     }
+
+    # Handle empty queries - just return with filters intact
+    if not query.strip():
+        enhancements["cleaned_query"] = ""
+        return enhancements
 
     # Extract location
     if not existing_filters.get("location"):
