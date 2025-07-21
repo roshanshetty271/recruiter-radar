@@ -126,6 +126,11 @@ async def execute_similarity_search(
     # Split query into terms for relevance boosting
     query_terms = [term.strip() for term in query_text.lower().split() if term.strip()]
 
+    # Extract skills once for all candidates to avoid performance bottleneck
+    from app.services.search_utils import extract_skills_from_query
+
+    extracted_query_skills = extract_skills_from_query(query_text)
+
     for i in range(len(res_ids)):
         doc_id = (
             res_metadatas[i].get("candidate_id", res_ids[i])
@@ -138,9 +143,9 @@ async def execute_similarity_search(
             "metadata": res_metadatas[i] or {},
             "distance": res_distances[i],
         }
-        # Apply relevance boosting
+        # Apply relevance boosting with pre-extracted skills
         formatted_res["relevance_score"] = boost_relevance_score(
-            formatted_res, query_terms
+            formatted_res, query_terms, extracted_query_skills
         )
         formatted_results.append(formatted_res)
 
@@ -152,43 +157,83 @@ async def execute_similarity_search(
         f"execute_similarity_search: Retrieved {count_before_post_filter} candidates from ChromaDB before skills post-filtering."
     )
 
-    if skills_to_post_filter and formatted_results:
-        logger.debug(
-            f"execute_similarity_search: Applying fuzzy skills matching for: {skills_to_post_filter}"
-        )
-        final_filtered_results: List[Dict[str, Any]] = []
-        for candidate_data in formatted_results:
-            candidate_skills_str = candidate_data.get("metadata", {}).get("skills", "")
-            candidate_skills_list = (
-                [s.strip() for s in candidate_skills_str.split(",") if s.strip()]
-                if isinstance(candidate_skills_str, str)
-                else []
-            )
-
-            if skills_match_fuzzy(skills_to_post_filter, candidate_skills_list):
-                final_filtered_results.append(candidate_data)
-
-        formatted_results = final_filtered_results
+    # Apply fuzzy skills filter if skills are provided
+    if skills_to_post_filter:
+        logger.info(f"🔍 Skills matching: Required: {skills_to_post_filter}")
+        filtered_results = skills_match_fuzzy(formatted_results, skills_to_post_filter)
         logger.info(
-            f"execute_similarity_search: {len(formatted_results)} candidates remaining after fuzzy skills matching."
+            f"📊 {len(filtered_results)} candidates remaining after fuzzy skills matching."
+        )
+    else:
+        filtered_results = formatted_results
+
+    # Sort by preferred match score if available, else by distance
+    filtered_results.sort(
+        key=lambda x: (x.get("preferred_match_score", 0), -x["distance"])
+    )
+
+    # 🗺️ SMART LOCATION POST-FILTERING (using LocationMappingService)
+    if location_to_post_filter and filtered_results:
+        logger.info(
+            f"🗺️ Applying SMART location filter for: '{location_to_post_filter}'"
         )
 
-    # Location post-filtering (substring match)
-    if location_to_post_filter and formatted_results:
-        logger.debug(
-            f"execute_similarity_search: Applying post-retrieval location filter for: {location_to_post_filter}"
-        )
+        # Import the location service
+        from app.services.location_service import location_service
+
         location_filtered_results: List[Dict[str, Any]] = []
-        for candidate_data in formatted_results:
+        matches_found = 0
+        no_matches_logged = []
+
+        for candidate_data in filtered_results:
             candidate_location = candidate_data.get("metadata", {}).get("location", "")
-            if (
-                isinstance(candidate_location, str)
-                and location_to_post_filter.lower() in candidate_location.lower()
-            ):
-                location_filtered_results.append(candidate_data)
-        formatted_results = location_filtered_results
+            candidate_name = candidate_data.get("metadata", {}).get("name", "Unknown")
+
+            if isinstance(candidate_location, str) and candidate_location.strip():
+                # Use smart location matching instead of broken substring matching
+                matches, confidence, reason = location_service.location_matches(
+                    search_location=location_to_post_filter,
+                    candidate_location=candidate_location,
+                    confidence_threshold=0.6,  # Allow more flexible matching
+                )
+
+                if matches:
+                    location_filtered_results.append(candidate_data)
+                    matches_found += 1
+                    logger.debug(
+                        f"   ✅ MATCH: {candidate_name} in '{candidate_location}' "
+                        f"(confidence: {confidence:.2f}, reason: {reason})"
+                    )
+                else:
+                    no_matches_logged.append(
+                        f"{candidate_name}: '{candidate_location}' -> {reason}"
+                    )
+
+        # Log results summary
+        logger.info(f"🗺️ Location filtering results:")
         logger.info(
-            f"execute_similarity_search: {len(formatted_results)} candidates remaining after location post-filtering."
+            f"   ✅ {matches_found} candidates matched location '{location_to_post_filter}'"
+        )
+        logger.info(
+            f"   ❌ {len(filtered_results) - matches_found} candidates filtered out"
         )
 
-    return formatted_results[:k], count_before_post_filter
+        # Log a few examples of non-matches for debugging
+        if no_matches_logged and matches_found == 0:
+            logger.warning(f"🚨 NO LOCATION MATCHES! Examples of non-matches:")
+            for example in no_matches_logged[:3]:  # Show first 3 examples
+                logger.warning(f"      {example}")
+
+            # Get suggestions for better search
+            suggestions = location_service.get_location_suggestions(
+                location_to_post_filter
+            )
+            if suggestions:
+                logger.info(f"💡 Suggestions: {'; '.join(suggestions)}")
+
+        filtered_results = location_filtered_results
+        logger.info(
+            f"execute_similarity_search: {len(filtered_results)} candidates remaining after SMART location post-filtering."
+        )
+
+    return filtered_results[:k], count_before_post_filter

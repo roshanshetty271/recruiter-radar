@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 6: UI Confidence Indicators Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .file-item {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+        }
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .file-name {
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+        .status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: white;
+        }
+        .status.completed { background: #059669; }
+        .status.error { background: #dc2626; }
+        .candidate-info {
+            border-top: 1px solid #475569;
+            padding-top: 12px;
+            margin-top: 12px;
+        }
+        .info-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+            font-size: 14px;
+        }
+        .icon {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        .confidence-badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .confidence-high {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+        }
+        .confidence-medium {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
+        .confidence-low {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+        }
+        .warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            border-radius: 6px;
+            padding: 8px;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #fbbf24;
+        }
+        .warning-icon {
+            color: #fbbf24;
+        }
+        h1 {
+            color: #f1f5f9;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .demo-note {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #93c5fd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Step 6: Resume Upload UI Enhancements</h1>
+        
+        <div class="demo-note">
+            <strong>✨ What's New:</strong> Confidence indicators, low-confidence warnings, enhanced skill counts, and retry buttons for better user experience.
+        </div>
+
+        <!-- High Confidence Example -->
+        <div class="file-item">
+            <div class="file-header">
+                <div>
+                    <div class="file-name">john_doe_resume.pdf</div>
+                    <div style="font-size: 12px; color: #94a3b8;">2.3 KB • completed</div>
+                </div>
+                <div class="status completed">✓ Completed</div>
+            </div>
+            <div class="candidate-info">
+                <div class="info-row">
+                    <span class="icon">👤</span>
+                    <span style="color: #4ade80;">John Doe</span>
+                    <span class="confidence-badge confidence-high">95%</span>
+                </div>
+                <div class="info-row">
+                    <span class="icon">📧</span>
+                    <span style="color: #60a5fa;">john.doe@email.com</span>
+                </div>
+                <div class="info-row">
+                    <span class="icon">🎯</span>
+                    <span style="color: #a855f7;">Python, React, AWS +12 more</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Medium Confidence Example -->
+        <div class="file-item">
+            <div class="file-header">
+                <div>
+                    <div class="file-name">maria_garcia_cv.docx</div>
+                    <div style="font-size: 12px; color: #94a3b8;">4.1 KB • completed</div>
+                </div>
+                <div class="status completed">✓ Completed</div>
+            </div>
+            <div class="candidate-info">
+                <div class="info-row">
+                    <span class="icon">👤</span>
+                    <span style="color: #4ade80;">Dr. María José Fernández-García, PhD</span>
+                    <span class="confidence-badge confidence-medium">82%</span>
+                </div>
+                <div class="info-row">
+                    <span class="icon">📧</span>
+                    <span style="color: #60a5fa;">maria.fernandez@university.edu</span>
+                </div>
+                <div class="info-row">
+                    <span class="icon">🎯</span>
+                    <span style="color: #a855f7;">Python, TensorFlow, PyTorch +18 more</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Low Confidence Example with Warning -->
+        <div class="file-item">
+            <div class="file-header">
+                <div>
+                    <div class="file-name">scan_resume_low_quality.pdf</div>
+                    <div style="font-size: 12px; color: #94a3b8;">1.8 KB • completed</div>
+                </div>
+                <div class="status completed">✓ Completed</div>
+            </div>
+            <div class="candidate-info">
+                <div class="info-row">
+                    <span class="icon">👤</span>
+                    <span style="color: #4ade80;">Alex Thompson</span>
+                    <span class="confidence-badge confidence-low">62%</span>
+                </div>
+                <div class="info-row">
+                    <span class="icon">📧</span>
+                    <span style="color: #60a5fa;">alex.thompson@email.com</span>
+                </div>
+                <div class="info-row">
+                    <span class="icon">🎯</span>
+                    <span style="color: #a855f7;">JavaScript, Node.js +3 more</span>
+                </div>
+                <div class="warning">
+                    <span class="warning-icon">⚠️</span>
+                    <span>Low confidence extraction - you may want to verify the data</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Failed Example with Retry Button -->
+        <div class="file-item">
+            <div class="file-header">
+                <div>
+                    <div class="file-name">corrupted_file.pdf</div>
+                    <div style="font-size: 12px; color: #94a3b8;">0.5 KB • error</div>
+                </div>
+                <div class="status error">❌ Failed</div>
+            </div>
+            <div class="candidate-info">
+                <div class="info-row">
+                    <span class="warning-icon">⚠️</span>
+                    <span style="color: #f87171; font-size: 12px;">Failed to extract meaningful text from file</span>
+                    <button style="
+                        background: #dc2626; 
+                        border: 1px solid rgba(220, 38, 38, 0.5); 
+                        color: #fca5a5; 
+                        padding: 4px 8px; 
+                        border-radius: 4px; 
+                        font-size: 11px; 
+                        margin-left: auto;
+                        cursor: pointer;
+                    ">Retry</button>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 30px; text-align: center; color: #64748b; font-size: 14px;">
+            <p><strong>🎯 Step 6 MVP Enhancements Complete:</strong></p>
+            <ul style="text-align: left; max-width: 400px; margin: 0 auto;">
+                <li>✅ Real-time confidence indicators (62-95%)</li>
+                <li>✅ Low-confidence warnings with visual alerts</li>
+                <li>✅ Enhanced skill display with counts</li>
+                <li>✅ Retry buttons for failed extractions</li>
+                <li>✅ Improved visual feedback for users</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html> 

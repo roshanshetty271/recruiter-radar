@@ -1,0 +1,53 @@
+# Optimized requirements for RecruiterRadar
+# Performance-optimized dependencies for faster resume processing
+
+# Core FastAPI stack
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-dotenv
+
+# AI and ML dependencies
+openai>=1.52.0
+numpy<2.0
+
+# Vector database
+chromadb>=0.4.22
+langchain>=0.1.0
+langchain-openai>=0.0.5
+
+# File processing (OPTIMIZED)
+pdfplumber>=0.9.0  # Faster PDF extraction (replaces PyMuPDF)
+python-docx>=0.8.11  # DOCX processing
+python-magic>=0.4.27  # File type detection
+
+# Performance optimizations
+orjson>=3.9.0  # 2-3x faster JSON parsing
+uvloop>=0.19.0  # 2x faster async (Unix only)
+diskcache>=5.6.0  # Persistent caching without Redis
+
+# Error handling and reliability
+tenacity>=8.2.0  # Retry logic with exponential backoff
+json-repair>=0.7.0  # Fix malformed JSON from AI
+
+# Monitoring and debugging
+structlog>=23.0.0  # Structured logging
+
+# File upload support
+python-multipart>=0.0.6  # For file uploads in FastAPI
+
+# Email validation
+email-validator>=2.0.0  # Required for pydantic EmailStr validation
+
+# OCR fallback (optional - only if needed)
+# pytesseract>=0.3.10  # OCR for image-based PDFs
+# pdf2image>=1.17.0   # Convert PDF to images
+# Pillow>=10.0.0      # Image processing
+
+# Development dependencies
+black
+flake8
+pre-commit
+pytest>=7.0.0
+pytest-asyncio>=0.21.0 

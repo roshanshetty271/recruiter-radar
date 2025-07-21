@@ -1,0 +1,92 @@
+{
+  "renata_voss": {
+    "V5": {
+      "success": true,
+      "duration": 10.269399166107178,
+      "name": "Renata Voss",
+      "email": "r.voss@email.com",
+      "experience_years": 15.0,
+      "technical_skills_count": 10,
+      "soft_skills_count": 4,
+      "work_experience_count": 3,
+      "education_count": 1,
+      "confidence": 0.95,
+      "has_phone": true,
+      "has_location": true
+    },
+    "V6": {
+      "success": true,
+      "duration": 9.696295499801636,
+      "name": "RENATA VOSS",
+      "email": "r.voss@email.com",
+      "experience_years": 15.5,
+      "technical_skills_count": 10,
+      "soft_skills_count": 0,
+      "work_experience_count": 3,
+      "education_count": 1,
+      "confidence": 0.9,
+      "has_phone": true,
+      "has_location": true
+    }
+  },
+  "simple_resume": {
+    "V5": {
+      "success": true,
+      "duration": 6.497133493423462,
+      "name": "John Doe",
+      "email": "john.doe@email.com",
+      "experience_years": 5.0,
+      "technical_skills_count": 8,
+      "soft_skills_count": 0,
+      "work_experience_count": 2,
+      "education_count": 1,
+      "confidence": 0.95,
+      "has_phone": true,
+      "has_location": true
+    },
+    "V6": {
+      "success": true,
+      "duration": 7.784569501876831,
+      "name": "John Doe",
+      "email": "john.doe@email.com",
+      "experience_years": 5.0,
+      "technical_skills_count": 8,
+      "soft_skills_count": 0,
+      "work_experience_count": 2,
+      "education_count": 1,
+      "confidence": 0.9,
+      "has_phone": true,
+      "has_location": true
+    }
+  },
+  "complex_resume": {
+    "V5": {
+      "success": true,
+      "duration": 16.64939594268799,
+      "name": "Dr. Sarah Chen, PhD",
+      "email": "sarah.chen@techgiant.com",
+      "experience_years": 14.5,
+      "technical_skills_count": 28,
+      "soft_skills_count": 7,
+      "work_experience_count": 4,
+      "education_count": 3,
+      "confidence": 0.95,
+      "has_phone": true,
+      "has_location": true
+    },
+    "V6": {
+      "success": true,
+      "duration": 14.818758964538574,
+      "name": "Dr. Sarah Chen",
+      "email": "sarah.chen@techgiant.com",
+      "experience_years": 14.5,
+      "technical_skills_count": 24,
+      "soft_skills_count": 2,
+      "work_experience_count": 4,
+      "education_count": 3,
+      "confidence": 0.95,
+      "has_phone": true,
+      "has_location": true
+    }
+  }
+}

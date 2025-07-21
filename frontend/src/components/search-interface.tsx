@@ -10,11 +10,14 @@ import {
   TrendingUp,
   Zap,
   Target,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AdvancedFilters } from "./advanced-filters";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -24,6 +27,21 @@ interface SearchIntelligence {
   suggested_refinements: string[];
   market_insights: string[];
   confidence_score: number;
+}
+
+// Input validation constants
+const VALIDATION_RULES = {
+  MIN_QUERY_LENGTH: 2,
+  MAX_QUERY_LENGTH: 200,
+  MIN_SEARCH_LENGTH: 3, // Minimum to enable search button
+  DEBOUNCE_DELAY: 500,
+  ANALYSIS_MIN_LENGTH: 4,
+};
+
+interface ValidationState {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
 export function SearchInterface({
@@ -41,33 +59,109 @@ export function SearchInterface({
   const [activeFilters, setActiveFilters] = useState(0);
   const [filters, setFilters] = useState({});
 
-  // 🧠 NEW: AI Intelligence State
+  // 🧠 AI Intelligence State
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   const [queryIntelligence, setQueryIntelligence] =
     useState<SearchIntelligence | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showIntelligence, setShowIntelligence] = useState(false);
 
-  // 🚀 NEW: Debounced query for real-time analysis
+  // 🔒 NEW: Validation State
+  const [validation, setValidation] = useState<ValidationState>({
+    isValid: true,
+    errors: [],
+    warnings: [],
+  });
+  const [showValidationHelp, setShowValidationHelp] = useState(false);
+
+  // 🚀 Debounced query for real-time analysis
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query);
-    }, 500);
+    }, VALIDATION_RULES.DEBOUNCE_DELAY);
 
     return () => clearTimeout(timer);
   }, [query]);
 
-  // 🧠 NEW: Real-time AI analysis
+  // 🔒 NEW: Real-time Input Validation
+  const validateQuery = useCallback((searchQuery: string): ValidationState => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check minimum length
+    if (
+      searchQuery.length > 0 &&
+      searchQuery.length < VALIDATION_RULES.MIN_QUERY_LENGTH
+    ) {
+      errors.push(
+        `Query must be at least ${VALIDATION_RULES.MIN_QUERY_LENGTH} characters`
+      );
+    }
+
+    // Check maximum length
+    if (searchQuery.length > VALIDATION_RULES.MAX_QUERY_LENGTH) {
+      errors.push(
+        `Query cannot exceed ${VALIDATION_RULES.MAX_QUERY_LENGTH} characters`
+      );
+    }
+
+    // Check for potentially problematic characters
+    const invalidChars = /[<>{}[\]\\]/g;
+    if (invalidChars.test(searchQuery)) {
+      warnings.push(
+        "Special characters like < > { } [ ] \\ may affect search results"
+      );
+    }
+
+    // Check if query is too generic
+    const genericTerms = [
+      "developer",
+      "engineer",
+      "programmer",
+      "person",
+      "candidate",
+    ];
+    const queryLower = searchQuery.toLowerCase().trim();
+    if (queryLower.length > 0 && genericTerms.includes(queryLower)) {
+      warnings.push(
+        "Try adding specific skills or requirements for better results"
+      );
+    }
+
+    // Check for very long queries that might be inefficient
+    if (searchQuery.split(" ").length > 20) {
+      warnings.push(
+        "Very long queries may be less effective - try shorter, focused searches"
+      );
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+    };
+  }, []);
+
+  // Validate query on change
   useEffect(() => {
-    if (debouncedQuery.trim().length > 3) {
+    const validationResult = validateQuery(query);
+    setValidation(validationResult);
+  }, [query, validateQuery]);
+
+  // 🧠 Real-time AI analysis with validation
+  useEffect(() => {
+    if (
+      debouncedQuery.trim().length >= VALIDATION_RULES.ANALYSIS_MIN_LENGTH &&
+      validation.isValid
+    ) {
       analyzeQuery(debouncedQuery);
     } else {
       setQueryIntelligence(null);
       setShowIntelligence(false);
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, validation.isValid]);
 
-  // 🔥 NEW: Smart AI Query Analysis
+  // 🔥 Smart AI Query Analysis
   const analyzeQuery = useCallback(async (searchQuery: string) => {
     setIsAnalyzing(true);
 
@@ -92,7 +186,7 @@ export function SearchInterface({
     setIsAnalyzing(false);
   }, []);
 
-  // 🎯 NEW: Extract semantic themes
+  // 🎯 Extract semantic themes
   const extractSemanticThemes = (searchQuery: string): string[] => {
     const themes: string[] = [];
     const q = searchQuery.toLowerCase();
@@ -112,7 +206,7 @@ export function SearchInterface({
     return themes.length > 0 ? themes : ["General Tech"];
   };
 
-  // 💡 NEW: Generate smart suggestions
+  // 💡 Generate smart suggestions
   const generateRefinements = (searchQuery: string): string[] => {
     const refinements: string[] = [];
     const q = searchQuery.toLowerCase();
@@ -134,7 +228,7 @@ export function SearchInterface({
     return refinements;
   };
 
-  // 📈 NEW: Market insights
+  // 📈 Market insights
   const generateMarketInsights = (searchQuery: string): string[] => {
     const insights: string[] = [];
     const q = searchQuery.toLowerCase();
@@ -155,16 +249,37 @@ export function SearchInterface({
     return insights;
   };
 
+  // 🔒 NEW: Enhanced Search Handler with Validation
   const handleSearch = async () => {
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
+
+    // Final validation before search
+    if (!validation.isValid) {
+      setShowValidationHelp(true);
+      return;
+    }
+
+    if (trimmedQuery.length < VALIDATION_RULES.MIN_SEARCH_LENGTH) {
+      setShowValidationHelp(true);
+      return;
+    }
 
     setIsSearching(true);
-    await onSearch(query, filters);
-    setIsSearching(false);
+    setShowValidationHelp(false);
+
+    try {
+      await onSearch(trimmedQuery, filters);
+    } catch (error) {
+      console.error("Search failed:", error);
+      // Error will be handled by parent component
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       handleSearch();
     }
   };
@@ -188,6 +303,21 @@ export function SearchInterface({
     }
   };
 
+  // 🔒 NEW: Determine if search should be enabled
+  const isSearchEnabled =
+    validation.isValid &&
+    query.trim().length >= VALIDATION_RULES.MIN_SEARCH_LENGTH &&
+    !isSearching;
+
+  // 🔒 NEW: Get character count color based on validation
+  const getCharCountColor = () => {
+    if (query.length > VALIDATION_RULES.MAX_QUERY_LENGTH * 0.9)
+      return "text-red-400";
+    if (query.length > VALIDATION_RULES.MAX_QUERY_LENGTH * 0.7)
+      return "text-yellow-400";
+    return "text-gray-500";
+  };
+
   return (
     <div className="space-y-6">
       <div className="relative">
@@ -196,7 +326,11 @@ export function SearchInterface({
           style={{
             background: "rgba(255,255,255,0.05)",
             backdropFilter: "blur(12px)",
-            border: "1px solid rgba(255,255,255,0.1)",
+            border: `1px solid ${
+              validation.isValid
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(239, 68, 68, 0.3)"
+            }`,
             borderRadius: "16px",
           }}
         >
@@ -206,6 +340,8 @@ export function SearchInterface({
                 <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
               ) : isAnalyzing ? (
                 <Brain className="w-6 h-6 text-purple-400 animate-pulse" />
+              ) : !validation.isValid ? (
+                <AlertTriangle className="w-6 h-6 text-red-400" />
               ) : (
                 <Search className="w-6 h-6 text-gray-400" />
               )}
@@ -216,7 +352,10 @@ export function SearchInterface({
               onChange={(e) => setQuery(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Describe your ideal candidate... (AI will analyze as you type)"
-              className="flex-1 bg-transparent border-0 text-white placeholder-gray-400 text-lg focus:ring-0 focus:outline-none"
+              className={`flex-1 bg-transparent border-0 text-white placeholder-gray-400 text-lg focus:ring-0 focus:outline-none ${
+                !validation.isValid ? "text-red-200" : ""
+              }`}
+              maxLength={VALIDATION_RULES.MAX_QUERY_LENGTH}
             />
 
             <div className="flex items-center space-x-2">
@@ -224,11 +363,12 @@ export function SearchInterface({
                 variant="ghost"
                 size="sm"
                 className="text-gray-400 hover:text-white"
+                disabled={isSearching}
               >
                 <Mic className="w-5 h-5" />
               </Button>
 
-              {/* 🧠 NEW: Intelligence Toggle */}
+              {/* 🧠 Intelligence Toggle */}
               {queryIntelligence && (
                 <Button
                   variant="ghost"
@@ -239,6 +379,19 @@ export function SearchInterface({
                   }`}
                 >
                   <Brain className="w-5 h-5" />
+                </Button>
+              )}
+
+              {/* 🔒 NEW: Validation Help Button */}
+              {(validation.errors.length > 0 ||
+                validation.warnings.length > 0) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowValidationHelp(!showValidationHelp)}
+                  className="text-yellow-400 hover:text-yellow-300"
+                >
+                  <Info className="w-5 h-5" />
                 </Button>
               )}
 
@@ -262,11 +415,11 @@ export function SearchInterface({
 
           <div className="flex items-center justify-between px-4 pb-4">
             <div className="flex items-center space-x-4">
-              <div className="text-xs text-gray-500">
-                {query.length}/100 characters
+              <div className={`text-xs ${getCharCountColor()}`}>
+                {query.length}/{VALIDATION_RULES.MAX_QUERY_LENGTH} characters
               </div>
 
-              {/* 🎯 NEW: Intelligence Indicator */}
+              {/* 🎯 Intelligence Indicator */}
               {queryIntelligence && (
                 <div className="flex items-center space-x-2">
                   <div className="flex items-center space-x-1">
@@ -287,12 +440,34 @@ export function SearchInterface({
                   </div>
                 </div>
               )}
+
+              {/* 🔒 NEW: Validation Status Indicator */}
+              {query.length > 0 && (
+                <div className="flex items-center space-x-1">
+                  {validation.isValid ? (
+                    <div className="w-2 h-2 bg-green-400 rounded-full" />
+                  ) : (
+                    <div className="w-2 h-2 bg-red-400 rounded-full" />
+                  )}
+                  <span
+                    className={`text-xs ${
+                      validation.isValid ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {validation.isValid ? "Valid" : "Invalid"}
+                  </span>
+                </div>
+              )}
             </div>
 
             <Button
               onClick={handleSearch}
-              disabled={!query.trim() || isSearching}
-              className="px-6 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg"
+              disabled={!isSearchEnabled}
+              className={`px-6 py-2 rounded-lg transition-all duration-200 ${
+                isSearchEnabled
+                  ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500"
+                  : "bg-gray-600 opacity-50 cursor-not-allowed"
+              }`}
             >
               {isSearching ? (
                 "Searching..."
@@ -305,6 +480,47 @@ export function SearchInterface({
             </Button>
           </div>
         </div>
+
+        {/* 🔒 NEW: Validation Help Panel */}
+        <AnimatePresence>
+          {showValidationHelp &&
+            (validation.errors.length > 0 ||
+              validation.warnings.length > 0) && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                className="mt-2"
+              >
+                {validation.errors.length > 0 && (
+                  <Alert className="mb-2 bg-red-500/10 border-red-400/30">
+                    <AlertTriangle className="h-4 w-4 text-red-400" />
+                    <AlertDescription className="text-red-200">
+                      <div className="space-y-1">
+                        {validation.errors.map((error, index) => (
+                          <div key={index}>• {error}</div>
+                        ))}
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {validation.warnings.length > 0 && (
+                  <Alert className="bg-yellow-500/10 border-yellow-400/30">
+                    <Info className="h-4 w-4 text-yellow-400" />
+                    <AlertDescription className="text-yellow-200">
+                      <div className="space-y-1">
+                        {validation.warnings.map((warning, index) => (
+                          <div key={index}>• {warning}</div>
+                        ))}
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </motion.div>
+            )}
+        </AnimatePresence>
 
         {/* 🔥 NEW: AI Intelligence Panel */}
         <AnimatePresence>

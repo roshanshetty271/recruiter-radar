@@ -83,7 +83,7 @@ class ResumeParser:
             # Use AI extraction service
             extracted_data = await self.ai_extractor.extract_resume_data(
                 resume_text=text,
-                timeout_seconds=20,  # Increased from 10s for complex resumes
+                timeout_seconds=45,  # Increased to 45s to prevent timeouts
             )
 
             if not extracted_data:
@@ -135,7 +135,7 @@ class ResumeParser:
         # Use AI extraction service
         extracted_data = await self.ai_extractor.extract_resume_data(
             resume_text=text,
-            timeout_seconds=20,  # Increased from 10s for complex resumes
+            timeout_seconds=45,  # Increased to 45s to prevent timeouts
         )
 
         return extracted_data

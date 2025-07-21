@@ -1,5 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
+import os
+from typing import Dict, List, Any
 from fastapi import (
     FastAPI,
     Request,
@@ -29,28 +33,261 @@ from datetime import datetime  # Added import
 logger = logging.getLogger(__name__)
 
 
+# 🔒 NEW: Comprehensive Startup Validation
+class StartupValidationError(Exception):
+    """Custom exception for startup validation failures"""
+
+    pass
+
+
+def validate_environment_variables() -> Dict[str, Any]:
+    """
+    Validate all required environment variables and return validation results.
+
+    Returns:
+        Dict containing validation results and any warnings
+
+    Raises:
+        StartupValidationError: If critical configurations are missing
+    """
+    validation_results = {"status": "passed", "errors": [], "warnings": [], "info": []}
+
+    # Required environment variables
+    required_vars = {
+        "OPENAI_API_KEY": "OpenAI API key for embeddings and text generation",
+        "CHROMA_DB_PATH": "ChromaDB storage path",
+        "CHROMA_COLLECTION_NAME": "ChromaDB collection name",
+        "EMBEDDING_MODEL_NAME": "OpenAI embedding model name",
+    }
+
+    # Check required variables
+    for var_name, description in required_vars.items():
+        value = getattr(settings, var_name.lower(), None)
+        if not value:
+            validation_results["errors"].append(f"Missing {var_name}: {description}")
+        else:
+            validation_results["info"].append(f"✅ {var_name}: configured")
+
+    # Validate OpenAI API key format
+    openai_key = getattr(settings, "openai_api_key", "")
+    if openai_key:
+        if not openai_key.startswith("sk-"):
+            validation_results["warnings"].append(
+                "OpenAI API key doesn't start with 'sk-' - this might be invalid"
+            )
+        if len(openai_key) < 20:
+            validation_results["warnings"].append(
+                "OpenAI API key seems too short - verify it's correct"
+            )
+
+    # Validate ChromaDB path
+    chroma_path = getattr(settings, "chroma_db_path", "")
+    if chroma_path:
+        try:
+            path_obj = Path(chroma_path)
+            # Try to create the directory if it doesn't exist
+            path_obj.mkdir(parents=True, exist_ok=True)
+            if not path_obj.exists():
+                validation_results["errors"].append(
+                    f"Cannot create ChromaDB directory: {chroma_path}"
+                )
+            elif not os.access(path_obj, os.W_OK):
+                validation_results["errors"].append(
+                    f"ChromaDB directory not writable: {chroma_path}"
+                )
+            else:
+                validation_results["info"].append(
+                    f"✅ ChromaDB path accessible: {chroma_path}"
+                )
+        except Exception as e:
+            validation_results["errors"].append(f"ChromaDB path validation failed: {e}")
+
+    # Validate model names
+    embedding_model = getattr(settings, "embedding_model_name", "")
+    if embedding_model and "text-embedding" not in embedding_model:
+        validation_results["warnings"].append(
+            f"Embedding model '{embedding_model}' might not be a valid OpenAI embedding model"
+        )
+
+    chat_model = getattr(settings, "chat_model_name", "")
+    if chat_model and not any(model in chat_model for model in ["gpt-3.5", "gpt-4"]):
+        validation_results["warnings"].append(
+            f"Chat model '{chat_model}' might not be a valid OpenAI chat model"
+        )
+
+    # Check candidate data file
+    candidate_data_path = getattr(settings, "candidate_data_full_path", "")
+    if candidate_data_path:
+        if not Path(candidate_data_path).exists():
+            validation_results["warnings"].append(
+                f"Candidate data file not found: {candidate_data_path}"
+            )
+        else:
+            validation_results["info"].append(
+                f"✅ Candidate data file found: {candidate_data_path}"
+            )
+
+    # Set overall status
+    if validation_results["errors"]:
+        validation_results["status"] = "failed"
+    elif validation_results["warnings"]:
+        validation_results["status"] = "passed_with_warnings"
+
+    return validation_results
+
+
+def validate_service_dependencies() -> Dict[str, Any]:
+    """
+    Validate that all service dependencies can be instantiated correctly.
+
+    Returns:
+        Dict containing validation results
+    """
+    validation_results = {"status": "passed", "errors": [], "warnings": [], "info": []}
+
+    try:
+        # Test LLMService instantiation
+        logger.info("🔧 Testing LLMService instantiation...")
+        test_llm = LLMService(settings_obj=settings)
+        validation_results["info"].append("✅ LLMService: Can instantiate successfully")
+
+        # Test ChromaConnector instantiation
+        logger.info("🔧 Testing ChromaConnector instantiation...")
+        test_connector = ChromaConnector(settings_obj=settings)
+        validation_results["info"].append(
+            "✅ ChromaConnector: Can instantiate successfully"
+        )
+
+        # Test RAGService instantiation
+        logger.info("🔧 Testing RAGService instantiation...")
+        test_rag = RAGService(settings_obj=settings, connector=test_connector)
+        validation_results["info"].append("✅ RAGService: Can instantiate successfully")
+
+    except OpenAIConfigError as e:
+        validation_results["errors"].append(f"LLMService configuration error: {e}")
+    except ChromaConfigError as e:
+        validation_results["errors"].append(f"ChromaConnector configuration error: {e}")
+    except ChromaConnectionError as e:
+        validation_results["errors"].append(f"ChromaDB connection error: {e}")
+    except Exception as e:
+        validation_results["errors"].append(f"Unexpected service dependency error: {e}")
+
+    if validation_results["errors"]:
+        validation_results["status"] = "failed"
+
+    return validation_results
+
+
+def validate_startup_configuration() -> None:
+    """
+    Perform comprehensive startup validation.
+
+    Raises:
+        StartupValidationError: If critical validation checks fail
+    """
+    logger.info("🔒 Starting comprehensive startup validation...")
+
+    # Validate environment variables
+    env_results = validate_environment_variables()
+
+    # Log environment validation results
+    for info in env_results["info"]:
+        logger.info(info)
+    for warning in env_results["warnings"]:
+        logger.warning(f"⚠️ {warning}")
+    for error in env_results["errors"]:
+        logger.error(f"❌ {error}")
+
+    if env_results["status"] == "failed":
+        raise StartupValidationError(
+            f"Environment validation failed: {env_results['errors']}"
+        )
+
+    # Validate service dependencies
+    service_results = validate_service_dependencies()
+
+    # Log service validation results
+    for info in service_results["info"]:
+        logger.info(info)
+    for warning in service_results["warnings"]:
+        logger.warning(f"⚠️ {warning}")
+    for error in service_results["errors"]:
+        logger.error(f"❌ {error}")
+
+    if service_results["status"] == "failed":
+        raise StartupValidationError(
+            f"Service dependency validation failed: {service_results['errors']}"
+        )
+
+    # Log final validation status
+    total_warnings = len(env_results["warnings"]) + len(service_results["warnings"])
+    if total_warnings > 0:
+        logger.warning(
+            f"🟡 Startup validation completed with {total_warnings} warnings"
+        )
+    else:
+        logger.info("✅ Startup validation completed successfully")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Lifespan: Initializing services...")
     try:
+        # 🔒 NEW: Comprehensive startup validation
+        validate_startup_configuration()
+
         # Make settings available via app.state if needed, though services take it directly
         app.state.settings = settings
 
         # Initialize LLMService
+        logger.info("🔧 Initializing LLMService...")
         app.state.llm_service = LLMService(settings_obj=settings)
-        logger.info("LLMService initialized.")
+        logger.info("✅ LLMService initialized.")
 
         # Initialize ChromaConnector
+        logger.info("🔧 Initializing ChromaConnector...")
         app.state.chroma_connector = ChromaConnector(settings_obj=settings)
-        logger.info("ChromaConnector initialized.")
+        logger.info("✅ ChromaConnector initialized.")
 
         # Initialize RAGService, injecting the connector and settings
+        logger.info("🔧 Initializing RAGService...")
         app.state.rag_service = RAGService(
             settings_obj=settings, connector=app.state.chroma_connector
         )
-        logger.info("RAGService initialized.")
+        logger.info("✅ RAGService initialized.")
 
-        logger.info("Lifespan: All services initialized successfully.")
+        # 🔧 NEW: Load candidate cache during startup to prevent fallbacks
+        logger.info("🔧 Loading candidate cache...")
+        try:
+            await app.state.rag_service._load_candidates_cache()
+            cache_size = len(app.state.rag_service._candidates_cache)
+            logger.info(
+                f"✅ Candidate cache loaded successfully with {cache_size} candidates."
+            )
+
+            if cache_size == 0:
+                logger.warning(
+                    "⚠️ Candidate cache is empty - check candidate data file path."
+                )
+            elif cache_size < 10:
+                logger.warning(
+                    f"⚠️ Only {cache_size} candidates loaded - expected more for production."
+                )
+            else:
+                logger.info(f"🎯 Cache ready for high-performance candidate lookups.")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to load candidate cache: {e}")
+            logger.warning(
+                "⚠️ Application will continue but candidate lookups will be slower."
+            )
+            # Don't crash the app - cache loading failure is recoverable
+
+        logger.info("🎉 Lifespan: All services initialized successfully.")
+    except StartupValidationError as e:
+        logger.critical(f"💥 STARTUP VALIDATION FAILED: {e}")
+        logger.critical("🚫 Application cannot start with invalid configuration")
+        sys.exit(1)
     except (
         OpenAIConfigError,
         ChromaConfigError,

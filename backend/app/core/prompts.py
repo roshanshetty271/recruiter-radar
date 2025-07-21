@@ -14,11 +14,18 @@ CRITICAL RULES:
 6. Arrays can have ANY number of items - extract them ALL
 7. CALCULATE total_experience_years by adding up ALL job durations
 
-EXPERIENCE CALCULATION EXAMPLES:
+EXPERIENCE CALCULATION EXAMPLES (BE PRECISE WITH DATES):
 - "Software Engineer at Google (2019 - 2023)" → 4 years
-- "Director at Adobe (2019 - current)" → ~5 years (2024 - 2019)
-- "Engineer (Jan 2015 - Dec 2017)" → 3 years  
+- "Director at Adobe (2019 - current)" → ~5 years (2025 - 2019)
+- "Engineer (Jan 2015 - Dec 2017)" → 3 years
+- "Aug 2020 - Present" → ~4.5 years (2025 - 2020.67)
+- "June 2017 - June 2020" → 3 years exactly
+- "2016 - 2017" (year only) → 1 year (assume full year)
 - Multiple jobs: Add them up! 3 years + 2 years + 4 years = 9 years total
+
+CRITICAL: Use current year 2025 for "Present", "Current", "Now" calculations.
+CRITICAL: Parse month-year dates precisely (Aug 2020 = 2020.67, June 2017 = 2017.5)
+CRITICAL: Account for ALL jobs including internships and part-time work.
 
 JSON STRUCTURE (showing multiple entries):
 {{
@@ -163,4 +170,168 @@ Resume Text:
 ---
 
 Extract everything. Calculate experience years properly. Return ONLY valid JSON.
+"""
+
+
+RESUME_EXTRACTION_PROMPT_V6 = """
+You are an expert resume parser. Extract ALL information from this resume comprehensively and accurately.
+
+CRITICAL REQUIREMENTS:
+1. Return ONLY valid JSON (no comments, no additional text)
+2. Extract ALL work experiences, education, skills, and achievements
+3. Calculate total_experience_years precisely using date math
+4. Handle various date formats and overlapping employment
+5. Be exhaustive - capture every skill, project, and detail mentioned
+
+EXPERIENCE CALCULATION RULES:
+Use current year 2025 for "Present", "Current", "Now" calculations.
+
+Date Examples:
+- "2019 - 2023" → 4.0 years
+- "Jan 2019 - Dec 2022" → 4.0 years  
+- "Mar 2020 - Present" → 4.8 years (2025.0 - 2020.25)
+- "Aug 2021 - Jun 2023" → 1.8 years (2023.5 - 2021.67)
+- "2018 - 2019" (year only) → 1.0 year
+
+Multiple Jobs: Add all durations together, including internships and part-time work.
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Found name, email, 3+ jobs, 10+ skills, clear dates
+- 0.7-0.89: Found most key info, some missing fields
+- 0.5-0.69: Found basic info but significant gaps
+- 0.3-0.49: Limited information extracted
+- 0.1-0.29: Very little information found
+
+EXAMPLE INPUT:
+"John Smith
+Software Engineer
+john.smith@email.com
+(555) 123-4567
+
+EXPERIENCE
+Senior Developer, TechCorp (2020-Present)
+- Built scalable APIs using Python and Django
+- Managed team of 4 developers
+
+Junior Developer, StartupXYZ (2018-2020)  
+- Developed React applications
+- Used AWS and Docker for deployment
+
+EDUCATION
+BS Computer Science, MIT (2018)
+
+SKILLS
+Python, React, AWS, Docker, Leadership"
+
+EXAMPLE OUTPUT:
+{{
+  "name": "John Smith",
+  "email": "john.smith@email.com", 
+  "phone": "(555) 123-4567",
+  "location": null,
+  "current_title": "Senior Developer",
+  "desired_roles": [],
+  "total_experience_years": 7.0,
+  "technical_skills": ["Python", "Django", "React", "AWS", "Docker"],
+  "soft_skills": ["Leadership"],
+  "work_experience": [
+    {{
+      "company": "TechCorp",
+      "title": "Senior Developer", 
+      "duration": "2020-Present",
+      "description": "Built scalable APIs using Python and Django. Managed team of 4 developers",
+      "technologies": ["Python", "Django"]
+    }},
+    {{
+      "company": "StartupXYZ",
+      "title": "Junior Developer",
+      "duration": "2018-2020", 
+      "description": "Developed React applications. Used AWS and Docker for deployment",
+      "technologies": ["React", "AWS", "Docker"]
+    }}
+  ],
+  "education": [
+    {{
+      "degree": "BS Computer Science",
+      "field": "Computer Science", 
+      "school": "MIT",
+      "graduation_year": "2018",
+      "gpa": null
+    }}
+  ],
+  "projects": [],
+  "certifications": [],
+  "languages": [],
+  "clearance_level": null,
+  "linkedin_url": null,
+  "github_url": null, 
+  "portfolio_url": null,
+  "other_urls": [],
+  "professional_summary": "Software Engineer with 7 years of experience in Python, React, and cloud technologies. Proven track record in API development and team leadership.",
+  "key_achievements": ["Built scalable APIs", "Managed team of 4 developers"],
+  "extraction_confidence": 0.85
+}}
+
+ERROR HANDLING:
+- If dates are unclear, estimate reasonably based on context
+- If no email found, set to null (don't guess)
+- If skills are ambiguous, include them (better to over-extract)
+- If unsure about field values, use null rather than empty strings
+- Always return valid JSON even if some fields are missing
+
+JSON STRUCTURE TEMPLATE:
+{{
+  "name": "string or null",
+  "email": "string or null", 
+  "phone": "string or null",
+  "location": "string or null",
+  "current_title": "string or null",
+  "desired_roles": ["array of strings"],
+  "total_experience_years": 0.0,
+  "technical_skills": ["array of all technical skills found"],
+  "soft_skills": ["array of all soft skills found"], 
+  "work_experience": [
+    {{
+      "company": "string",
+      "title": "string",
+      "duration": "string", 
+      "description": "string",
+      "technologies": ["array of strings"]
+    }}
+  ],
+  "education": [
+    {{
+      "degree": "string",
+      "field": "string",
+      "school": "string", 
+      "graduation_year": "string or null",
+      "gpa": "string or null"
+    }}
+  ],
+  "projects": [
+    {{
+      "name": "string",
+      "description": "string",
+      "technologies": ["array of strings"],
+      "url": "string or null"
+    }}
+  ],
+  "certifications": ["array of strings"],
+  "languages": ["array of strings"],
+  "clearance_level": "string or null",
+  "linkedin_url": "string or null",
+  "github_url": "string or null",
+  "portfolio_url": "string or null", 
+  "other_urls": ["array of strings"],
+  "professional_summary": "string (generate if not explicit)",
+  "key_achievements": ["array of strings"],
+  "extraction_confidence": 0.0
+}}
+
+Resume Text:
+---
+{resume_text}
+---
+
+Extract all information. Return ONLY valid JSON.
 """
