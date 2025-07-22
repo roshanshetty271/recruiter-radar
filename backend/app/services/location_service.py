@@ -255,14 +255,10 @@ class LocationMappingService:
     def _build_region_mappings(self) -> Dict[str, List[str]]:
         """Build broader regional mappings."""
         return {
+            # Only include explicit regional terms to avoid over-matching
             "west coast": ["california", "washington", "oregon"],
-            "east coast": [
-                "new york",
-                "massachusetts",
-                "virginia",
-                "maryland",
-                "florida",
-            ],
+            # Remove overly broad "east coast" that was matching NY with VA
+            # "east coast": [...] - Removed to prevent over-matching
             "midwest": ["illinois", "michigan", "ohio", "wisconsin", "minnesota"],
             "southwest": ["texas", "arizona", "nevada", "new mexico"],
             "southeast": ["florida", "georgia", "north carolina", "south carolina"],
@@ -411,13 +407,14 @@ class LocationMappingService:
         confidence_threshold: float = 0.7,
     ) -> Tuple[bool, float, str]:
         """
-        🎯 SMART LOCATION MATCHING with confidence scoring.
+        🎯 PRECISE LOCATION MATCHING with strict city matching.
 
-        This is the core function that replaces the broken substring matching.
+        FIXED: Previous version was too permissive and caused "Boston" to match "Houston".
+        Now uses precise matching with proper validation.
 
         Args:
-            search_location: Location from search query (e.g., "California")
-            candidate_location: Location from candidate profile (e.g., "San Francisco, CA")
+            search_location: Location from search query (e.g., "Boston")
+            candidate_location: Location from candidate profile (e.g., "Boston, MA")
             confidence_threshold: Minimum confidence for a match
 
         Returns:
@@ -429,48 +426,152 @@ class LocationMappingService:
         search_lower = search_location.lower().strip()
         candidate_lower = candidate_location.lower().strip()
 
-        # Exact match (highest confidence)
+        # 1. EXACT MATCH (highest confidence)
         if search_lower == candidate_lower:
             return True, 1.0, "Exact match"
 
-        # Get all variations for the search location
+        # 2. PRECISE CITY MATCHING - Handle common formats
+        # "Boston" should match "Boston, MA" but NOT "Houston, TX"
+        if self._is_precise_city_match(search_lower, candidate_lower):
+            return True, 0.95, "Precise city match"
+
+        # 3. STATE EXPANSION MATCHING
+        # "California" should match "San Francisco, CA"
         search_variations = self.expand_location_for_matching(search_location)
-
-        # Check if any variation matches the candidate location
         for variation in search_variations:
-            if variation in candidate_lower or candidate_lower in variation:
-                confidence = (
-                    0.9 if len(variation) > 2 else 0.7
-                )  # Higher confidence for longer matches
-                return True, confidence, f"Variation match: '{variation}'"
+            variation_lower = variation.lower()
 
-        # Fuzzy matching as fallback
+            # Check if state/region in candidate location
+            if self._is_state_region_match(variation_lower, candidate_lower):
+                confidence = 0.9 if len(variation) > 2 else 0.7
+                return True, confidence, f"State/region match: '{variation}'"
+
+        # 4. METROPOLITAN AREA MATCHING
+        # "Bay Area" should match "San Francisco, CA"
+        if self._is_metro_area_match(search_lower, candidate_lower):
+            return True, 0.85, "Metropolitan area match"
+
+        # 5. CAREFUL FUZZY MATCHING (very strict threshold)
+        # Only allow very high similarity to prevent false matches
         similarity = SequenceMatcher(None, search_lower, candidate_lower).ratio()
-        if similarity >= confidence_threshold:
-            return True, similarity, f"Fuzzy match: {similarity:.2f}"
+        if similarity >= 0.9:  # Much stricter threshold
+            return True, similarity, f"High fuzzy match: {similarity:.2f}"
 
-        # Check partial matches (like "Francisco" in "San Francisco, CA" for "San Francisco")
-        search_words = search_lower.split()
-        candidate_words = candidate_lower.split()
+        # 6. NO DANGEROUS PARTIAL MATCHING
+        # Removed the previous partial word matching that caused Boston->Houston false matches
 
-        matching_words = 0
-        for search_word in search_words:
-            if len(search_word) > 2:  # Skip very short words
-                for candidate_word in candidate_words:
-                    if search_word in candidate_word or candidate_word in search_word:
-                        matching_words += 1
-                        break
+        return False, 0.0, f"No match (similarity: {similarity:.2f})"
 
-        if matching_words > 0:
-            confidence = min(matching_words / len(search_words), 0.8)
-            if confidence >= confidence_threshold:
-                return (
-                    True,
-                    confidence,
-                    f"Partial match: {matching_words}/{len(search_words)} words",
-                )
+    def _is_precise_city_match(self, search_city: str, candidate_location: str) -> bool:
+        """
+        Check if search city precisely matches the candidate location.
 
-        return False, 0.0, "No match"
+        Examples:
+        - "boston" matches "boston, ma" ✅
+        - "boston" matches "houston, tx" ❌
+        - "san francisco" matches "san francisco, ca" ✅
+        """
+        # Split candidate location by common separators
+        candidate_parts = re.split(r"[,;]", candidate_location)
+
+        for part in candidate_parts:
+            part_clean = part.strip().lower()
+
+            # Exact city name match
+            if search_city == part_clean:
+                return True
+
+            # Handle compound city names
+            if len(search_city.split()) > 1:
+                # Multi-word city like "San Francisco"
+                if search_city in part_clean or part_clean.startswith(search_city):
+                    return True
+
+        # Check if search is at the start of candidate (for "San Francisco" in "San Francisco Bay Area")
+        if candidate_location.startswith(search_city):
+            # Ensure it's a word boundary to avoid partial matches
+            next_char_index = len(search_city)
+            if next_char_index >= len(candidate_location) or candidate_location[
+                next_char_index
+            ] in [" ", ",", "-", "/"]:
+                return True
+
+        return False
+
+    def _is_state_region_match(
+        self, search_variation: str, candidate_location: str
+    ) -> bool:
+        """
+        Check if search variation (state/region) matches candidate location.
+
+        Examples:
+        - "ca" matches "san francisco, ca" ✅
+        - "california" matches "los angeles, ca" ✅
+        - "ma" matches "boston, ma" ✅
+        """
+        # Common state patterns in candidate locations
+        state_patterns = [
+            f", {search_variation}",  # ", CA"
+            f" {search_variation}",  # " CA"
+            f"{search_variation},",  # "CA,"
+            f"{search_variation} ",  # "CA "
+        ]
+
+        for pattern in state_patterns:
+            if pattern in candidate_location:
+                return True
+
+        # Full state name matching
+        if len(search_variation) > 3:  # Likely a full state name
+            if search_variation in candidate_location:
+                return True
+
+        return False
+
+    def _is_metro_area_match(
+        self, search_location: str, candidate_location: str
+    ) -> bool:
+        """
+        Check for metropolitan area matches.
+
+        Examples:
+        - "bay area" matches "san francisco, ca" ✅
+        - "silicon valley" matches "palo alto, ca" ✅
+        """
+        metro_mappings = {
+            "bay area": [
+                "san francisco",
+                "oakland",
+                "san jose",
+                "palo alto",
+                "berkeley",
+                "fremont",
+            ],
+            "silicon valley": [
+                "palo alto",
+                "mountain view",
+                "cupertino",
+                "sunnyvale",
+                "san jose",
+            ],
+            "greater boston": [
+                "boston",
+                "cambridge",
+                "somerville",
+                "newton",
+                "brookline",
+            ],
+            "dmv": ["washington", "arlington", "alexandria", "bethesda", "rockville"],
+            "tri-state": ["new york", "newark", "jersey city", "stamford"],
+        }
+
+        if search_location in metro_mappings:
+            metro_cities = metro_mappings[search_location]
+            for city in metro_cities:
+                if city in candidate_location:
+                    return True
+
+        return False
 
     def get_location_suggestions(self, failed_location: str) -> List[str]:
         """

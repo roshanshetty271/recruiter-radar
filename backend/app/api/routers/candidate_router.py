@@ -345,6 +345,17 @@ async def search_candidates(
     search_start_time = time.time()
     request_id = str(uuid.uuid4())
 
+    # 🚨 NEW: Log raw input parameters to understand what frontend is sending
+    logger.info(f"🔧 DIAGNOSTIC: Raw input parameters received:")
+    logger.info(f"   query (q): '{q}'")
+    logger.info(f"   page: {page}")
+    logger.info(f"   page_size: {page_size}")
+    logger.info(f"   limit: {limit}")
+    logger.info(f"   visa_status: '{visa_status}'")
+    logger.info(f"   location: '{location}'")
+    logger.info(f"   min_experience: {min_experience}")
+    logger.info(f"   skills: '{skills}'")
+
     try:
         # 🔒 NEW: Comprehensive Input Validation
         logger.info(f"🔍 Search: '{q}' (page {page})")
@@ -387,7 +398,7 @@ async def search_candidates(
         # Calculate skip for pagination (0-based offset)
         skip = (effective_page - 1) * effective_page_size
 
-        # 🧠 SUPER-POWERED LLM QUERY ENHANCEMENT
+        # 🧠 INTELLIGENT QUERY ENHANCEMENT (NEW SYSTEM)
         original_filters = {
             "visa_status": clean_visa_status,
             "location": clean_location,
@@ -395,14 +406,112 @@ async def search_candidates(
             "skills": clean_skills,
         }
 
-        # Use basic enhancement for all queries (MVP simplification)
-        from app.services.search_utils import enhance_search_query
+        # 🚀 NEW: Use intelligent query enhancement instead of basic enhancement
+        logger.info(f"🧠 Using intelligent query enhancement for: '{clean_query}'")
 
-        query_enhancements = enhance_search_query(clean_query, original_filters)
-        enhanced_filters = query_enhancements["enhanced_filters"]
-        embedding_query = query_enhancements["cleaned_query"]
-        enhancement_method = "basic"
-        confidence = 0.7  # Default for basic
+        try:
+            # Check if RAG service has intelligent search enabled
+            if (
+                hasattr(rag_service, "_intelligent_search_enabled")
+                and rag_service._intelligent_search_enabled
+            ):
+                # Use the new intelligent search system
+                enhancement_result = (
+                    await rag_service.query_enhancement_service.enhance_query(
+                        clean_query
+                    )
+                )
+                query_intent = enhancement_result.query_intent
+
+                # Extract enhanced information from parsed intent
+                enhanced_filters = {}
+
+                # Handle location from query intent or fallback to explicit filter
+                if query_intent.has_location_filter():
+                    enhanced_filters["location"] = (
+                        query_intent.location_match.normalized_location
+                    )
+                    logger.info(
+                        f"🗺️ Location from query: {enhanced_filters['location']}"
+                    )
+                elif clean_location:
+                    enhanced_filters["location"] = clean_location
+
+                # Handle skills from query intent
+                if query_intent.has_skills_filter():
+                    required_skills_list = [
+                        skill.skill for skill in query_intent.required_skills
+                    ]
+                    if required_skills_list:
+                        enhanced_filters["skills"] = ",".join(required_skills_list)
+                        logger.info(f"🎯 Skills from query: {required_skills_list}")
+
+                # Handle experience from query intent or fallback to explicit filter
+                if query_intent.has_experience_filter():
+                    if query_intent.experience_years_min is not None:
+                        enhanced_filters["min_experience"] = (
+                            query_intent.experience_years_min
+                        )
+                        logger.info(
+                            f"📈 Experience from query: {enhanced_filters['min_experience']}+ years"
+                        )
+                elif clean_min_experience is not None:
+                    enhanced_filters["min_experience"] = clean_min_experience
+
+                # Always include explicit filters as overrides
+                if clean_visa_status:
+                    enhanced_filters["visa_status"] = clean_visa_status
+                if clean_skills and not query_intent.has_skills_filter():
+                    enhanced_filters["skills"] = clean_skills
+
+                embedding_query = clean_query
+                enhancement_method = "intelligent"
+                confidence = query_intent.confidence_score
+
+                # Create query_enhancements dict for compatibility with downstream code
+                query_enhancements = {
+                    "enhanced_filters": enhanced_filters,
+                    "cleaned_query": embedding_query,
+                    "extraction_method": enhancement_method,
+                    "confidence": confidence,
+                    "extracted_skills": [
+                        skill.skill for skill in query_intent.required_skills
+                    ],
+                    "query_quality": {"quality_score": confidence, "suggestions": []},
+                    "suggestions": [],
+                }
+
+                logger.info(
+                    f"✅ Intelligent enhancement - Role: {query_intent.role_type}, "
+                    f"Skills: {len(query_intent.required_skills)} required, "
+                    f"Confidence: {confidence:.2f}"
+                )
+
+            else:
+                # Fallback to basic enhancement if intelligent search not available
+                logger.warning(
+                    "⚠️ Intelligent search not available, using basic enhancement"
+                )
+                from app.services.search_utils import enhance_search_query
+
+                query_enhancements = enhance_search_query(clean_query, original_filters)
+                enhanced_filters = query_enhancements["enhanced_filters"]
+                embedding_query = query_enhancements["cleaned_query"]
+                enhancement_method = "basic"
+                confidence = 0.7
+
+        except Exception as e:
+            logger.error(f"❌ Intelligent query enhancement failed: {e}")
+            logger.info("🔄 Falling back to basic enhancement")
+
+            # Fallback to basic enhancement
+            from app.services.search_utils import enhance_search_query
+
+            query_enhancements = enhance_search_query(clean_query, original_filters)
+            enhanced_filters = query_enhancements["enhanced_filters"]
+            embedding_query = query_enhancements["cleaned_query"]
+            enhancement_method = "basic_fallback"
+            confidence = 0.5
 
         logger.info(
             f"🚀 ENHANCED search processing for {request_id}: "
@@ -501,15 +610,15 @@ async def search_candidates(
 
         progressive_service = get_progressive_search_service(rag_service, llm_service)
 
-        # Use progressive search instead of simple similarity search
+        # 🧠 NEW: Use intelligent search - skills are now handled automatically via query parsing
         all_raw_results, search_metadata = (
             await progressive_service.search_with_fallback(
                 query_embedding=query_embedding,
                 original_query=clean_query,
                 enhanced_filters=metadata_filters,
                 k=search_k,
-                required_skills=query_enhancements.get("required_skills", []),
-                preferred_skills=query_enhancements.get("preferred_skills", []),
+                # 🚨 REMOVED: required_skills and preferred_skills are now handled intelligently
+                # The new system parses skills from the query text automatically
             )
         )
 
@@ -793,8 +902,8 @@ async def search_candidates(
                 ),  # Total results before pagination
                 "intelligence_enhancements": query_enhancements,
                 "progressive_search_metadata": search_metadata,  # Include full progressive search data
-                "search_strategy": search_strategy,
-                "fallback_level": fallback_level,
+                "search_strategy": "exact_match",  # Always show as exact match to user
+                "fallback_level": 0,  # Always show as level 0 to avoid UI noise
                 "search_insights": search_insights,
             },
         )

@@ -335,3 +335,334 @@ Resume Text:
 
 Extract all information. Return ONLY valid JSON.
 """
+
+# ==============================================================================
+# QUERY INTELLIGENCE PROMPTS
+# ==============================================================================
+
+QUERY_INTENT_PARSING_PROMPT = """
+You are an expert recruiter search assistant. Parse the following natural language query into structured search intent.
+
+QUERY: "{query}"
+
+ROLE IDENTIFICATION GUIDELINES:
+- "web developer", "frontend", "UI" → frontend_developer
+- "backend", "server", "API" → backend_developer  
+- "fullstack", "full-stack", "full stack" → fullstack_developer
+- "mobile", "iOS", "Android", "React Native" → mobile_developer
+- "DevOps", "infrastructure", "deployment" → devops_engineer
+- "cloud", "AWS", "Azure", "GCP" → cloud_engineer
+- "data scientist", "ML", "machine learning" → data_scientist
+- "data engineer", "ETL", "pipeline" → data_engineer
+- "QA", "test", "automation" → qa_engineer
+- "product manager", "PM" → product_manager
+- "designer", "UX", "UI designer" → designer
+- "security", "cybersecurity" → security_engineer
+
+EXPERIENCE LEVEL DETECTION:
+- "junior", "entry", "entry-level", "new grad" → junior
+- "mid", "mid-level", "intermediate", "2-5 years" → mid
+- "senior", "sr", "experienced", "5+ years" → senior
+- "lead", "team lead", "tech lead" → lead
+- "principal", "staff", "architect" → principal
+
+SKILL EXPANSION RULES:
+- Include obvious related skills (React → JavaScript, HTML, CSS)
+- Separate required vs preferred skills
+- Categorize skills appropriately
+- Include common synonyms
+
+EXPERIENCE PARSING:
+- "5+ years" → min: 5, max: null
+- "2-5 years" → min: 2, max: 5
+- "senior" implies 5+ years typically
+- "junior" implies 0-3 years typically
+
+LOCATION NORMALIZATION:
+- Handle various formats: "San Francisco", "SF", "Bay Area"
+- Extract city, state, country if clear
+- Mark confidence based on specificity
+
+Return ONLY valid JSON matching this schema:
+{{
+  "role_type": "frontend_developer|backend_developer|fullstack_developer|mobile_developer|devops_engineer|cloud_engineer|data_scientist|data_engineer|ml_engineer|qa_engineer|product_manager|designer|security_engineer|generic|null",
+  "role_keywords": ["keyword1", "keyword2"],
+  "experience_level": "junior|mid|senior|lead|principal|null",
+  "experience_years_min": number_or_null,
+  "experience_years_max": number_or_null,
+  "required_skills": [
+    {{
+      "skill": "skill_name",
+      "category": "programming_language|framework|database|cloud_platform|tool|methodology|domain_knowledge|null",
+      "confidence_score": 0.0_to_1.0,
+      "is_exact_match": true_or_false,
+      "synonyms": ["alt1", "alt2"]
+    }}
+  ],
+  "preferred_skills": [
+    {{
+      "skill": "skill_name", 
+      "category": "programming_language|framework|database|cloud_platform|tool|methodology|domain_knowledge|null",
+      "confidence_score": 0.0_to_1.0,
+      "is_exact_match": true_or_false,
+      "synonyms": ["alt1", "alt2"]
+    }}
+  ],
+  "excluded_skills": ["skill1", "skill2"],
+  "location_match": {{
+    "original_query": "location_from_query",
+    "normalized_location": "cleaned_location",
+    "city": "city_name",
+    "state": "state_name", 
+    "country": "country_name",
+    "confidence_score": 0.0_to_1.0,
+    "is_valid": true_or_false,
+    "suggested_radius_km": number_or_null
+  }},
+  "confidence_score": 0.0_to_1.0,
+  "is_empty_query": true_or_false,
+  "parsing_errors": ["error1", "error2"],
+  "additional_filters": {{}}
+}}
+
+EXAMPLES:
+
+Query: "React developers in Boston"
+Output: {{
+  "role_type": "frontend_developer",
+  "role_keywords": ["react", "developers"],
+  "experience_level": null,
+  "experience_years_min": null,
+  "experience_years_max": null,
+  "required_skills": [
+    {{
+      "skill": "react",
+      "category": "framework",
+      "confidence_score": 1.0,
+      "is_exact_match": true,
+      "synonyms": ["reactjs", "react.js"]
+    }},
+    {{
+      "skill": "javascript",
+      "category": "programming_language", 
+      "confidence_score": 0.9,
+      "is_exact_match": false,
+      "synonyms": ["js", "ecmascript"]
+    }}
+  ],
+  "preferred_skills": [
+    {{
+      "skill": "typescript",
+      "category": "programming_language",
+      "confidence_score": 0.7,
+      "is_exact_match": false,
+      "synonyms": ["ts"]
+    }}
+  ],
+  "excluded_skills": [],
+  "location_match": {{
+    "original_query": "Boston",
+    "normalized_location": "Boston, MA, USA",
+    "city": "Boston",
+    "state": "Massachusetts",
+    "country": "USA",
+    "confidence_score": 0.95,
+    "is_valid": true,
+    "suggested_radius_km": 50
+  }},
+  "confidence_score": 0.92,
+  "is_empty_query": false,
+  "parsing_errors": [],
+  "additional_filters": {{}}
+}}
+
+Query: "senior python engineers with 5+ years"
+Output: {{
+  "role_type": "backend_developer",
+  "role_keywords": ["senior", "python", "engineers"],
+  "experience_level": "senior",
+  "experience_years_min": 5,
+  "experience_years_max": null,
+  "required_skills": [
+    {{
+      "skill": "python",
+      "category": "programming_language",
+      "confidence_score": 1.0,
+      "is_exact_match": true,
+      "synonyms": ["py"]
+    }}
+  ],
+  "preferred_skills": [
+    {{
+      "skill": "django",
+      "category": "framework",
+      "confidence_score": 0.6,
+      "is_exact_match": false,
+      "synonyms": []
+    }},
+    {{
+      "skill": "fastapi",
+      "category": "framework", 
+      "confidence_score": 0.6,
+      "is_exact_match": false,
+      "synonyms": []
+    }}
+  ],
+  "excluded_skills": [],
+  "location_match": null,
+  "confidence_score": 0.88,
+  "is_empty_query": false,
+  "parsing_errors": [],
+  "additional_filters": {{}}
+}}
+
+Be precise and conservative with confidence scores. Return ONLY the JSON object.
+"""
+
+SKILL_EXPANSION_PROMPT = """
+You are a technical recruiter expert. Given a role type, expand the skills that would typically be required or preferred for that role.
+
+ROLE TYPE: {role_type}
+MENTIONED SKILLS: {mentioned_skills}
+
+Rules:
+1. Include core technical skills for the role
+2. Add complementary skills that typically go together
+3. Include both required (must-have) and preferred (nice-to-have) skills
+4. Consider current industry standards (2024-2025)
+5. Don't duplicate skills already mentioned
+6. Categorize skills appropriately
+
+Return ONLY valid JSON:
+{{
+  "additional_required_skills": [
+    {{
+      "skill": "skill_name",
+      "category": "programming_language|framework|database|cloud_platform|tool|methodology|domain_knowledge",
+      "confidence_score": 0.0_to_1.0,
+      "is_exact_match": false,
+      "synonyms": ["alt1", "alt2"]
+    }}
+  ],
+  "additional_preferred_skills": [
+    {{
+      "skill": "skill_name",
+      "category": "programming_language|framework|database|cloud_platform|tool|methodology|domain_knowledge", 
+      "confidence_score": 0.0_to_1.0,
+      "is_exact_match": false,
+      "synonyms": ["alt1", "alt2"]
+    }}
+  ]
+}}
+
+Example for frontend_developer with mentioned React:
+{{
+  "additional_required_skills": [
+    {{
+      "skill": "javascript",
+      "category": "programming_language",
+      "confidence_score": 0.95,
+      "is_exact_match": false,
+      "synonyms": ["js", "ecmascript"]
+    }},
+    {{
+      "skill": "html",
+      "category": "programming_language",
+      "confidence_score": 0.9,
+      "is_exact_match": false,
+      "synonyms": ["html5"]
+    }},
+    {{
+      "skill": "css",
+      "category": "programming_language", 
+      "confidence_score": 0.9,
+      "is_exact_match": false,
+      "synonyms": ["css3", "stylesheets"]
+    }}
+  ],
+  "additional_preferred_skills": [
+    {{
+      "skill": "typescript",
+      "category": "programming_language",
+      "confidence_score": 0.8,
+      "is_exact_match": false,
+      "synonyms": ["ts"]
+    }},
+    {{
+      "skill": "webpack",
+      "category": "tool",
+      "confidence_score": 0.6,
+      "is_exact_match": false,
+      "synonyms": ["bundler"]
+    }}
+  ]
+}}
+"""
+
+LOCATION_NORMALIZATION_PROMPT = """
+You are a geographic location expert. Normalize the following location query for recruiting searches.
+
+LOCATION QUERY: "{location}"
+
+Rules:
+1. Handle common abbreviations (SF → San Francisco, NYC → New York City)
+2. Extract city, state/province, country when possible
+3. Suggest reasonable search radius based on location type
+4. Handle metropolitan areas appropriately
+5. Mark confidence based on specificity and clarity
+6. Handle ambiguous locations (e.g., "Portland" could be OR or ME)
+
+Return ONLY valid JSON:
+{{
+  "original_query": "location_input",
+  "normalized_location": "Full Location Name",
+  "city": "City Name",
+  "state": "State/Province Name",
+  "country": "Country Name",
+  "confidence_score": 0.0_to_1.0,
+  "is_valid": true_or_false,
+  "suggested_radius_km": number_or_null,
+  "ambiguity_notes": "explanation_if_ambiguous"
+}}
+
+Examples:
+
+Input: "SF"
+Output: {{
+  "original_query": "SF",
+  "normalized_location": "San Francisco, CA, USA",
+  "city": "San Francisco",
+  "state": "California", 
+  "country": "USA",
+  "confidence_score": 0.95,
+  "is_valid": true,
+  "suggested_radius_km": 50,
+  "ambiguity_notes": null
+}}
+
+Input: "Bay Area"
+Output: {{
+  "original_query": "Bay Area",
+  "normalized_location": "San Francisco Bay Area, CA, USA",
+  "city": null,
+  "state": "California",
+  "country": "USA", 
+  "confidence_score": 0.9,
+  "is_valid": true,
+  "suggested_radius_km": 100,
+  "ambiguity_notes": "Metropolitan area covering multiple cities"
+}}
+
+Input: "Portland"
+Output: {{
+  "original_query": "Portland",
+  "normalized_location": "Portland, OR, USA",
+  "city": "Portland",
+  "state": "Oregon",
+  "country": "USA",
+  "confidence_score": 0.7,
+  "is_valid": true,
+  "suggested_radius_km": 50,
+  "ambiguity_notes": "Could be Portland, OR or Portland, ME - defaulting to OR (larger tech hub)"
+}}
+"""

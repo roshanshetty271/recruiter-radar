@@ -111,11 +111,49 @@ class RecruiterRadarAPI {
     }
   }
 
+  // 🚨 NEW: Validate location strings to prevent invalid values like 'Me'
+  private isValidLocation(location: string): boolean {
+    if (!location || typeof location !== "string") {
+      return false;
+    }
+
+    const cleanLocation = location.trim().toLowerCase();
+
+    // Block invalid/placeholder values
+    const invalidValues = [
+      "me",
+      "my location",
+      "current location",
+      "here",
+      "undefined",
+      "null",
+      "none",
+      "",
+    ];
+
+    if (invalidValues.includes(cleanLocation)) {
+      return false;
+    }
+
+    // Must be at least 2 characters and contain letters
+    if (cleanLocation.length < 2 || !/[a-zA-Z]/.test(cleanLocation)) {
+      return false;
+    }
+
+    // Block obvious test/debug values
+    if (cleanLocation.startsWith("test") || cleanLocation.startsWith("debug")) {
+      return false;
+    }
+
+    return true;
+  }
+
   // 🔒 NEW: Enhanced fetch with comprehensive error handling
   private async fetchWithRetries(
     url: string,
     options: RequestInit = {},
-    retryCount = 0
+    retryCount = 0,
+    customTimeout?: number
   ): Promise<Response> {
     // Check circuit breaker
     if (!this.circuitBreaker.shouldAllowRequest()) {
@@ -127,7 +165,8 @@ class RecruiterRadarAPI {
     }
 
     try {
-      const response = await this.fetchWithTimeout(url, options, this.timeout);
+      const timeout = customTimeout || this.timeout;
+      const response = await this.fetchWithTimeout(url, options, timeout);
 
       // Record success for circuit breaker
       this.circuitBreaker.recordSuccess();
@@ -154,7 +193,12 @@ class RecruiterRadarAPI {
         );
 
         await this.sleep(delay);
-        return this.fetchWithRetries(url, options, retryCount + 1);
+        return this.fetchWithRetries(
+          url,
+          options,
+          retryCount + 1,
+          customTimeout
+        );
       }
 
       throw apiError;
@@ -376,12 +420,18 @@ class RecruiterRadarAPI {
 
     // Use extracted location if no explicit location filter
     const finalLocation = filters.location || extractedLocation;
-    if (finalLocation) {
+
+    // 🚨 DEFENSIVE FIX: Prevent invalid location values from being sent
+    if (finalLocation && this.isValidLocation(finalLocation)) {
       params.append("location", finalLocation);
       console.log(
         `🧠 Using location: ${finalLocation} ${
           extractedLocation ? "(auto-extracted)" : "(manual)"
         }`
+      );
+    } else if (finalLocation) {
+      console.warn(
+        `🚫 Invalid location detected and filtered out: '${finalLocation}'`
       );
     }
     if (filters.visa_status) {
@@ -400,7 +450,13 @@ class RecruiterRadarAPI {
     }/api/v1/candidates/query?${params.toString()}`;
     console.log("🔧 DEBUG - Final request URL:", finalUrl);
 
-    const response = await this.fetchWithRetries(finalUrl);
+    // Use longer timeout for intelligent search operations (LLM + vector search can take 20-30 seconds)
+    const response = await this.fetchWithRetries(
+      finalUrl,
+      {},
+      0,
+      config.api.searchTimeout
+    );
 
     console.log("✅ Response received:", response.status, response.statusText);
 
@@ -458,7 +514,9 @@ class RecruiterRadarAPI {
     console.log("✅ Data parsed:", data);
 
     console.log(
-      `✅ Search completed: ${data.results.length} results in ${data.search_time_ms}ms`
+      `✅ Search completed: ${data.results?.length || 0} results in ${
+        data.search_time_ms
+      }ms`
     );
 
     // 📈 LOG INTELLIGENCE METRICS

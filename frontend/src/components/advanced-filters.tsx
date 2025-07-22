@@ -55,9 +55,32 @@ export function AdvancedFilters({
     if (experience[0] > 0) count++;
     if (skills.length > 0) count++;
 
+    // 🚨 DEFENSIVE FIX: Validate location before sending
+    const isValidLocation = (loc: string): boolean => {
+      if (!loc || typeof loc !== "string") return false;
+
+      const cleanLoc = loc.trim().toLowerCase();
+      const invalidValues = [
+        "me",
+        "my location",
+        "current location",
+        "here",
+        "undefined",
+        "null",
+        "none",
+        "",
+      ];
+
+      return (
+        !invalidValues.includes(cleanLoc) &&
+        cleanLoc.length >= 2 &&
+        /[a-zA-Z]/.test(cleanLoc)
+      );
+    };
+
     // Create filter data object to pass to the API
     const filterData = {
-      location: location || undefined,
+      location: location && isValidLocation(location) ? location : undefined,
       visa_status: visaStatus.length ? visaStatus.join(",") : undefined,
       min_experience: experience[0] > 0 ? experience[0] : undefined,
       skills: skills.length ? skills.join(",") : undefined,

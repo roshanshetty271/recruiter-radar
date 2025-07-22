@@ -8,7 +8,8 @@ Key responsibilities:
 - Interfacing with ChromaConnector for DB client and collection access.
 - Providing asynchronous interfaces for document storage and retrieval.
 - Formatting data for storage and search results.
-- Supporting future RAG pipeline operations (e.g., query expansion, result synthesis).
+- Supporting intelligent query enhancement and semantic search.
+- Integrating with QueryEnhancementService for natural language understanding.
 """
 
 import logging
@@ -37,6 +38,17 @@ from app.services.rag_operations.search_logic import (
     execute_similarity_search,
     SearchOperationError as OpsSearchOperationError,
 )
+
+# 🧠 NEW: Import intelligent search services
+from app.services.query_enhancement_service import (
+    QueryEnhancementService,
+    QueryEnhancementError,
+)
+from app.services.skills_taxonomy_service import (
+    SkillsTaxonomyService,
+    SkillsTaxonomyError,
+)
+from app.models.query_models import QueryIntent, QueryEnhancementResult
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +111,21 @@ class RAGService:
         )  # query_hash -> (embedding, timestamp)
         self._cache_max_size = 100  # Limit cache size
         self._cache_ttl_seconds = 3600  # 1 hour TTL for embeddings
+
+        # 🧠 NEW: Initialize intelligent search services
+        try:
+            self.query_enhancement_service = QueryEnhancementService()
+            self.skills_taxonomy_service = SkillsTaxonomyService()
+            self._intelligent_search_enabled = True
+            self.logger.info("✅ Intelligent search services initialized successfully")
+        except (QueryEnhancementError, SkillsTaxonomyError) as e:
+            self.logger.error(
+                f"❌ Failed to initialize intelligent search services: {e}"
+            )
+            self.query_enhancement_service = None
+            self.skills_taxonomy_service = None
+            self._intelligent_search_enabled = False
+            self.logger.warning("⚠️ Falling back to basic search functionality")
 
         self.logger.info(
             f"RAGService initialized with collection '{self.collection_name}'"
@@ -417,15 +444,16 @@ class RAGService:
         """
         Performs a similarity search against the ChromaDB collection.
 
-        Uses the core `execute_similarity_search` logic and handles potential
-        errors, re-raising them as RAGService-specific exceptions.
+        Uses intelligent query enhancement when available, otherwise falls back
+        to the basic search logic.
 
         Args:
             query_embedding: The embedding vector of the search query.
             query_text: The original query string (for logging and context).
             k: The number of top results to return after all filtering.
             filters: Optional dictionary of metadata filters to apply.
-                     Expected to include `skills_query` if skills post-filtering is desired.
+            required_skills: DEPRECATED - Use query_text for intelligent parsing
+            preferred_skills: DEPRECATED - Use query_text for intelligent parsing
 
         Returns:
             A tuple containing:
@@ -443,21 +471,188 @@ class RAGService:
             )
             raise RAGServiceError("ChromaDB collection not initialized or accessible.")
 
+        # 🧠 Use intelligent search if available
+        if (
+            self._intelligent_search_enabled
+            and self.query_enhancement_service
+            and self.skills_taxonomy_service
+        ):
+            return await self._intelligent_similarity_search(
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k,
+                filters=filters,
+            )
+        else:
+            # Fallback to legacy search with warning
+            if required_skills or preferred_skills:
+                logger.warning(
+                    "⚠️ Using deprecated skills parameters - intelligent search not available. "
+                    "Query text should contain skill requirements for best results."
+                )
+
+            return await self._legacy_similarity_search(
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k,
+                filters=filters,
+                required_skills=required_skills,
+                preferred_skills=preferred_skills,
+            )
+
+    async def _intelligent_similarity_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        k: int,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        🧠 INTELLIGENT SIMILARITY SEARCH using QueryEnhancementService
+
+        This method:
+        1. Parses the query using LLM to understand intent
+        2. Performs semantic search with ChromaDB
+        3. Applies intelligent skills filtering
+        4. Returns properly filtered candidates
+        """
+        logger.info(f"🧠 Starting intelligent similarity search for: '{query_text}'")
+        search_start_time = time.time()
+
+        try:
+            # Step 1: Parse query intent using LLM
+            logger.info("🔍 Step 1: Parsing query intent...")
+            enhancement_result = await self.query_enhancement_service.enhance_query(
+                query_text
+            )
+            query_intent = enhancement_result.query_intent
+
+            logger.info(
+                f"✅ Query parsed - Role: {query_intent.role_type}, "
+                f"Skills: {len(query_intent.required_skills)} required, "
+                f"{len(query_intent.preferred_skills)} preferred, "
+                f"Confidence: {query_intent.confidence_score:.2f}"
+            )
+
+            # Step 2: Perform basic semantic search with ChromaDB
+            logger.info("🔍 Step 2: Performing semantic search...")
+
+            # Use legacy search logic for ChromaDB retrieval (no skills filtering yet)
+            enhanced_filters = filters.copy() if filters else {}
+
+            results, count_before_skills_filter = await execute_similarity_search(
+                collection=self.collection,
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k * 3,  # Get more results for better filtering
+                filters=enhanced_filters,
+            )
+
+            logger.info(
+                f"📊 ChromaDB returned {len(results)} candidates for intelligent filtering"
+            )
+
+            # Step 3: Apply intelligent skills filtering
+            if query_intent.has_skills_filter() and results:
+                logger.info("🔍 Step 3: Applying intelligent skills filtering...")
+
+                # Import here to avoid circular imports
+                from app.services.search_utils import apply_intelligent_skills_filter
+
+                filtered_results = await apply_intelligent_skills_filter(
+                    candidates=results,
+                    query_intent=query_intent,
+                    skills_taxonomy_service=self.skills_taxonomy_service,
+                    strict_filtering=True,
+                    min_skill_match_score=0.6,
+                )
+
+                logger.info(
+                    f"📊 Intelligent filtering: {len(filtered_results)}/{len(results)} candidates passed skills filter"
+                )
+            else:
+                filtered_results = results
+                logger.info(
+                    "🔍 Step 3: No skills filtering needed - returning all semantic matches"
+                )
+
+            # Step 4: Apply final result limiting and sorting
+            final_results = filtered_results[:k]
+
+            # Step 5: Enhanced logging
+            search_time = (time.time() - search_start_time) * 1000
+            logger.info(
+                f"🎯 Intelligent search completed in {search_time:.1f}ms: "
+                f"{len(final_results)} final candidates"
+            )
+
+            if final_results:
+                top_result = final_results[0]
+                metadata = top_result.get("metadata", {})
+                relevance = 1.0 - float(top_result.get("distance", 1.0))
+                match_explanation = top_result.get(
+                    "match_explanation", "No explanation"
+                )
+                logger.info(
+                    f"   Top match: {metadata.get('name', 'Unknown')} "
+                    f"(relevance: {relevance:.3f}) - {match_explanation}"
+                )
+
+            return final_results, count_before_skills_filter
+
+        except Exception as e:
+            logger.error(f"❌ Intelligent search failed: {e}", exc_info=True)
+            # Fallback to legacy search
+            logger.info("🔄 Falling back to legacy search...")
+            return await self._legacy_similarity_search(
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k,
+                filters=filters,
+                required_skills=None,
+                preferred_skills=None,
+            )
+
+    async def _legacy_similarity_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        k: int,
+        filters: Optional[Dict[str, Any]] = None,
+        required_skills: Optional[List[str]] = None,
+        preferred_skills: Optional[List[str]] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        🔄 LEGACY SIMILARITY SEARCH (original implementation)
+
+        This is the original search logic kept for backward compatibility
+        and as a fallback when intelligent search fails.
+        """
         logger.debug(
-            f"RAGService: Initiating similarity search in collection '{self.collection_name}' with k={k}, filters={filters is not None}."
+            f"RAGService: Initiating legacy similarity search in collection '{self.collection_name}' with k={k}, filters={filters is not None}."
         )
         try:
+            # Add skills to filters for post-filtering
+            enhanced_filters = filters.copy() if filters else {}
+            if required_skills:
+                enhanced_filters["skills_query"] = required_skills
+                logger.info(f"🔍 RAG: Added skills to filters: {required_skills}")
+            else:
+                logger.info(f"🔍 RAG: No required_skills provided")
+
+            logger.info(f"🔍 RAG: Enhanced filters: {enhanced_filters}")
+
             # execute_similarity_search is already async
             results, count_before_post_filter = await execute_similarity_search(
                 collection=self.collection,
                 query_embedding=query_embedding,
                 query_text=query_text,
                 k=k,
-                filters=filters,
+                filters=enhanced_filters,
             )
 
             # 🔍 CONCISE SEARCH RESULTS LOGGING
-            logger.info(f"🔍 Search completed: {len(results)} candidates found")
+            logger.info(f"🔍 Legacy search completed: {len(results)} candidates found")
             if results:
                 top_result = results[0]
                 metadata = top_result.get("metadata", {})
@@ -467,7 +662,7 @@ class RAGService:
                 )
 
             logger.info(
-                f"RAGService: Similarity search completed. Candidates found (after post-filter, limited by k): {len(results)}. Candidates before post-filter: {count_before_post_filter}."
+                f"RAGService: Legacy similarity search completed. Candidates found (after post-filter, limited by k): {len(results)}. Candidates before post-filter: {count_before_post_filter}."
             )
             return results, count_before_post_filter
         except OpsSearchOperationError as e:

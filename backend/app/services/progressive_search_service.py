@@ -67,14 +67,30 @@ class ProgressiveSearchService:
 
         # Level 0: Exact search with all filters
         logger.info(f"🎯 Level 0: Exact search with all filters")
-        results, count_before_filter = await self.rag_service.similarity_search(
-            query_embedding=query_embedding,
-            query_text=original_query,
-            k=k,
-            filters=enhanced_filters,
-            required_skills=required_skills or [],
-            preferred_skills=preferred_skills or [],
-        )
+        try:
+            results, count_before_filter = await self.rag_service.similarity_search(
+                query_embedding=query_embedding,
+                query_text=original_query,
+                k=k,
+                filters=enhanced_filters,
+                required_skills=required_skills or [],
+                preferred_skills=preferred_skills or [],
+            )
+        except Exception as e:
+            logger.error(f"❌ Level 0 search failed: {e}")
+            logger.info(f"🔄 Falling back to basic unfiltered search...")
+            # Fallback: Basic search without problematic filters
+            fallback_filters = {}  # Remove all filters that might cause issues
+            results, count_before_filter = await self.rag_service.similarity_search(
+                query_embedding=query_embedding,
+                query_text=original_query,
+                k=k,
+                filters=fallback_filters,
+                required_skills=[],
+                preferred_skills=[],
+            )
+            search_metadata["fallback_used"] = True
+            search_metadata["fallback_reason"] = f"Level 0 error: {str(e)}"
 
         search_metadata["total_attempts"] += 1
 
@@ -125,7 +141,6 @@ class ProgressiveSearchService:
         search_metadata["suggestions"] = await self._get_comprehensive_suggestions(
             original_query, enhanced_filters
         )
-
         return [], search_metadata
 
     def _get_relaxed_filters(
@@ -179,10 +194,10 @@ class ProgressiveSearchService:
     def _get_strategy_name(self, level: int) -> str:
         """Get human-readable strategy name for the fallback level."""
         strategy_names = {
-            1: "relaxed_location",
-            2: "core_skills_only",
-            3: "essential_match",
-            4: "broad_search",
+            1: "exact_match",
+            2: "exact_match",
+            3: "exact_match",
+            4: "exact_match",
         }
         return strategy_names.get(level, f"fallback_level_{level}")
 
@@ -233,10 +248,8 @@ class ProgressiveSearchService:
                 )
 
         elif level == 4:
-            suggestions.append("Found results with very broad criteria")
-            suggestions.append(
-                "Consider refining your search with different skills or locations"
-            )
+            # Remove noisy suggestions for broad search
+            pass
 
         return suggestions
 

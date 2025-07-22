@@ -8,6 +8,10 @@ import re
 import logging
 from fuzzywuzzy import fuzz
 
+from app.services.query_enhancement_service import QueryEnhancementService
+from app.services.skills_taxonomy_service import SkillsTaxonomyService
+from app.models.query_models import QueryIntent, SkillMatch
+
 logger = logging.getLogger(__name__)
 
 # Skill synonyms and related skills
@@ -976,9 +980,29 @@ def extract_skills_from_query(query: str) -> List[str]:
     query_lower = query.lower()
     extracted = []
 
-    # Check for categories first
+    # Add simple synonyms/variations for common phrases
+    skill_variations = {
+        "web development": "web developer",
+        "web dev": "web developer",
+        "cloud": "cloud engineer",
+        "cloud skills": "cloud engineer",
+        "cloud computing": "cloud engineer",
+        "data science": "data scientist",
+        "machine learning": "data scientist",
+        "ml": "data scientist",
+        "ai": "data scientist",
+    }
+
+    # Replace variations in query for better category matching
+    normalized_query = query_lower
+    for variation, category in skill_variations.items():
+        if variation in normalized_query:
+            normalized_query = normalized_query.replace(variation, category)
+            logger.info(f"🔄 Normalized '{variation}' → '{category}'")
+
+    # Check for categories first (using normalized query)
     for category, skills in SKILL_CATEGORIES.items():
-        if category in query_lower:
+        if category in normalized_query:
             extracted.extend(skills)
             logger.info(f"🎯 Found category '{category}' → Added skills: {skills}")
 
@@ -1031,13 +1055,31 @@ def extract_experience_level(query: str) -> Optional[Dict[str, Any]]:
         (r"\b(junior|jr|entry.?level|new.?grad|graduate|intern)\b", "junior", 0),
         (r"\b(senior|sr|lead|principal|staff|expert)\b", "senior", 7),
         (r"\b(mid.?level|intermediate|experienced)\b", "mid", 3),
-        (r"\b(\d+).?(year|yr)s?\s+(experience|exp)\b", "numeric", None),
+        # Handle "more than X years", "over X years", etc.
+        (
+            r"\b(?:more\s+than|over|above|greater\s+than)\s+(\d+)\s+(?:years?|yrs?)\b",
+            "more_than",
+            None,
+        ),
+        # Handle "X+ years", "X or more years"
+        (r"\b(\d+)\+\s+(?:years?|yrs?)\b", "plus", None),
+        (r"\b(\d+)\s+or\s+more\s+(?:years?|yrs?)\b", "or_more", None),
+        # Original numeric pattern
+        (r"\b(\d+).?(?:years?|yrs?)\s+(?:of\s+)?(?:experience|exp)\b", "numeric", None),
     ]
 
     for pattern, level, min_years in experience_patterns:
         match = re.search(pattern, query_lower)
         if match:
-            if level == "numeric":
+            if level in ["more_than", "plus", "or_more"]:
+                # Extract the number from the first capturing group
+                years = int(match.group(1))
+                result = {
+                    "level": "custom",
+                    "min_years": years,  # Use exact number for "more than X"
+                    "extracted_years": years,
+                }
+            elif level == "numeric":
                 years = int(re.search(r"\d+", match.group()).group())
                 if years <= 2:
                     result = {
@@ -1259,11 +1301,12 @@ def enhance_search_query(
             "Using exclusions - results will avoid mentioned technologies"
         )
 
-    if (
-        not enhancements["extracted_location"]
-        and not enhancements["advanced_location"]["work_arrangement"]
-    ):
-        suggestions.append("Consider adding location or 'Remote' to refine results")
+    # Remove noisy location suggestions that clutter the UI
+    # if (
+    #     not enhancements["extracted_location"]
+    #     and not enhancements["advanced_location"]["work_arrangement"]
+    # ):
+    #     suggestions.append("Consider adding location or 'Remote' to refine results")
 
     enhancements["suggestions"] = suggestions
 
@@ -1274,43 +1317,331 @@ def enhance_search_query(
     return enhancements
 
 
+# 🚨 COMPLETELY REWRITTEN: Intelligent Skills Filtering
+async def apply_intelligent_skills_filter(
+    candidates: List[Dict[str, Any]],
+    query_intent: QueryIntent,
+    skills_taxonomy_service: SkillsTaxonomyService,
+    strict_filtering: bool = True,
+    min_skill_match_score: float = 0.6,
+) -> List[Dict[str, Any]]:
+    """
+    🧠 INTELLIGENT SKILLS FILTERING with semantic understanding
+
+    Uses QueryIntent and SkillsTaxonomyService for LinkedIn-quality filtering.
+    This replaces the broken fuzzy matching logic that let all candidates pass.
+
+    Args:
+        candidates: List of candidate dictionaries from ChromaDB
+        query_intent: Parsed query intent with skills information
+        skills_taxonomy_service: Service for skill expansion and similarity
+        strict_filtering: If True, requires at least one required skill match
+        min_skill_match_score: Minimum score for skill matching (0.0-1.0)
+
+    Returns:
+        Filtered list of candidates who actually match the skills criteria
+    """
+    if not candidates:
+        return []
+
+    # If no skills filter is specified, return all candidates
+    if not query_intent.has_skills_filter():
+        logger.info("🔍 No skills filter specified - returning all candidates")
+        return candidates
+
+    required_skills = [skill.skill for skill in query_intent.required_skills]
+    preferred_skills = [skill.skill for skill in query_intent.preferred_skills]
+
+    logger.info(f"🧠 INTELLIGENT filtering {len(candidates)} candidates with:")
+    logger.info(f"   Required skills: {required_skills}")
+    logger.info(f"   Preferred skills: {preferred_skills}")
+    logger.info(f"   Min match score: {min_skill_match_score}")
+
+    filtered_candidates = []
+    total_candidates = len(candidates)
+
+    for i, candidate in enumerate(candidates):
+        # Extract candidate skills from metadata
+        metadata = candidate.get("metadata", {})
+        candidate_skills_raw = metadata.get("skills", "")
+        candidate_name = metadata.get("name", f"Candidate {i+1}")
+
+        # Parse candidate skills (handle various formats)
+        candidate_skills = await _parse_candidate_skills(candidate_skills_raw)
+
+        if not candidate_skills:
+            logger.debug(f"⚠️ Candidate {candidate_name} has no skills - excluding")
+            continue
+
+        # Calculate skill match scores
+        skill_match_result = await _calculate_skill_match_scores(
+            candidate_skills=candidate_skills,
+            required_skills=query_intent.required_skills,
+            preferred_skills=query_intent.preferred_skills,
+            skills_taxonomy_service=skills_taxonomy_service,
+            min_score_threshold=min_skill_match_score,
+        )
+
+        # Apply filtering logic
+        passes_filter = await _evaluate_candidate_skill_match(
+            skill_match_result=skill_match_result,
+            candidate_name=candidate_name,
+            strict_filtering=strict_filtering,
+            log_details=(i < 3),  # Log details for first 3 candidates
+        )
+
+        if passes_filter:
+            # Add match metadata to candidate
+            candidate["skill_match_score"] = skill_match_result["overall_score"]
+            candidate["required_skills_matched"] = skill_match_result[
+                "required_matches"
+            ]
+            candidate["preferred_skills_matched"] = skill_match_result[
+                "preferred_matches"
+            ]
+            candidate["match_explanation"] = skill_match_result["explanation"]
+
+            filtered_candidates.append(candidate)
+
+    # Log results
+    filter_effectiveness = (
+        ((total_candidates - len(filtered_candidates)) / total_candidates * 100)
+        if total_candidates > 0
+        else 0
+    )
+
+    logger.info(
+        f"📊 INTELLIGENT filtering complete: {len(filtered_candidates)}/{total_candidates} candidates passed"
+    )
+    logger.info(
+        f"🎯 Filter effectiveness: {filter_effectiveness:.1f}% candidates filtered out"
+    )
+
+    # 🚨 CRITICAL: Warn if filtering is ineffective
+    if filter_effectiveness < 10 and len(required_skills) > 0:
+        logger.warning(
+            f"🚨 LOW FILTERING EFFECTIVENESS: Only {filter_effectiveness:.1f}% filtered out with {len(required_skills)} required skills!"
+        )
+
+    return filtered_candidates
+
+
+async def _parse_candidate_skills(skills_raw: Any) -> List[str]:
+    """Parse candidate skills from various formats into normalized list"""
+    if not skills_raw:
+        return []
+
+        if isinstance(skills_raw, str):
+        # Handle malformed list-like strings: "['Python', 'React', ...]"
+            if skills_raw.startswith("['") or skills_raw.startswith('["'):
+                matches = re.findall(r"'([^']*)'|\"([^\"]*)\"", skills_raw)
+                candidate_skills = [
+                    match[0] or match[1] for match in matches if match[0] or match[1]
+                ]
+            else:
+                # Normal comma-separated string
+            candidate_skills = [s.strip() for s in skills_raw.split(",") if s.strip()]
+    elif isinstance(skills_raw, list):
+        candidate_skills = [str(s).strip() for s in skills_raw if s]
+        else:
+        return []
+
+    # Normalize and clean skills
+    normalized_skills = []
+    for skill in candidate_skills:
+        if skill and len(skill.strip()) > 0:
+            # Basic cleaning
+            clean_skill = skill.strip().lower()
+            clean_skill = re.sub(r"[^\w\s\+\#\.]", "", clean_skill).strip()
+            if clean_skill and len(clean_skill) >= 2:  # Minimum skill length
+                normalized_skills.append(clean_skill)
+
+    return normalized_skills
+
+
+async def _calculate_skill_match_scores(
+    candidate_skills: List[str],
+    required_skills: List[SkillMatch],
+    preferred_skills: List[SkillMatch],
+    skills_taxonomy_service: SkillsTaxonomyService,
+    min_score_threshold: float,
+) -> Dict[str, Any]:
+    """
+    Calculate comprehensive skill match scores using multiple methods:
+    1. Exact matches
+    2. Synonym matches
+    3. Semantic similarity
+    4. Fuzzy string matching
+    """
+
+    required_matches = []
+    preferred_matches = []
+
+    # Check required skills
+    for required_skill in required_skills:
+        best_match = await _find_best_skill_match(
+            target_skill=required_skill,
+            candidate_skills=candidate_skills,
+            skills_taxonomy_service=skills_taxonomy_service,
+            min_score_threshold=min_score_threshold,
+        )
+
+        if best_match:
+            required_matches.append(best_match)
+
+    # Check preferred skills
+    for preferred_skill in preferred_skills:
+        best_match = await _find_best_skill_match(
+            target_skill=preferred_skill,
+            candidate_skills=candidate_skills,
+            skills_taxonomy_service=skills_taxonomy_service,
+            min_score_threshold=min_score_threshold,
+        )
+
+        if best_match:
+            preferred_matches.append(best_match)
+
+    # Calculate overall score
+    required_score = (
+        len(required_matches) / max(1, len(required_skills)) if required_skills else 1.0
+    )
+    preferred_score = (
+        len(preferred_matches) / max(1, len(preferred_skills))
+        if preferred_skills
+        else 0.0
+    )
+
+    # Weighted overall score (required skills more important)
+    overall_score = (required_score * 0.8) + (preferred_score * 0.2)
+
+    # Create explanation
+    explanation_parts = []
+    if required_matches:
+        req_skills = [match["target_skill"] for match in required_matches]
+        explanation_parts.append(f"Required: {', '.join(req_skills)}")
+    if preferred_matches:
+        pref_skills = [match["target_skill"] for match in preferred_matches]
+        explanation_parts.append(f"Preferred: {', '.join(pref_skills)}")
+
+    explanation = (
+        " | ".join(explanation_parts) if explanation_parts else "No skill matches"
+    )
+
+    return {
+        "required_matches": required_matches,
+        "preferred_matches": preferred_matches,
+        "required_score": required_score,
+        "preferred_score": preferred_score,
+        "overall_score": overall_score,
+        "explanation": explanation,
+    }
+
+
+async def _find_best_skill_match(
+    target_skill: SkillMatch,
+    candidate_skills: List[str],
+    skills_taxonomy_service: SkillsTaxonomyService,
+    min_score_threshold: float,
+) -> Optional[Dict[str, Any]]:
+    """Find the best match for a target skill among candidate skills"""
+
+    target_skill_name = target_skill.skill.lower()
+    best_match = None
+    best_score = 0.0
+
+    for candidate_skill in candidate_skills:
+        candidate_skill_lower = candidate_skill.lower()
+
+        # 1. Exact match (highest priority)
+        if target_skill_name == candidate_skill_lower:
+            return {
+                "target_skill": target_skill_name,
+                "matched_skill": candidate_skill_lower,
+                "score": 1.0,
+                "match_type": "exact",
+            }
+
+        # 2. Check synonyms
+        synonyms = await skills_taxonomy_service.get_skill_synonyms(target_skill_name)
+        if candidate_skill_lower in [s.lower() for s in synonyms]:
+            score = 0.95
+            if score > best_score:
+                best_score = score
+                best_match = {
+                    "target_skill": target_skill_name,
+                    "matched_skill": candidate_skill_lower,
+                    "score": score,
+                    "match_type": "synonym",
+                }
+
+        # 3. Semantic similarity (using taxonomy service)
+        similarity_score = await skills_taxonomy_service.compute_skill_similarity(
+            target_skill_name, candidate_skill_lower
+        )
+
+        if similarity_score > best_score and similarity_score >= min_score_threshold:
+            best_score = similarity_score
+            best_match = {
+                "target_skill": target_skill_name,
+                "matched_skill": candidate_skill_lower,
+                "score": similarity_score,
+                "match_type": "semantic" if similarity_score >= 0.8 else "fuzzy",
+            }
+
+    return best_match if best_score >= min_score_threshold else None
+
+
+async def _evaluate_candidate_skill_match(
+    skill_match_result: Dict[str, Any],
+    candidate_name: str,
+    strict_filtering: bool,
+    log_details: bool = False,
+) -> bool:
+    """Evaluate if a candidate passes the skill filter based on match results"""
+
+    required_matches = skill_match_result["required_matches"]
+    required_score = skill_match_result["required_score"]
+    overall_score = skill_match_result["overall_score"]
+
+    if log_details:
+        logger.info(f"🔍 Evaluating {candidate_name}:")
+        logger.info(f"   Required matches: {len(required_matches)}")
+        logger.info(f"   Required score: {required_score:.2f}")
+        logger.info(f"   Overall score: {overall_score:.2f}")
+        logger.info(f"   Explanation: {skill_match_result['explanation']}")
+
+    # Strict filtering: Must have at least one required skill match
+    if strict_filtering:
+        passes = len(required_matches) > 0
+        if log_details:
+            logger.info(f"   Result: {'PASS' if passes else 'FAIL'} (strict mode)")
+        return passes
+
+    # Lenient filtering: Overall score threshold
+    passes = overall_score >= 0.3
+    if log_details:
+        logger.info(f"   Result: {'PASS' if passes else 'FAIL'} (lenient mode)")
+    return passes
+
+
+# 🚨 DEPRECATED: Mark old function as deprecated
 def apply_fuzzy_skills_filter(
     candidates: List[Dict[str, Any]],
     required_skills: List[str],
     preferred_skills: List[str] = None,
     fuzzy_threshold: float = 0.8,
 ) -> List[Dict[str, Any]]:
-    """Apply fuzzy skills filtering with required and preferred skills"""
-    preferred_skills = preferred_skills or []
-    filtered = []
-    for candidate in candidates:
-        candidate_skills = [s.lower() for s in candidate.get("skills", [])]
-        candidate_text = " ".join(candidate_skills)
+    """
+    🚨 DEPRECATED: This function has critical bugs and lets all candidates pass.
+    Use apply_intelligent_skills_filter() instead.
+    """
+    logger.error(
+        "🚨 DEPRECATED FUNCTION CALLED: apply_fuzzy_skills_filter() has critical bugs!"
+    )
+    logger.error("   Use apply_intelligent_skills_filter() instead")
 
-        # Check required skills - all must match
-        required_matches = sum(
-            1
-            for req in required_skills
-            if any(
-                fuzz.ratio(req.lower(), cand.lower()) >= fuzzy_threshold
-                for cand in candidate_skills
-            )
-        )
-        if required_matches < len(required_skills):
-            continue
-
-        # Preferred skills - count matches for scoring (but not filtering out)
-        preferred_matches = sum(
-            1
-            for pref in preferred_skills
-            if any(
-                fuzz.ratio(pref.lower(), cand.lower()) >= fuzzy_threshold
-                for cand in candidate_skills
-            )
-        )
-        candidate["preferred_match_score"] = preferred_matches / max(
-            1, len(preferred_skills)
-        )
-
-        filtered.append(candidate)
-    return filtered
+    # For backward compatibility, return all candidates but log the issue
+    logger.warning(
+        f"   Returning all {len(candidates)} candidates due to deprecated function usage"
+    )
+    return candidates

@@ -1,458 +1,511 @@
 """
-LLM-Powered Query Enhancement Service for RecruiterRadar MVP.
+Query Enhancement Service
 
-Uses GPT-4o-mini to intelligently parse natural language queries and expand them
-with related skills, role-based inferences, and better search intent understanding.
+This service transforms natural language search queries into structured search intent
+using OpenAI LLM. It handles:
+- Role identification and skill expansion
+- Experience level parsing
+- Location normalization
+- Skills categorization and synonym handling
+- Confidence scoring and fallback mechanisms
+
+The service is the core of the intelligent search system, enabling LinkedIn-quality
+natural language search capabilities.
 """
 
-from typing import Dict, List, Optional, Set, Any, Tuple
 import json
-import re
 import logging
-import asyncio
-from datetime import datetime
+import time
+from typing import Dict, Any, Optional, List
 
-from app.services.llm_service import LLMService
+from openai import AsyncOpenAI, APIError
+from fastapi import HTTPException
+
 from app.core.config import settings
+from app.core.prompts import (
+    QUERY_INTENT_PARSING_PROMPT,
+    SKILL_EXPANSION_PROMPT,
+    LOCATION_NORMALIZATION_PROMPT,
+)
+from app.models.query_models import (
+    QueryIntent,
+    QueryEnhancementResult,
+    LocationMatch,
+    SkillMatch,
+    RoleType,
+    ExperienceLevel,
+    SkillCategory,
+)
 
 logger = logging.getLogger(__name__)
 
 
+class QueryEnhancementError(Exception):
+    """Custom exception for query enhancement errors"""
+
+    def __init__(self, message: str, original_exception: Optional[Exception] = None):
+        super().__init__(message)
+        self.original_exception = original_exception
+
+
 class QueryEnhancementService:
     """
-    🧠 LLM-POWERED QUERY ENHANCEMENT SERVICE
-
-    Transforms natural language queries into intelligent search parameters
-    that understand intent, expand related skills, and improve search accuracy.
+    Service for parsing and enhancing natural language search queries
+    using OpenAI GPT models for intelligent intent extraction.
     """
 
-    def __init__(self, llm_service: LLMService):
-        """Initialize the query enhancement service."""
-        self.llm_service = llm_service
-        self.cache = {}  # Simple cache for repeated queries
-        self.max_cache_size = 100
+    def __init__(self):
+        """Initialize the query enhancement service with OpenAI client"""
+        try:
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+            self.model = settings.chat_model_name  # gpt-4o-mini
+            logger.info(f"QueryEnhancementService initialized with model: {self.model}")
+        except Exception as e:
+            logger.error(f"Failed to initialize QueryEnhancementService: {e}")
+            raise QueryEnhancementError(f"Initialization failed: {e}", e)
 
     async def enhance_query(
-        self, query: str, existing_filters: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+        self, query: str, fallback_on_error: bool = True
+    ) -> QueryEnhancementResult:
         """
-        🚀 MAIN ENHANCEMENT FUNCTION
-
-        Takes a natural language query and returns enhanced search parameters.
+        Main method to enhance a natural language query into structured intent.
 
         Args:
-            query: Natural language query (e.g., "python developers in California")
-            existing_filters: Any existing search filters
+            query: Natural language search query
+            fallback_on_error: Whether to use fallback parsing if LLM fails
 
         Returns:
-            Enhanced query parameters with expanded skills, locations, etc.
+            QueryEnhancementResult with parsed intent and metadata
         """
-        if not query or not query.strip():
-            return self._get_fallback_enhancement()
-
-        # Check cache first
-        cache_key = f"{query.lower().strip()}_{str(existing_filters)}"
-        if cache_key in self.cache:
-            logger.info(f"🎯 Using cached enhancement for: '{query}'")
-            return self.cache[cache_key]
+        start_time = time.time()
 
         logger.info(f"🧠 Enhancing query: '{query}'")
 
+        # Handle empty or whitespace-only queries
+        if not query or not query.strip():
+            return self._create_empty_query_result(query, start_time)
+
         try:
-            # Use LLM to intelligently parse the query
-            logger.info(f"🤖 Calling LLM for query enhancement: '{query}'")
-            enhancement_result = await self._llm_enhance_query(
-                query, existing_filters or {}
+            # Parse query using LLM
+            query_intent = await self._parse_query_with_llm(query)
+
+            # Enhance with additional skills if role is detected
+            if query_intent.role_type:
+                query_intent = await self._expand_role_skills(query_intent)
+
+            processing_time = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"✅ Query enhanced successfully: role={query_intent.role_type}, "
+                f"skills={len(query_intent.required_skills)}, "
+                f"confidence={query_intent.confidence_score:.2f}"
             )
-            logger.info("✅ LLM enhancement successful")
 
-            # Post-process and validate the results
-            final_result = self._post_process_enhancement(
-                enhancement_result, query, existing_filters or {}
+            return QueryEnhancementResult(
+                query_intent=query_intent,
+                processing_time_ms=processing_time,
+                llm_tokens_used=None,  # TODO: Track token usage
+                fallback_used=False,
+                enhancement_version="1.0",
             )
-
-            # Cache the result
-            self._add_to_cache(cache_key, final_result)
-
-            logger.info(f"✅ Query enhancement completed successfully")
-            return final_result
 
         except Exception as e:
-            logger.error(f"❌ LLM query enhancement failed: {str(e)}", exc_info=True)
-            # Fallback to basic enhancement without raising
-            return self._get_basic_enhancement(query, existing_filters or {})
+            logger.warning(f"LLM query parsing failed: {e}")
 
-    async def _llm_enhance_query(
-        self, query: str, existing_filters: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        🤖 Use GPT-4o-mini to intelligently enhance the query.
-        """
-        # Construct a focused prompt for query enhancement
-        prompt = f"""You are an expert recruiter query analyzer. Parse this search query and extract structured information to help find the best candidates.
+            if fallback_on_error:
+                logger.info("Using fallback query parsing")
+                query_intent = await self._fallback_parse_query(query)
+                processing_time = (time.time() - start_time) * 1000
 
-SEARCH QUERY: "{query}"
+                return QueryEnhancementResult(
+                    query_intent=query_intent,
+                    processing_time_ms=processing_time,
+                    llm_tokens_used=None,
+                    fallback_used=True,
+                    enhancement_version="1.0",
+                )
+            else:
+                raise QueryEnhancementError(f"Query enhancement failed: {e}", e)
 
-Analyze this query and provide a JSON response with the following structure:
-
-{{
-    "intent": {{
-        "primary_role": "the main job role being searched for",
-        "seniority_level": "junior|mid|senior|lead|principal|null",
-        "employment_type": "full-time|part-time|contract|intern|null"
-    }},
-    "skills": {{
-        "required_skills": ["essential skills that candidates MUST have"],
-        "preferred_skills": ["nice-to-have skills that would be valuable"],
-        "technology_stack": ["specific technologies, frameworks, languages"],
-        "skill_categories": ["frontend|backend|fullstack|mobile|data|devops|ml|security|design"]
-    }},
-    "location": {{
-        "primary_location": "main location mentioned or null",
-        "work_arrangement": "remote|hybrid|onsite|null",
-        "location_flexibility": "strict|flexible|null"
-    }},
-    "experience": {{
-        "min_years": "minimum years of experience or null",
-        "max_years": "maximum years of experience or null",
-        "specific_experience": ["specific experience requirements"]
-    }},
-    "expanded_search_terms": ["additional related terms to improve search"],
-    "search_intent_confidence": "how confident you are about the search intent (0.0-1.0)"
-}}
-
-EXAMPLES:
-
-Query: "senior python developers"
-→ Required skills: ["Python"], Preferred: ["Django", "FastAPI", "Flask"], Role: "Software Engineer", Seniority: "senior"
-
-Query: "web developers with React experience"
-→ Required skills: ["React", "JavaScript"], Preferred: ["TypeScript", "HTML", "CSS", "Node.js"], Categories: ["frontend", "fullstack"]
-
-Query: "backend engineers in California"
-→ Required skills: ["Backend Development"], Preferred: ["API Design", "Databases", "Python", "Java", "Node.js"], Location: "California"
-
-Query: "full stack developers for remote work"
-→ Required skills: ["Full-stack Development"], Preferred: ["React", "Node.js", "Python", "JavaScript"], Work arrangement: "remote"
-
-Query: "machine learning engineers with 5+ years experience"
-→ Required skills: ["Machine Learning"], Preferred: ["Python", "TensorFlow", "PyTorch", "Data Science"], Min years: 5
-
-Be intelligent about:
-1. Role inference: "web developers" includes frontend, backend, and fullstack developers
-2. Technology ecosystems: React developers likely know JavaScript, TypeScript, HTML, CSS
-3. Seniority parsing: "senior", "lead", "principal", "junior", years of experience
-4. Location understanding: cities, states, regions, remote work preferences
-5. Skill relationships: ML engineers likely know Python, data scientists know statistics
-
-Provide ONLY the JSON response, no additional text."""
-
+    async def _parse_query_with_llm(self, query: str) -> QueryIntent:
+        """Parse query using OpenAI LLM with structured prompts"""
         try:
-            response = await self.llm_service.client.chat.completions.create(
-                model=settings.chat_model_name,
+            prompt = QUERY_INTENT_PARSING_PROMPT.format(query=query)
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert recruiter query analyzer. Always respond with valid JSON that matches the specified structure exactly.",
+                        "content": "You are an expert recruiter search assistant. Parse queries accurately and return only valid JSON.",
                     },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.1,  # Low temperature for consistent parsing
-                max_tokens=800,
-                response_format={"type": "json_object"},
+                max_tokens=1500,
+                timeout=30.0,
             )
 
             content = response.choices[0].message.content
             if not content:
-                raise Exception("Empty response from LLM")
+                raise QueryEnhancementError("Empty response from LLM")
 
-            # Parse the JSON response
-            enhancement_data = json.loads(content)
+            # Parse JSON response
+            try:
+                parsed_data = json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM JSON response: {content}")
+                raise QueryEnhancementError(f"Invalid JSON from LLM: {e}", e)
 
-            logger.info(
-                f"🤖 LLM enhancement result: {json.dumps(enhancement_data, indent=2)}"
+            # Convert to QueryIntent model
+            query_intent = self._convert_llm_response_to_query_intent(
+                query, parsed_data
             )
-            return enhancement_data
 
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ Failed to parse LLM JSON response: {e}")
-            raise Exception(f"LLM returned invalid JSON: {e}")
-        except Exception as e:
-            logger.error(f"❌ LLM query enhancement failed: {e}")
-            raise
+            return query_intent
 
-    def _post_process_enhancement(
-        self,
-        llm_result: Dict[str, Any],
-        original_query: str,
-        existing_filters: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        🔧 Post-process and validate LLM enhancement results.
-        """
-        # Start with existing filters
-        enhanced_filters = existing_filters.copy()
+        except APIError as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise QueryEnhancementError(f"OpenAI API error: {e}", e)
 
-        # Extract and validate skills
-        skills_data = llm_result.get("skills", {})
-        required_skills = skills_data.get("required_skills", [])
-        preferred_skills = skills_data.get("preferred_skills", [])
-
-        # Combine required and preferred skills for the search
-        all_skills = required_skills + preferred_skills
-        if all_skills:
-            enhanced_filters["skills_query"] = all_skills
-            enhanced_filters["required_skills"] = required_skills
-            enhanced_filters["preferred_skills"] = preferred_skills
-
-        # Extract location information
-        location_data = llm_result.get("location", {})
-        if not enhanced_filters.get("location") and location_data.get(
-            "primary_location"
-        ):
-            enhanced_filters["location"] = location_data["primary_location"]
-
-        # Extract experience requirements
-        experience_data = llm_result.get("experience", {})
-        if not enhanced_filters.get("min_experience") and experience_data.get(
-            "min_years"
-        ):
-            try:
-                enhanced_filters["min_experience"] = int(experience_data["min_years"])
-            except (ValueError, TypeError):
-                pass
-
-        # Build enhanced query metadata
-        enhancement_metadata = {
-            "original_query": original_query,
-            "enhanced_filters": enhanced_filters,
-            "intent_analysis": llm_result.get("intent", {}),
-            "skill_categories": skills_data.get("skill_categories", []),
-            "technology_stack": skills_data.get("technology_stack", []),
-            "work_arrangement": location_data.get("work_arrangement"),
-            "confidence": llm_result.get("search_intent_confidence", 0.8),
-            "expanded_terms": llm_result.get("expanded_search_terms", []),
-            "enhancement_timestamp": datetime.utcnow().isoformat(),
-            "enhancement_method": "llm_powered",
-        }
-
-        # Flatten LLM output for easier access
-        enhancements = {}
-        # Extract location with null handling
-        extracted_location = location_data.get("primary_location")
-        if extracted_location == "null":
-            extracted_location = None
-        enhancements["extracted_location"] = extracted_location
-
-        # Extract skills - combine required and preferred
-        extracted_skills = skills_data.get("required_skills", []) + skills_data.get(
-            "preferred_skills", []
-        )
-        enhancements["extracted_skills"] = extracted_skills
-
-        # Extract experience
-        extracted_experience = {}
-        min_years = experience_data.get("min_years")
-        if min_years != "null" and min_years is not None:
-            try:
-                extracted_experience["min_years"] = int(min_years)
-            except ValueError:
-                pass
-        enhancements["extracted_experience"] = (
-            extracted_experience if extracted_experience else None
-        )
-
-        return {
-            **enhancement_metadata,
-            "enhanced_filters": enhanced_filters,
-            **enhancements,
-        }
-
-    def _get_basic_enhancement(
-        self, query: str, existing_filters: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        🔧 FALLBACK: Basic rule-based enhancement when LLM fails.
-        """
-        logger.info(f"🔧 Using basic enhancement fallback for: '{query}'")
-
-        enhanced_filters = existing_filters.copy()
-
-        # Basic skill extraction using patterns
-        basic_skills = self._extract_basic_skills(query)
-        if basic_skills:
-            enhanced_filters["skills_query"] = basic_skills
-
-        # Basic location extraction
-        basic_location = self._extract_basic_location(query)
-        if basic_location and not enhanced_filters.get("location"):
-            enhanced_filters["location"] = basic_location
-
-        # Basic experience extraction
-        basic_experience = self._extract_basic_experience(query)
-        if basic_experience and not enhanced_filters.get("min_experience"):
-            enhanced_filters["min_experience"] = basic_experience
-
-        return {
-            "original_query": query,
-            "enhanced_filters": enhanced_filters,
-            "enhancement_method": "basic_fallback",
-            "confidence": 0.6,
-            "enhancement_timestamp": datetime.utcnow().isoformat(),
-        }
-
-    def _extract_basic_skills(self, query: str) -> List[str]:
-        """Extract skills using basic pattern matching."""
-        skills = []
-        query_lower = query.lower()
-
-        # Common technology patterns
-        tech_patterns = {
-            r"\b(python|py)\b": "Python",
-            r"\b(javascript|js)\b": "JavaScript",
-            r"\b(typescript|ts)\b": "TypeScript",
-            r"\b(react|reactjs)\b": "React",
-            r"\b(node|nodejs|node\.js)\b": "Node.js",
-            r"\b(java)\b": "Java",
-            r"\b(c\+\+|cpp)\b": "C++",
-            r"\b(html|css)\b": "Frontend",
-            r"\b(sql|database)\b": "SQL",
-            r"\b(aws|cloud)\b": "AWS",
-            r"\b(docker|kubernetes)\b": "DevOps",
-        }
-
-        for pattern, skill in tech_patterns.items():
-            if re.search(pattern, query_lower):
-                skills.append(skill)
-
-        # Role-based skill inference
-        if re.search(r"\b(web|frontend|front-end)\b", query_lower):
-            skills.extend(["JavaScript", "HTML", "CSS", "React"])
-        elif re.search(r"\b(backend|back-end|api)\b", query_lower):
-            skills.extend(["Python", "Java", "API Design", "Databases"])
-        elif re.search(r"\b(fullstack|full-stack)\b", query_lower):
-            skills.extend(["JavaScript", "React", "Node.js", "Python"])
-        elif re.search(r"\b(data|ml|machine learning)\b", query_lower):
-            skills.extend(["Python", "Machine Learning", "Data Science"])
-
-        return list(set(skills))  # Remove duplicates
-
-    def _extract_basic_location(self, query: str) -> Optional[str]:
-        """Extract location using basic pattern matching."""
-        location_patterns = [
-            r"\b(california|ca|san francisco|sf|los angeles|la)\b",
-            r"\b(new york|ny|nyc|manhattan)\b",
-            r"\b(texas|tx|austin|houston)\b",
-            r"\b(washington|wa|seattle)\b",
-            r"\b(remote|wfh|work from home)\b",
-        ]
-
-        query_lower = query.lower()
-        for pattern in location_patterns:
-            match = re.search(pattern, query_lower)
-            if match:
-                return match.group(0).title()
-
-        return None
-
-    def _extract_basic_experience(self, query: str) -> Optional[int]:
-        """Extract experience requirements using basic patterns."""
-        # Look for patterns like "5+ years", "senior", etc.
-        experience_patterns = [
-            (r"(\d+)\+?\s*years?", lambda m: int(m.group(1))),
-            (r"\bsenior\b", lambda m: 5),
-            (r"\blead\b", lambda m: 7),
-            (r"\bjunior\b", lambda m: 0),
-            (r"\bintern\b", lambda m: 0),
-        ]
-
-        query_lower = query.lower()
-        for pattern, extractor in experience_patterns:
-            match = re.search(pattern, query_lower)
-            if match:
+    def _convert_llm_response_to_query_intent(
+        self, original_query: str, data: Dict[str, Any]
+    ) -> QueryIntent:
+        """Convert LLM JSON response to QueryIntent model with validation"""
+        try:
+            # Convert role_type string to enum
+            role_type = None
+            if data.get("role_type"):
                 try:
-                    return extractor(match)
-                except:
-                    continue
+                    role_type = RoleType(data["role_type"])
+                except ValueError:
+                    logger.warning(f"Unknown role type: {data['role_type']}")
 
+            # Convert experience_level string to enum
+            experience_level = None
+            if data.get("experience_level"):
+                try:
+                    experience_level = ExperienceLevel(data["experience_level"])
+                except ValueError:
+                    logger.warning(
+                        f"Unknown experience level: {data['experience_level']}"
+                    )
+
+            # Convert skills to SkillMatch objects
+            required_skills = []
+            for skill_data in data.get("required_skills", []):
+                skill_match = self._create_skill_match(skill_data)
+                if skill_match:
+                    required_skills.append(skill_match)
+
+            preferred_skills = []
+            for skill_data in data.get("preferred_skills", []):
+                skill_match = self._create_skill_match(skill_data)
+                if skill_match:
+                    preferred_skills.append(skill_match)
+
+            # Convert location data to LocationMatch object
+            location_match = None
+            if data.get("location_match"):
+                location_data = data["location_match"]
+                location_match = LocationMatch(
+                    original_query=location_data.get("original_query", ""),
+                    normalized_location=location_data.get("normalized_location"),
+                    city=location_data.get("city"),
+                    state=location_data.get("state"),
+                    country=location_data.get("country"),
+                    confidence_score=location_data.get("confidence_score", 0.0),
+                    is_valid=location_data.get("is_valid", False),
+                    suggested_radius_km=location_data.get("suggested_radius_km"),
+                )
+
+            # Create QueryIntent object
+            query_intent = QueryIntent(
+                original_query=original_query,
+                role_type=role_type,
+                role_keywords=data.get("role_keywords", []),
+                experience_level=experience_level,
+                experience_years_min=data.get("experience_years_min"),
+                experience_years_max=data.get("experience_years_max"),
+                required_skills=required_skills,
+                preferred_skills=preferred_skills,
+                excluded_skills=data.get("excluded_skills", []),
+                location_match=location_match,
+                confidence_score=data.get("confidence_score", 0.0),
+                is_empty_query=data.get("is_empty_query", False),
+                parsing_errors=data.get("parsing_errors", []),
+                additional_filters=data.get("additional_filters", {}),
+            )
+
+            return query_intent
+
+        except Exception as e:
+            logger.error(f"Failed to convert LLM response to QueryIntent: {e}")
+            raise QueryEnhancementError(f"Response conversion failed: {e}", e)
+
+    def _create_skill_match(self, skill_data: Dict[str, Any]) -> Optional[SkillMatch]:
+        """Create SkillMatch object from LLM skill data"""
+        try:
+            skill_category = None
+            if skill_data.get("category"):
+                try:
+                    skill_category = SkillCategory(skill_data["category"])
+            except ValueError:
+                    logger.warning(f"Unknown skill category: {skill_data['category']}")
+
+            return SkillMatch(
+                skill=skill_data.get("skill", "").lower(),
+                category=skill_category,
+                confidence_score=skill_data.get("confidence_score", 1.0),
+                is_exact_match=skill_data.get("is_exact_match", True),
+                synonyms=skill_data.get("synonyms", []),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create SkillMatch from {skill_data}: {e}")
         return None
 
-    def _get_fallback_enhancement(self) -> Dict[str, Any]:
-        """Provide fallback enhancement for empty queries."""
-        return {
-            "original_query": "",
-            "enhanced_filters": {},
-            "enhancement_method": "empty_query_fallback",
-            "confidence": 0.3,
-            "suggestions": [
-                "Try specific skills like 'Python' or 'React'",
-                "Specify experience level like 'Senior' or 'Junior'",
-                "Add location like 'California' or 'Remote'",
+    async def _expand_role_skills(self, query_intent: QueryIntent) -> QueryIntent:
+        """Expand skills based on detected role type using LLM"""
+        if not query_intent.role_type:
+            return query_intent
+
+        try:
+            mentioned_skills = [
+                skill.skill
+                for skill in query_intent.required_skills
+                + query_intent.preferred_skills
+            ]
+
+            prompt = SKILL_EXPANSION_PROMPT.format(
+                role_type=query_intent.role_type.value,
+                mentioned_skills=(
+                    ", ".join(mentioned_skills) if mentioned_skills else "None"
+                ),
+            )
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a technical recruiter expert. Return only valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=1000,
+                timeout=20.0,
+            )
+
+            content = response.choices[0].message.content
+            if content:
+                expansion_data = json.loads(content)
+
+                # Add additional required skills
+                for skill_data in expansion_data.get("additional_required_skills", []):
+                    skill_match = self._create_skill_match(skill_data)
+                    if skill_match and skill_match.skill not in mentioned_skills:
+                        query_intent.required_skills.append(skill_match)
+
+                # Add additional preferred skills
+                for skill_data in expansion_data.get("additional_preferred_skills", []):
+                    skill_match = self._create_skill_match(skill_data)
+                    if skill_match and skill_match.skill not in mentioned_skills:
+                        query_intent.preferred_skills.append(skill_match)
+
+                logger.info(
+                    f"Expanded skills for {query_intent.role_type.value}: "
+                    f"+{len(expansion_data.get('additional_required_skills', []))} required, "
+                    f"+{len(expansion_data.get('additional_preferred_skills', []))} preferred"
+                )
+
+        except Exception as e:
+            logger.warning(f"Skills expansion failed for {query_intent.role_type}: {e}")
+
+        return query_intent
+
+    async def _fallback_parse_query(self, query: str) -> QueryIntent:
+        """Fallback query parsing using simple keyword matching"""
+        logger.info(f"Using fallback parsing for: '{query}'")
+
+        query_lower = query.lower().strip()
+
+        # Simple role detection
+        role_type = None
+        role_keywords = []
+
+        role_mappings = {
+            RoleType.FRONTEND_DEVELOPER: [
+                "frontend",
+                "front-end",
+                "react",
+                "angular",
+                "vue",
+                "ui",
+                "web developer",
             ],
-            "enhancement_timestamp": datetime.utcnow().isoformat(),
+            RoleType.BACKEND_DEVELOPER: [
+                "backend",
+                "back-end",
+                "api",
+                "server",
+                "python",
+                "java",
+                "node",
+            ],
+            RoleType.FULLSTACK_DEVELOPER: ["fullstack", "full-stack", "full stack"],
+            RoleType.CLOUD_ENGINEER: [
+                "cloud",
+                "aws",
+                "azure",
+                "gcp",
+                "devops",
+                "kubernetes",
+                "docker",
+            ],
+            RoleType.DATA_SCIENTIST: [
+                "data scientist",
+                "machine learning",
+                "ml",
+                "ai",
+                "data analyst",
+            ],
+            RoleType.MOBILE_DEVELOPER: [
+                "mobile",
+                "ios",
+                "android",
+                "react native",
+                "flutter",
+            ],
         }
 
-    def _add_to_cache(self, key: str, result: Dict[str, Any]) -> None:
-        """Add result to cache with size management."""
-        if len(self.cache) >= self.max_cache_size:
-            # Remove oldest entry
-            oldest_key = next(iter(self.cache))
-            del self.cache[oldest_key]
+        for role, keywords in role_mappings.items():
+            for keyword in keywords:
+                if keyword in query_lower:
+                    role_type = role
+                    role_keywords.append(keyword)
+                    break
+            if role_type:
+                break
 
-        self.cache[key] = result
+        # Simple experience detection
+        experience_level = None
+        if any(word in query_lower for word in ["senior", "sr", "experienced"]):
+            experience_level = ExperienceLevel.SENIOR
+        elif any(word in query_lower for word in ["junior", "entry", "new grad"]):
+            experience_level = ExperienceLevel.JUNIOR
+        elif any(word in query_lower for word in ["mid", "intermediate"]):
+            experience_level = ExperienceLevel.MID
 
-    def get_enhancement_suggestions(
-        self, failed_query: str, result_count: int
-    ) -> List[str]:
+        # Simple skills extraction - look for common technologies
+        common_skills = [
+            "python",
+            "java",
+            "javascript",
+            "react",
+            "angular",
+            "vue",
+            "node",
+            "typescript",
+            "aws",
+            "azure",
+            "docker",
+            "kubernetes",
+            "sql",
+            "mongodb",
+            "postgresql",
+            "html",
+            "css",
+            "git",
+            "linux",
+            "bash",
+            "tensorflow",
+            "pytorch",
+        ]
+
+        found_skills = []
+        for skill in common_skills:
+            if skill in query_lower:
+                found_skills.append(
+                    SkillMatch(
+                        skill=skill,
+                        confidence_score=0.8,
+                        is_exact_match=True,
+                        synonyms=[],
+                    )
+                )
+
+        return QueryIntent(
+            original_query=query,
+            role_type=role_type,
+            role_keywords=role_keywords,
+            experience_level=experience_level,
+            required_skills=found_skills,
+            preferred_skills=[],
+            excluded_skills=[],
+            location_match=None,
+            confidence_score=0.5,  # Lower confidence for fallback
+            is_empty_query=len(query.strip()) == 0,
+            parsing_errors=["Used fallback parsing due to LLM failure"],
+            additional_filters={},
+        )
+
+    def _create_empty_query_result(
+        self, query: str, start_time: float
+    ) -> QueryEnhancementResult:
+        """Create result for empty or invalid queries"""
+        processing_time = (time.time() - start_time) * 1000
+
+        query_intent = QueryIntent(
+            original_query=query,
+            confidence_score=0.0,
+            is_empty_query=True,
+            parsing_errors=[] if not query else ["Empty query provided"],
+        )
+
+        return QueryEnhancementResult(
+            query_intent=query_intent,
+            processing_time_ms=processing_time,
+            fallback_used=False,
+            enhancement_version="1.0",
+        )
+
+    async def normalize_location(self, location: str) -> Optional[LocationMatch]:
         """
-        💡 GET SUGGESTIONS when query enhancement doesn't find good results.
+        Standalone method to normalize location queries.
 
         Args:
-            failed_query: The query that didn't work well
-            result_count: Number of results found
+            location: Location string to normalize
 
         Returns:
-            List of suggestions to improve the search
+            LocationMatch object or None if invalid
         """
-        suggestions = []
+        if not location or not location.strip():
+            return None
 
-        if result_count == 0:
-            suggestions.extend(
-                [
-                    "Try broader terms (e.g., 'developer' instead of specific frameworks)",
-                    "Remove location restrictions or try 'Remote'",
-                    "Reduce experience requirements",
-                    "Try related technologies (e.g., 'JavaScript' for React developers)",
-                ]
+        try:
+            prompt = LOCATION_NORMALIZATION_PROMPT.format(location=location)
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a geographic location expert. Return only valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=500,
+                timeout=15.0,
             )
-        elif result_count < 5:
-            suggestions.extend(
-                [
-                    "Try related skills or frameworks",
-                    "Consider broader location search",
-                    "Look for related job titles",
-                ]
-            )
 
-        # Add query-specific suggestions
-        query_lower = failed_query.lower()
-        if "senior" in query_lower:
-            suggestions.append("Try 'experienced' instead of 'senior'")
-        if any(tech in query_lower for tech in ["react", "angular", "vue"]):
-            suggestions.append("Try 'frontend developer' for broader results")
-        if any(tech in query_lower for tech in ["python", "java", "node"]):
-            suggestions.append("Try 'backend developer' for broader results")
+            content = response.choices[0].message.content
+            if content:
+                location_data = json.loads(content)
+                return LocationMatch(**location_data)
 
-        return suggestions[:4]  # Limit to 4 suggestions
+        except Exception as e:
+            logger.warning(f"Location normalization failed for '{location}': {e}")
 
-
-# Global service instance
-query_enhancement_service = None
-
-
-def get_query_enhancement_service(llm_service: LLMService) -> QueryEnhancementService:
-    """Get or create the global query enhancement service instance."""
-    global query_enhancement_service
-    if query_enhancement_service is None:
-        query_enhancement_service = QueryEnhancementService(llm_service)
-    return query_enhancement_service
+        return None

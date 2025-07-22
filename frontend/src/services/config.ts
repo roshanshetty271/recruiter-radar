@@ -3,6 +3,8 @@ export const config = {
   api: {
     baseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
     timeout: 15000,
+    // Timeout (in ms) for intelligent search operations (LLM + vector search)
+    searchTimeout: 45000,
     // Timeout (in ms) for heavy, long-running operations such as multi-file resume uploads
     longTimeout: 120000,
     retries: 3,

@@ -2,7 +2,11 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 import chromadb  # For type hinting collection: chromadb.api.models.Collection.Collection
-from ..search_utils import skills_match_fuzzy, boost_relevance_score
+from ..search_utils import (
+    skills_match_fuzzy,
+    boost_relevance_score,
+    # apply_fuzzy_skills_filter,  # DEPRECATED - using semantic search instead
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +99,9 @@ async def execute_similarity_search(
 
     res_ids = results["ids"][0]
 
+    # 🚨 NEW: Diagnostic logging for candidate data quality
+    logger.info(f"🔧 DIAGNOSTIC: ChromaDB returned {len(res_ids)} initial candidates")
+
     # Robust defaulting for documents, metadatas, and distances
     num_ids = len(res_ids)
 
@@ -123,6 +130,36 @@ async def execute_similarity_search(
         temp_distances if len(temp_distances) == num_ids else ([None] * num_ids)
     )
 
+    # 🚨 NEW: Sample skills data from first 3 candidates
+    unique_skills_sample = set()
+    logger.info(f"🔧 DIAGNOSTIC: Sampling skills from first 3 ChromaDB results:")
+    for i in range(min(3, len(res_metadatas))):
+        metadata = res_metadatas[i] or {}
+        skills_raw = metadata.get("skills", "")
+        candidate_name = metadata.get("name", f"Candidate_{i+1}")
+        logger.info(f"   {candidate_name}: skills='{skills_raw}'")
+
+        # Parse skills to understand what we're working with
+        if isinstance(skills_raw, str) and skills_raw.strip():
+            if skills_raw.startswith("['") or skills_raw.startswith('["'):
+                import re
+
+                matches = re.findall(r"'([^']*)'|\"([^\"]*)\"", skills_raw)
+                parsed_skills = [
+                    match[0] or match[1] for match in matches if match[0] or match[1]
+                ]
+            else:
+                parsed_skills = [s.strip() for s in skills_raw.split(",") if s.strip()]
+
+            unique_skills_sample.update([s.lower() for s in parsed_skills])
+            logger.info(f"      → Parsed: {parsed_skills}")
+        else:
+            logger.info(f"      → No skills found")
+
+    logger.info(
+        f"🔧 DIAGNOSTIC: Sample of unique skills in database: {sorted(list(unique_skills_sample))[:10]}..."
+    )
+
     # Split query into terms for relevance boosting
     query_terms = [term.strip() for term in query_text.lower().split() if term.strip()]
 
@@ -149,6 +186,37 @@ async def execute_similarity_search(
         )
         formatted_results.append(formatted_res)
 
+    # 🚨 NEW: Diagnostic logging for similarity scores
+    logger.info(f"🔧 DIAGNOSTIC: Similarity score analysis for query '{query_text}':")
+    logger.info(
+        f"   Distance range: {min(res_distances):.3f} - {max(res_distances):.3f}"
+    )
+    logger.info(
+        f"   Distance variance: {(max(res_distances) - min(res_distances)):.3f}"
+    )
+
+    # Show top 3 and bottom 3 distance scores
+    sorted_by_distance = sorted(enumerate(res_distances), key=lambda x: x[1])
+    logger.info(f"   Top 3 most similar (lowest distance):")
+    for i, (idx, dist) in enumerate(sorted_by_distance[:3]):
+        name = (
+            res_metadatas[idx].get("name", "Unknown")
+            if res_metadatas[idx]
+            else "Unknown"
+        )
+        logger.info(f"      {i+1}. {name}: distance={dist:.3f}")
+
+    logger.info(f"   Bottom 3 least similar (highest distance):")
+    for i, (idx, dist) in enumerate(
+        sorted_by_distance[-3:], start=len(sorted_by_distance) - 2
+    ):
+        name = (
+            res_metadatas[idx].get("name", "Unknown")
+            if res_metadatas[idx]
+            else "Unknown"
+        )
+        logger.info(f"      {i}. {name}: distance={dist:.3f}")
+
     # Sort by relevance score
     formatted_results.sort(key=lambda x: x.get("relevance_score", 0.0), reverse=True)
 
@@ -157,15 +225,19 @@ async def execute_similarity_search(
         f"execute_similarity_search: Retrieved {count_before_post_filter} candidates from ChromaDB before skills post-filtering."
     )
 
-    # Apply fuzzy skills filter if skills are provided
+    # LEGACY: Skills filtering disabled - relying on semantic search discrimination
+    # The ChromaDB semantic search provides good candidate filtering based on query relevance
     if skills_to_post_filter:
-        logger.info(f"🔍 Skills matching: Required: {skills_to_post_filter}")
-        filtered_results = skills_match_fuzzy(formatted_results, skills_to_post_filter)
+        logger.info(f"🔍 Skills requested: {skills_to_post_filter}")
         logger.info(
-            f"📊 {len(filtered_results)} candidates remaining after fuzzy skills matching."
+            f"📊 Using semantic search discrimination (legacy path) - {len(formatted_results)} candidates."
         )
     else:
-        filtered_results = formatted_results
+        logger.info(
+            f"📊 No specific skills requested - {len(formatted_results)} candidates."
+        )
+
+    filtered_results = formatted_results
 
     # Sort by preferred match score if available, else by distance
     filtered_results.sort(
@@ -194,7 +266,7 @@ async def execute_similarity_search(
                 matches, confidence, reason = location_service.location_matches(
                     search_location=location_to_post_filter,
                     candidate_location=candidate_location,
-                    confidence_threshold=0.6,  # Allow more flexible matching
+                    confidence_threshold=0.8,  # 🚨 INCREASED: More strict filtering to prevent false matches
                 )
 
                 if matches:
