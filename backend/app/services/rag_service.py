@@ -440,6 +440,7 @@ class RAGService:
         filters: Optional[Dict[str, Any]] = None,
         required_skills: Optional[List[str]] = None,
         preferred_skills: Optional[List[str]] = None,
+        query_intent: Optional[QueryIntent] = None,  # 🚀 NEW: Accept pre-parsed intent
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Performs a similarity search against the ChromaDB collection.
@@ -454,6 +455,7 @@ class RAGService:
             filters: Optional dictionary of metadata filters to apply.
             required_skills: DEPRECATED - Use query_text for intelligent parsing
             preferred_skills: DEPRECATED - Use query_text for intelligent parsing
+            query_intent: 🚀 NEW - Pre-parsed query intent to avoid redundant AI calls
 
         Returns:
             A tuple containing:
@@ -482,6 +484,7 @@ class RAGService:
                 query_text=query_text,
                 k=k,
                 filters=filters,
+                query_intent=query_intent,  # 🚀 NEW: Pass pre-parsed intent
             )
         else:
             # Fallback to legacy search with warning
@@ -506,12 +509,13 @@ class RAGService:
         query_text: str,
         k: int,
         filters: Optional[Dict[str, Any]] = None,
+        query_intent: Optional[QueryIntent] = None,  # 🚀 NEW: Accept pre-parsed intent
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
-        🧠 INTELLIGENT SIMILARITY SEARCH using QueryEnhancementService
+        🚀 OPTIMIZED INTELLIGENT SIMILARITY SEARCH (No redundant AI calls!)
 
         This method:
-        1. Parses the query using LLM to understand intent
+        1. Uses pre-parsed query intent (if provided) OR parses query using LLM
         2. Performs semantic search with ChromaDB
         3. Applies intelligent skills filtering
         4. Returns properly filtered candidates
@@ -520,19 +524,30 @@ class RAGService:
         search_start_time = time.time()
 
         try:
-            # Step 1: Parse query intent using LLM
-            logger.info("🔍 Step 1: Parsing query intent...")
-            enhancement_result = await self.query_enhancement_service.enhance_query(
-                query_text
-            )
-            query_intent = enhancement_result.query_intent
+            # Step 1: Use pre-parsed intent OR parse query intent using LLM
+            if query_intent:
+                # 🚀 OPTIMIZED: Use already-parsed intent (no redundant AI call!)
+                logger.info("⚡ Step 1: Using pre-parsed query intent (FAST PATH)")
+                logger.info(
+                    f"✅ Using cached intent - Role: {query_intent.role_type}, "
+                    f"Skills: {len(query_intent.required_skills)} required, "
+                    f"{len(query_intent.preferred_skills)} preferred, "
+                    f"Confidence: {query_intent.confidence_score:.2f}"
+                )
+            else:
+                # 🐌 FALLBACK: Parse query intent using LLM (only if not provided)
+                logger.info("🔍 Step 1: Parsing query intent (fallback path)...")
+                enhancement_result = await self.query_enhancement_service.enhance_query(
+                    query_text
+                )
+                query_intent = enhancement_result.query_intent
 
-            logger.info(
-                f"✅ Query parsed - Role: {query_intent.role_type}, "
-                f"Skills: {len(query_intent.required_skills)} required, "
-                f"{len(query_intent.preferred_skills)} preferred, "
-                f"Confidence: {query_intent.confidence_score:.2f}"
-            )
+                logger.info(
+                    f"✅ Query parsed - Role: {query_intent.role_type}, "
+                    f"Skills: {len(query_intent.required_skills)} required, "
+                    f"{len(query_intent.preferred_skills)} preferred, "
+                    f"Confidence: {query_intent.confidence_score:.2f}"
+                )
 
             # Step 2: Perform basic semantic search with ChromaDB
             logger.info("🔍 Step 2: Performing semantic search...")
@@ -552,8 +567,8 @@ class RAGService:
                 f"📊 ChromaDB returned {len(results)} candidates for intelligent filtering"
             )
 
-            # Step 3: Apply intelligent skills filtering
-            if query_intent.has_skills_filter() and results:
+            # Step 3: Apply intelligent skills filtering - ALWAYS TRY TO FILTER
+            if results and query_intent:
                 logger.info("🔍 Step 3: Applying intelligent skills filtering...")
 
                 # Import here to avoid circular imports
@@ -570,10 +585,19 @@ class RAGService:
                 logger.info(
                     f"📊 Intelligent filtering: {len(filtered_results)}/{len(results)} candidates passed skills filter"
                 )
+
+                # If filtering removed too many candidates, log the issue
+                if len(filtered_results) == 0 and len(results) > 0:
+                    logger.warning(
+                        f"⚠️ Skills filter removed ALL candidates! Query: '{query_text}'"
+                    )
+                    # For now, keep some results rather than showing none
+                    filtered_results = results[:5]
+                    logger.info(f"🔄 Fallback: Showing top 5 semantic matches instead")
             else:
                 filtered_results = results
                 logger.info(
-                    "🔍 Step 3: No skills filtering needed - returning all semantic matches"
+                    "🔍 Step 3: No query intent or results - returning all semantic matches"
                 )
 
             # Step 4: Apply final result limiting and sorting

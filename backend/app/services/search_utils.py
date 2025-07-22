@@ -1322,37 +1322,43 @@ async def apply_intelligent_skills_filter(
     candidates: List[Dict[str, Any]],
     query_intent: QueryIntent,
     skills_taxonomy_service: SkillsTaxonomyService,
-    strict_filtering: bool = True,
-    min_skill_match_score: float = 0.6,
+    strict_filtering: bool = False,  # 🚨 CHANGED: Default to lenient
+    min_skill_match_score: float = 0.3,  # 🚨 CHANGED: Much lower threshold
 ) -> List[Dict[str, Any]]:
     """
-    🧠 INTELLIGENT SKILLS FILTERING with semantic understanding
+    🚀 INCLUSIVE SKILLS FILTERING - Show MORE candidates, not fewer!
 
-    Uses QueryIntent and SkillsTaxonomyService for LinkedIn-quality filtering.
-    This replaces the broken fuzzy matching logic that let all candidates pass.
+    Philosophy: If someone has ANY relevant skill, include them!
+    Let recruiters decide who to contact, don't hide qualified candidates.
 
     Args:
         candidates: List of candidate dictionaries from ChromaDB
         query_intent: Parsed query intent with skills information
         skills_taxonomy_service: Service for skill expansion and similarity
-        strict_filtering: If True, requires at least one required skill match
+        strict_filtering: If True, requires core skill match (rarely used)
         min_skill_match_score: Minimum score for skill matching (0.0-1.0)
 
     Returns:
-        Filtered list of candidates who actually match the skills criteria
+        INCLUSIVE list of candidates with ANY relevant skills
     """
     if not candidates:
         return []
 
-    # If no skills filter is specified, return all candidates
-    if not query_intent.has_skills_filter():
-        logger.info("🔍 No skills filter specified - returning all candidates")
-        return candidates
-
+    # Extract skills but treat most as "preferred" not "required"
     required_skills = [skill.skill for skill in query_intent.required_skills]
     preferred_skills = [skill.skill for skill in query_intent.preferred_skills]
 
-    logger.info(f"🧠 INTELLIGENT filtering {len(candidates)} candidates with:")
+    # 🚀 NEW: Extract core skill from query for inclusive matching
+    core_skill = _extract_core_skill_from_query(query_intent.original_query)
+
+    # If no skills detected at all, return all candidates
+    if not required_skills and not preferred_skills and not core_skill:
+        logger.info("🔍 No skills detected in query - returning all candidates")
+        return candidates
+
+    # 🚀 CHANGED: Much more lenient approach
+    logger.info(f"🔍 INCLUSIVE filtering {len(candidates)} candidates with:")
+    logger.info(f"   Core skill: {core_skill}")
     logger.info(f"   Required skills: {required_skills}")
     logger.info(f"   Preferred skills: {preferred_skills}")
     logger.info(f"   Min match score: {min_skill_match_score}")
@@ -1370,8 +1376,17 @@ async def apply_intelligent_skills_filter(
         candidate_skills = await _parse_candidate_skills(candidate_skills_raw)
 
         if not candidate_skills:
-            logger.debug(f"⚠️ Candidate {candidate_name} has no skills - excluding")
+            # 🚀 CHANGED: Still include candidates without explicit skills
+            logger.debug(
+                f"⚠️ Candidate {candidate_name} has no explicit skills - including anyway"
+            )
+            filtered_candidates.append(candidate)
             continue
+
+        # 🚀 NEW: Check for core skill match first (most important)
+        has_core_skill = False
+        if core_skill:
+            has_core_skill = _check_core_skill_match(core_skill, candidate_skills)
 
         # Calculate skill match scores
         skill_match_result = await _calculate_skill_match_scores(
@@ -1382,10 +1397,12 @@ async def apply_intelligent_skills_filter(
             min_score_threshold=min_skill_match_score,
         )
 
-        # Apply filtering logic
-        passes_filter = await _evaluate_candidate_skill_match(
+        # 🚀 CHANGED: Much more inclusive evaluation
+        passes_filter = await _evaluate_candidate_skill_match_inclusive(
             skill_match_result=skill_match_result,
             candidate_name=candidate_name,
+            has_core_skill=has_core_skill,
+            core_skill=core_skill,
             strict_filtering=strict_filtering,
             log_details=(i < 3),  # Log details for first 3 candidates
         )
@@ -1400,30 +1417,220 @@ async def apply_intelligent_skills_filter(
                 "preferred_matches"
             ]
             candidate["match_explanation"] = skill_match_result["explanation"]
+            candidate["has_core_skill"] = has_core_skill
 
             filtered_candidates.append(candidate)
 
     # Log results
-    filter_effectiveness = (
-        ((total_candidates - len(filtered_candidates)) / total_candidates * 100)
-        if total_candidates > 0
-        else 0
+    included_count = len(filtered_candidates)
+    inclusion_rate = (
+        (included_count / total_candidates * 100) if total_candidates > 0 else 0
     )
 
     logger.info(
-        f"📊 INTELLIGENT filtering complete: {len(filtered_candidates)}/{total_candidates} candidates passed"
+        f"✅ INCLUSIVE filtering complete: {included_count}/{total_candidates} candidates included"
     )
-    logger.info(
-        f"🎯 Filter effectiveness: {filter_effectiveness:.1f}% candidates filtered out"
-    )
+    logger.info(f"🎯 Inclusion rate: {inclusion_rate:.1f}% (higher is better!)")
 
-    # 🚨 CRITICAL: Warn if filtering is ineffective
-    if filter_effectiveness < 10 and len(required_skills) > 0:
+    # 🚀 CHANGED: Warn if we're excluding too many (should rarely happen)
+    if inclusion_rate < 50 and len(required_skills) > 0:
         logger.warning(
-            f"🚨 LOW FILTERING EFFECTIVENESS: Only {filter_effectiveness:.1f}% filtered out with {len(required_skills)} required skills!"
+            f"🚨 LOW INCLUSION RATE: Only {inclusion_rate:.1f}% included - consider broadening search criteria"
         )
 
     return filtered_candidates
+
+
+def _extract_core_skill_from_query(query: str) -> Optional[str]:
+    """Extract the main skill being searched for from the query"""
+    query_lower = query.lower()
+
+    # Common patterns for core skills
+    core_skill_patterns = {
+        "java": ["java developer", "java engineer", "java programmer", "java"],
+        "python": [
+            "python developer",
+            "python engineer",
+            "python programmer",
+            "python",
+        ],
+        "javascript": [
+            "javascript developer",
+            "js developer",
+            "javascript",
+            "web developer",
+        ],
+        "react": ["react developer", "react engineer", "react"],
+        "angular": ["angular developer", "angular engineer", "angular"],
+        "vue": ["vue developer", "vue engineer", "vue.js", "vue"],
+        "node": ["node developer", "node.js developer", "nodejs", "node.js", "node"],
+        "php": ["php developer", "php engineer", "php"],
+        "c#": ["c# developer", ".net developer", "csharp", "c#"],
+        "cpp": ["c++ developer", "cpp developer", "c++"],
+        "go": ["go developer", "golang developer", "golang", "go"],
+        "rust": ["rust developer", "rust engineer", "rust"],
+        "swift": ["swift developer", "ios developer", "swift"],
+        "kotlin": ["kotlin developer", "android developer", "kotlin"],
+        "typescript": ["typescript developer", "ts developer", "typescript"],
+        "full stack": ["full stack", "fullstack", "full-stack"],
+        "frontend": ["frontend", "front-end", "front end"],
+        "backend": ["backend", "back-end", "back end"],
+    }
+
+    for skill, patterns in core_skill_patterns.items():
+        for pattern in patterns:
+            if pattern in query_lower:
+                return skill
+
+    return None
+
+
+def _check_core_skill_match(core_skill: str, candidate_skills: List[str]) -> bool:
+    """Check if candidate has the core skill using flexible matching"""
+    core_skill_lower = core_skill.lower()
+    candidate_skills_lower = [skill.lower() for skill in candidate_skills]
+
+    # Direct match
+    if core_skill_lower in candidate_skills_lower:
+        return True
+
+    # Partial matches for common cases
+    skill_variations = {
+        "java": ["java", "spring", "hibernate", "maven", "gradle"],
+        "javascript": [
+            "javascript",
+            "js",
+            "node",
+            "react",
+            "vue",
+            "angular",
+            "typescript",
+        ],
+        "python": ["python", "django", "flask", "fastapi", "pandas", "numpy"],
+        "react": ["react", "reactjs", "react.js", "jsx"],
+        "node": ["node", "nodejs", "node.js", "express", "fastify"],
+        "full stack": [
+            "javascript",
+            "node",
+            "react",
+            "vue",
+            "angular",
+            "python",
+            "django",
+            "flask",
+        ],
+        "frontend": [
+            "javascript",
+            "react",
+            "vue",
+            "angular",
+            "html",
+            "css",
+            "typescript",
+        ],
+        "backend": [
+            "java",
+            "python",
+            "node",
+            "php",
+            "c#",
+            "go",
+            "rust",
+            "spring",
+            "django",
+        ],
+    }
+
+    variations = skill_variations.get(core_skill_lower, [core_skill_lower])
+
+    for variation in variations:
+        for candidate_skill in candidate_skills_lower:
+            if variation in candidate_skill or candidate_skill in variation:
+                return True
+
+    return False
+
+
+async def _evaluate_candidate_skill_match_inclusive(
+    skill_match_result: Dict[str, Any],
+    candidate_name: str,
+    has_core_skill: bool,
+    core_skill: Optional[str],
+    strict_filtering: bool,
+    log_details: bool = False,
+) -> bool:
+    """🚀 INCLUSIVE evaluation - include candidates with ANY relevant skills"""
+
+    required_matches = skill_match_result["required_matches"]
+    preferred_matches = skill_match_result["preferred_matches"]
+    required_score = skill_match_result["required_score"]
+    overall_score = skill_match_result["overall_score"]
+
+    if log_details:
+        logger.info(f"🔍 Evaluating {candidate_name}:")
+        logger.info(f"   Has core skill ({core_skill}): {has_core_skill}")
+        logger.info(f"   Required matches: {len(required_matches)}")
+        logger.info(f"   Preferred matches: {len(preferred_matches)}")
+        logger.info(f"   Overall score: {overall_score:.2f}")
+        logger.info(f"   Explanation: {skill_match_result['explanation']}")
+
+    # 🚀 INCLUSIVE LOGIC: Multiple ways to pass the filter
+
+    # 1. Has core skill = automatically included (most important!)
+    if has_core_skill:
+        if log_details:
+            logger.info(f"   Result: PASS (has core skill: {core_skill})")
+        return True
+
+    # 2. Has any required skill matches
+    if len(required_matches) > 0:
+        if log_details:
+            logger.info(
+                f"   Result: PASS (has {len(required_matches)} required skill matches)"
+            )
+        return True
+
+    # 3. Has multiple preferred skill matches
+    if len(preferred_matches) >= 2:
+        if log_details:
+            logger.info(
+                f"   Result: PASS (has {len(preferred_matches)} preferred skill matches)"
+            )
+        return True
+
+    # 4. Has decent overall score (lenient threshold)
+    if overall_score >= 0.2:  # Very low threshold
+        if log_details:
+            logger.info(f"   Result: PASS (overall score {overall_score:.2f} >= 0.2)")
+        return True
+
+    # 5. Only exclude if truly no relevant skills
+    if log_details:
+        logger.info(f"   Result: EXCLUDE (no relevant skills found)")
+    return False
+
+
+# 🚨 DEPRECATED: Mark old function as deprecated
+def apply_fuzzy_skills_filter(
+    candidates: List[Dict[str, Any]],
+    required_skills: List[str],
+    preferred_skills: List[str] = None,
+    fuzzy_threshold: float = 0.8,
+) -> List[Dict[str, Any]]:
+    """
+    🚨 DEPRECATED: This function has critical bugs and lets all candidates pass.
+    Use apply_intelligent_skills_filter() instead.
+    """
+    logger.error(
+        "🚨 DEPRECATED FUNCTION CALLED: apply_fuzzy_skills_filter() has critical bugs!"
+    )
+    logger.error("   Use apply_intelligent_skills_filter() instead")
+
+    # For backward compatibility, return all candidates but log the issue
+    logger.warning(
+        f"   Returning all {len(candidates)} candidates due to deprecated function usage"
+    )
+    return candidates
 
 
 async def _parse_candidate_skills(skills_raw: Any) -> List[str]:
@@ -1431,19 +1638,19 @@ async def _parse_candidate_skills(skills_raw: Any) -> List[str]:
     if not skills_raw:
         return []
 
-        if isinstance(skills_raw, str):
+    if isinstance(skills_raw, str):
         # Handle malformed list-like strings: "['Python', 'React', ...]"
-            if skills_raw.startswith("['") or skills_raw.startswith('["'):
-                matches = re.findall(r"'([^']*)'|\"([^\"]*)\"", skills_raw)
-                candidate_skills = [
-                    match[0] or match[1] for match in matches if match[0] or match[1]
-                ]
-            else:
-                # Normal comma-separated string
+        if skills_raw.startswith("['") or skills_raw.startswith('["'):
+            matches = re.findall(r"'([^']*)'|\"([^\"]*)\"", skills_raw)
+            candidate_skills = [
+                match[0] or match[1] for match in matches if match[0] or match[1]
+            ]
+        else:
+            # Normal comma-separated string
             candidate_skills = [s.strip() for s in skills_raw.split(",") if s.strip()]
     elif isinstance(skills_raw, list):
         candidate_skills = [str(s).strip() for s in skills_raw if s]
-        else:
+    else:
         return []
 
     # Normalize and clean skills
@@ -1591,57 +1798,24 @@ async def _find_best_skill_match(
     return best_match if best_score >= min_score_threshold else None
 
 
+# 🚨 DEPRECATED: Keep old function for backward compatibility
 async def _evaluate_candidate_skill_match(
     skill_match_result: Dict[str, Any],
     candidate_name: str,
     strict_filtering: bool,
     log_details: bool = False,
 ) -> bool:
-    """Evaluate if a candidate passes the skill filter based on match results"""
-
-    required_matches = skill_match_result["required_matches"]
-    required_score = skill_match_result["required_score"]
-    overall_score = skill_match_result["overall_score"]
-
-    if log_details:
-        logger.info(f"🔍 Evaluating {candidate_name}:")
-        logger.info(f"   Required matches: {len(required_matches)}")
-        logger.info(f"   Required score: {required_score:.2f}")
-        logger.info(f"   Overall score: {overall_score:.2f}")
-        logger.info(f"   Explanation: {skill_match_result['explanation']}")
-
-    # Strict filtering: Must have at least one required skill match
-    if strict_filtering:
-        passes = len(required_matches) > 0
-        if log_details:
-            logger.info(f"   Result: {'PASS' if passes else 'FAIL'} (strict mode)")
-        return passes
-
-    # Lenient filtering: Overall score threshold
-    passes = overall_score >= 0.3
-    if log_details:
-        logger.info(f"   Result: {'PASS' if passes else 'FAIL'} (lenient mode)")
-    return passes
-
-
-# 🚨 DEPRECATED: Mark old function as deprecated
-def apply_fuzzy_skills_filter(
-    candidates: List[Dict[str, Any]],
-    required_skills: List[str],
-    preferred_skills: List[str] = None,
-    fuzzy_threshold: float = 0.8,
-) -> List[Dict[str, Any]]:
-    """
-    🚨 DEPRECATED: This function has critical bugs and lets all candidates pass.
-    Use apply_intelligent_skills_filter() instead.
-    """
-    logger.error(
-        "🚨 DEPRECATED FUNCTION CALLED: apply_fuzzy_skills_filter() has critical bugs!"
-    )
-    logger.error("   Use apply_intelligent_skills_filter() instead")
-
-    # For backward compatibility, return all candidates but log the issue
+    """🚨 DEPRECATED: Use _evaluate_candidate_skill_match_inclusive instead"""
     logger.warning(
-        f"   Returning all {len(candidates)} candidates due to deprecated function usage"
+        "🚨 Using deprecated _evaluate_candidate_skill_match - upgrade to inclusive version"
     )
-    return candidates
+
+    # Fallback to inclusive evaluation
+    return await _evaluate_candidate_skill_match_inclusive(
+        skill_match_result=skill_match_result,
+        candidate_name=candidate_name,
+        has_core_skill=True,  # Assume they have core skill for backward compatibility
+        core_skill="unknown",
+        strict_filtering=strict_filtering,
+        log_details=log_details,
+    )

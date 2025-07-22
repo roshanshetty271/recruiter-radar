@@ -250,7 +250,7 @@ class QueryEnhancementService:
             if skill_data.get("category"):
                 try:
                     skill_category = SkillCategory(skill_data["category"])
-            except ValueError:
+                except ValueError:
                     logger.warning(f"Unknown skill category: {skill_data['category']}")
 
             return SkillMatch(
@@ -258,11 +258,10 @@ class QueryEnhancementService:
                 category=skill_category,
                 confidence_score=skill_data.get("confidence_score", 1.0),
                 is_exact_match=skill_data.get("is_exact_match", True),
-                synonyms=skill_data.get("synonyms", []),
             )
         except Exception as e:
-            logger.warning(f"Failed to create SkillMatch from {skill_data}: {e}")
-        return None
+            logger.error(f"Failed to create SkillMatch: {e}")
+            return None
 
     async def _expand_role_skills(self, query_intent: QueryIntent) -> QueryIntent:
         """Expand skills based on detected role type using LLM"""

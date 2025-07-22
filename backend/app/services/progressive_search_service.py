@@ -5,7 +5,7 @@ Implements intelligent fallback strategies when searches return no results,
 ensuring users always get helpful suggestions and never see empty result pages.
 """
 
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 import logging
 import asyncio
 from datetime import datetime
@@ -13,6 +13,10 @@ from datetime import datetime
 from app.services.rag_service import RAGService
 from app.services.llm_service import LLMService
 from app.services.location_service import location_service
+
+# 🚀 NEW: Import QueryIntent for type hints
+if TYPE_CHECKING:
+    from app.models.query_models import QueryIntent
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,9 @@ class ProgressiveSearchService:
         max_fallback_levels: int = 4,
         required_skills: Optional[List[str]] = None,
         preferred_skills: Optional[List[str]] = None,
+        query_intent: Optional[
+            "QueryIntent"
+        ] = None,  # 🚀 NEW: Accept pre-parsed intent
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         🎯 MAIN PROGRESSIVE SEARCH FUNCTION
@@ -51,6 +58,7 @@ class ProgressiveSearchService:
             enhanced_filters: Enhanced filters from query enhancement
             k: Number of results to return
             max_fallback_levels: Maximum fallback attempts
+            query_intent: 🚀 NEW - Pre-parsed query intent to avoid redundant AI calls
 
         Returns:
             Tuple of (results, search_metadata)
@@ -75,6 +83,7 @@ class ProgressiveSearchService:
                 filters=enhanced_filters,
                 required_skills=required_skills or [],
                 preferred_skills=preferred_skills or [],
+                query_intent=query_intent,  # 🚀 NEW: Pass pre-parsed intent
             )
         except Exception as e:
             logger.error(f"❌ Level 0 search failed: {e}")
@@ -88,6 +97,7 @@ class ProgressiveSearchService:
                 filters=fallback_filters,
                 required_skills=[],
                 preferred_skills=[],
+                query_intent=query_intent,  # 🚀 NEW: Pass pre-parsed intent to fallback too
             )
             search_metadata["fallback_used"] = True
             search_metadata["fallback_reason"] = f"Level 0 error: {str(e)}"
@@ -116,6 +126,7 @@ class ProgressiveSearchService:
                 filters=relaxed_filters,
                 required_skills=required_skills or [],
                 preferred_skills=preferred_skills or [],
+                query_intent=query_intent,  # 🚀 NEW: Pass pre-parsed intent to fallback too
             )
 
             search_metadata["total_attempts"] += 1
