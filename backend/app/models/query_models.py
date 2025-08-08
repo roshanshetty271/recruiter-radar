@@ -51,6 +51,51 @@ class SkillCategory(str, Enum):
     DOMAIN_KNOWLEDGE = "domain_knowledge"
 
 
+class ExperienceRange(BaseModel):
+    """Represents experience requirements with confidence scoring"""
+
+    min_years: Optional[int] = Field(
+        None, ge=0, description="Minimum years of experience"
+    )
+    max_years: Optional[int] = Field(
+        None, ge=0, description="Maximum years of experience"
+    )
+    confidence: float = Field(
+        default=0.9, ge=0.0, le=1.0, description="Confidence in extraction"
+    )
+    source: str = Field(
+        default="pattern_extraction", description="How this was extracted"
+    )
+
+    @validator("max_years")
+    def validate_experience_range(cls, v, values):
+        """Ensure max experience is greater than min experience"""
+        if v is not None and "min_years" in values:
+            min_years = values["min_years"]
+            if min_years is not None and v < min_years:
+                raise ValueError(
+                    "Maximum experience years must be >= minimum experience years"
+                )
+        return v
+
+
+class LocationFilter(BaseModel):
+    """Represents location filtering with confidence and metadata"""
+
+    location: str = Field(..., description="The location filter value")
+    type: str = Field(
+        default="flexible",
+        description="Type of location match (city_state, flexible, remote)",
+    )
+    confidence: float = Field(
+        default=0.9, ge=0.0, le=1.0, description="Confidence in extraction"
+    )
+    source: str = Field(
+        default="pattern_extraction", description="How this was extracted"
+    )
+    normalized: Optional[str] = Field(None, description="Normalized location name")
+
+
 class LocationMatch(BaseModel):
     """Represents a normalized location with metadata"""
 

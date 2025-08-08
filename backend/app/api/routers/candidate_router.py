@@ -64,6 +64,9 @@ from app.services.search_utils import (
     extract_location_from_query,
     enhance_search_query,
 )  # Import our new utility
+
+# 🚀 NEW: Import SmartPatternMatcher for comprehensive skill matching
+from app.services.smart_pattern_matcher import SmartPatternMatcher, MatchResult
 from app.dependencies import get_llm_service, get_rag_service, get_comparison_service
 from app.services.ai_extraction_service import AIExtractionService
 from app.services.resume_parser import ResumeParser
@@ -406,22 +409,33 @@ async def search_candidates(
             "skills": clean_skills,
         }
 
-        # 🚀 DETECT SIMPLE QUERIES: Skip AI enhancement for common patterns
-        fast_path_result = _detect_and_handle_simple_query(
+        # 🚀 SMART FAST PATH: Use comprehensive skill matching with 1000+ skills
+        fast_path_result = await _smart_fast_path_detection(
             clean_query, original_filters
         )
 
         if fast_path_result:
+            fast_path_time = time.time() - search_start_time
             logger.info(
-                f"⚡ FAST PATH: Detected simple query pattern for '{fast_path_result['core_skill']}'"
+                f"⚡ SMART FAST PATH: Detected '{fast_path_result['core_skill']}' in {fast_path_time*1000:.1f}ms"
             )
-            logger.info(f"⚡ Skipping AI enhancement - using direct skill search")
+            logger.info(
+                f"⚡ Match: {fast_path_result.get('match_details', {}).get('match_type', 'pattern')} | Confidence: {fast_path_result.get('confidence', 0.9):.2f}"
+            )
+            logger.info(
+                f"⚡ Skipping AI enhancement - using comprehensive skill matching"
+            )
 
             # Use fast path results
             enhanced_filters = fast_path_result["enhanced_filters"]
             embedding_query = fast_path_result["embedding_query"]
             enhancement_method = "fast_path"
             confidence = 0.9  # High confidence for simple queries
+
+            # 🚀 NEW: Create QueryIntent from fast path data to avoid redundant AI calls
+            fast_path_query_intent = _create_fast_path_query_intent(
+                fast_path_result, clean_query
+            )
 
             # Create simplified query_enhancements for compatibility
             query_enhancements = {
@@ -433,6 +447,7 @@ async def search_candidates(
                 "query_quality": {"quality_score": confidence, "suggestions": []},
                 "suggestions": [],
                 "fast_path_used": True,
+                "query_intent": fast_path_query_intent,  # 🚀 NEW: Add query intent
             }
 
         else:
@@ -651,12 +666,16 @@ async def search_candidates(
         progressive_service = get_progressive_search_service(rag_service, llm_service)
 
         # 🚀 OPTIMIZED: Pass query_intent to avoid redundant AI calls
-        # Extract query_intent if available from intelligent enhancement
+        # Extract query_intent from either fast path or intelligent enhancement
         parsed_query_intent = None
-        if not query_enhancements.get("fast_path_used", False):
-            # Only for intelligent enhancement (not fast path)
-            if enhancement_method == "intelligent" and "query_intent" in locals():
-                parsed_query_intent = query_intent
+        if query_enhancements.get("fast_path_used", False):
+            # Use fast path query intent
+            parsed_query_intent = query_enhancements.get("query_intent")
+            logger.info(f"⚡ Using fast path QueryIntent for search optimization")
+        elif enhancement_method == "intelligent" and "query_intent" in locals():
+            # Use intelligent enhancement query intent
+            parsed_query_intent = query_intent
+            logger.info(f"🧠 Using intelligent QueryIntent for search optimization")
 
         # 🧠 OPTIMIZED: Use intelligent search with pre-parsed intent
         all_raw_results, search_metadata = (
@@ -751,6 +770,34 @@ async def search_candidates(
 
         # ⏱️ CALCULATE TIMING
         search_time_ms = (time.time() - search_start_time) * 1000
+
+        # 🚀 PERFORMANCE MONITORING: Track optimization effectiveness
+        optimization_used = query_enhancements.get("extraction_method", "unknown")
+        was_fast_path = query_enhancements.get("fast_path_used", False)
+
+        if was_fast_path:
+            logger.info(
+                f"⚡ SMART FAST PATH PERFORMANCE: {search_time_ms:.0f}ms | {total_candidates} results | {fast_path_result.get('core_skill', 'unknown')} skill"
+            )
+            logger.info(
+                f"⚡ Optimization: {fast_path_result.get('optimization_type', 'pattern_match')} | AI calls: 0 (SKIPPED)"
+            )
+        else:
+            logger.info(
+                f"🧠 INTELLIGENT PATH PERFORMANCE: {search_time_ms:.0f}ms | {total_candidates} results | Method: {optimization_used}"
+            )
+            logger.info(f"🧠 AI enhancement used - Multiple LLM calls made")
+
+        # Performance target validation
+        target_time_ms = 3000  # 3 second target
+        if search_time_ms > target_time_ms:
+            logger.warning(
+                f"⚠️  PERFORMANCE WARNING: Search took {search_time_ms:.0f}ms (target: <{target_time_ms}ms)"
+            )
+        else:
+            logger.info(
+                f"✅ PERFORMANCE TARGET MET: {search_time_ms:.0f}ms < {target_time_ms}ms"
+            )
 
         # 💡 INTELLIGENT SUGGESTIONS based on result count and progressive search
         suggested_refinements = []
@@ -927,7 +974,7 @@ async def search_candidates(
             total_results=total_candidates,
             search_time_ms=round(search_time_ms, 2),
             query_interpretation=(
-                f"Intelligent search: '{embedding_query}'"
+                f"{'⚡ Smart fast path' if was_fast_path else '🧠 Intelligent search'}: '{embedding_query}'"
                 + (
                     f" (location: {query_enhancements.get('extracted_location', '')})"
                     if query_enhancements.get("extracted_location")
@@ -2674,367 +2721,177 @@ async def get_enhanced_candidate_details(
         )
 
 
-# 🚀 NEW: Fast Path Detection for Simple Queries
-def _detect_and_handle_simple_query(
+# 🚀 NEW: Smart Fast Path Detection with 1000+ Skills
+async def _smart_fast_path_detection(
     query: str, original_filters: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
     """
-    🚀 FAST PATH: Detect simple query patterns and return optimized search parameters.
+    🚀 SMART FAST PATH: Use comprehensive skill lists to detect 99%+ of queries.
 
-    This function identifies 90% of common recruiter queries and bypasses AI enhancement
-    for blazing fast searches (sub-2 second response times).
+    This function uses 1000+ skills and locations for instant pattern matching,
+    providing blazing fast searches (sub-2 second response times) for almost all queries.
 
-    Returns None if query is complex and needs AI enhancement.
-    Returns optimized search parameters if simple pattern detected.
+    Returns None if query is complex and needs AI enhancement (rare <1% case).
+    Returns optimized search parameters with skill/experience/location extraction.
     """
     if not query or len(query.strip()) < 2:
         return None
 
-    query_lower = query.lower().strip()
+    # Initialize smart matcher
+    matcher = SmartPatternMatcher()
 
-    # 🎯 SIMPLE PATTERNS: Most common recruiter search patterns
-    simple_patterns = {
-        # Core programming languages
-        "java": {
-            "patterns": [
-                "java developer",
-                "java engineer",
-                "java programmer",
-                "java dev",
-                "show me java",
-                "find java",
-                "java",
-            ],
-            "embedding_keywords": ["java developer software engineer programming"],
-            "skills": ["java"],
-        },
-        "python": {
-            "patterns": [
-                "python developer",
-                "python engineer",
-                "python programmer",
-                "python dev",
-                "show me python",
-                "find python",
-                "python",
-            ],
-            "embedding_keywords": ["python developer software engineer programming"],
-            "skills": ["python"],
-        },
-        "javascript": {
-            "patterns": [
-                "javascript developer",
-                "js developer",
-                "javascript engineer",
-                "javascript dev",
-                "show me javascript",
-                "find js",
-                "javascript",
-            ],
-            "embedding_keywords": ["javascript developer frontend web programming"],
-            "skills": ["javascript"],
-        },
-        "react": {
-            "patterns": [
-                "react developer",
-                "react engineer",
-                "react dev",
-                "show me react",
-                "find react",
-                "react",
-            ],
-            "embedding_keywords": ["react developer frontend javascript ui"],
-            "skills": ["react"],
-        },
-        "angular": {
-            "patterns": [
-                "angular developer",
-                "angular engineer",
-                "angular dev",
-                "show me angular",
-                "find angular",
-                "angular",
-            ],
-            "embedding_keywords": ["angular developer frontend typescript ui"],
-            "skills": ["angular"],
-        },
-        "vue": {
-            "patterns": [
-                "vue developer",
-                "vue engineer",
-                "vue.js developer",
-                "vuejs developer",
-                "vue dev",
-                "show me vue",
-                "vue",
-            ],
-            "embedding_keywords": ["vue developer frontend javascript ui"],
-            "skills": ["vue", "vue.js"],
-        },
-        "node": {
-            "patterns": [
-                "node developer",
-                "node.js developer",
-                "nodejs developer",
-                "node engineer",
-                "node dev",
-                "show me node",
-                "node.js",
-                "nodejs",
-            ],
-            "embedding_keywords": ["nodejs developer backend javascript server"],
-            "skills": ["node.js", "nodejs"],
-        },
-        "php": {
-            "patterns": [
-                "php developer",
-                "php engineer",
-                "php programmer",
-                "php dev",
-                "show me php",
-                "find php",
-                "php",
-            ],
-            "embedding_keywords": ["php developer backend web programming"],
-            "skills": ["php"],
-        },
-        # .NET ecosystem
-        "csharp": {
-            "patterns": [
-                "c# developer",
-                ".net developer",
-                "csharp developer",
-                "c# engineer",
-                ".net engineer",
-                "show me c#",
-                "show me .net",
-                "c#",
-                ".net",
-            ],
-            "embedding_keywords": ["csharp dotnet developer microsoft programming"],
-            "skills": ["c#", ".net"],
-        },
-        # Other languages
-        "go": {
-            "patterns": [
-                "go developer",
-                "golang developer",
-                "go engineer",
-                "golang engineer",
-                "show me go",
-                "show me golang",
-                "golang",
-            ],
-            "embedding_keywords": ["golang developer backend systems programming"],
-            "skills": ["go", "golang"],
-        },
-        "rust": {
-            "patterns": [
-                "rust developer",
-                "rust engineer",
-                "rust programmer",
-                "show me rust",
-                "find rust",
-                "rust",
-            ],
-            "embedding_keywords": ["rust developer systems programming performance"],
-            "skills": ["rust"],
-        },
-        "swift": {
-            "patterns": [
-                "swift developer",
-                "ios developer",
-                "swift engineer",
-                "ios engineer",
-                "show me swift",
-                "show me ios",
-                "swift",
-                "ios",
-            ],
-            "embedding_keywords": ["swift ios developer mobile apple"],
-            "skills": ["swift", "ios"],
-        },
-        "kotlin": {
-            "patterns": [
-                "kotlin developer",
-                "android developer",
-                "kotlin engineer",
-                "android engineer",
-                "show me kotlin",
-                "show me android",
-                "kotlin",
-            ],
-            "embedding_keywords": ["kotlin android developer mobile java"],
-            "skills": ["kotlin", "android"],
-        },
-        # Role-based searches
-        "frontend": {
-            "patterns": [
-                "frontend developer",
-                "front-end developer",
-                "front end developer",
-                "web developer",
-                "ui developer",
-                "show me frontend",
-                "show me web developers",
-            ],
-            "embedding_keywords": ["frontend developer web javascript html css"],
-            "skills": ["javascript", "html", "css"],
-        },
-        "backend": {
-            "patterns": [
-                "backend developer",
-                "back-end developer",
-                "back end developer",
-                "server developer",
-                "api developer",
-                "show me backend",
-            ],
-            "embedding_keywords": ["backend developer server api database"],
-            "skills": ["python", "java", "node.js"],
-        },
-        "fullstack": {
-            "patterns": [
-                "full stack developer",
-                "fullstack developer",
-                "full-stack developer",
-                "show me full stack",
-                "show me fullstack",
-            ],
-            "embedding_keywords": ["fullstack developer frontend backend javascript"],
-            "skills": ["javascript", "html", "css", "node.js"],
-        },
-        "devops": {
-            "patterns": [
-                "devops engineer",
-                "devops developer",
-                "site reliability engineer",
-                "sre",
-                "show me devops",
-            ],
-            "embedding_keywords": [
-                "devops engineer infrastructure deployment automation"
-            ],
-            "skills": ["docker", "kubernetes", "aws"],
-        },
-        "data": {
-            "patterns": [
-                "data scientist",
-                "data engineer",
-                "data analyst",
-                "show me data scientist",
-                "show me data engineer",
-            ],
-            "embedding_keywords": ["data scientist python machine learning analytics"],
-            "skills": ["python", "sql", "pandas"],
-        },
-    }
+    try:
+        # Extract skills using comprehensive matching
+        skill_matches = await matcher.extract_skills_from_query(query)
 
-    # 🔍 PATTERN MATCHING: Check if query matches any simple pattern
-    for skill_key, config in simple_patterns.items():
-        for pattern in config["patterns"]:
-            if pattern in query_lower:
-                logger.info(
-                    f"⚡ FAST PATH: Matched pattern '{pattern}' for skill '{skill_key}'"
+        if not skill_matches:
+            logger.info(
+                f"🧠 COMPLEX QUERY: No skills detected in comprehensive lists - '{query}'"
+            )
+            return None
+
+        # Get the best skill match
+        primary_skill = skill_matches[0]  # Highest confidence
+
+        # Build enhanced filters
+        enhanced_filters = original_filters.copy()
+        enhanced_filters["skills"] = primary_skill.matched_skill
+
+        # Add experience if detected
+        if primary_skill.experience_years:
+            enhanced_filters["min_experience"] = primary_skill.experience_years
+            logger.info(
+                f"📅 Experience detected: {primary_skill.experience_years}+ years"
+            )
+
+        # Extract location
+        location = matcher.extract_location(query)
+        if location:
+            enhanced_filters["location"] = location
+            logger.info(f"🗺️ Location detected: {location}")
+
+        logger.info(
+            f"⚡ SMART FAST PATH: '{primary_skill.matched_skill}' ({primary_skill.match_type} match, confidence: {primary_skill.confidence:.2f})"
+        )
+
+        return {
+            "core_skill": primary_skill.matched_skill,
+            "enhanced_filters": enhanced_filters,
+            "embedding_query": f"{primary_skill.matched_skill} developer software engineer",
+            "matched_pattern": f"smart_{primary_skill.match_type}",
+            "optimization_type": "smart_pattern_match",
+            "confidence": primary_skill.confidence,
+            "additional_skills": [
+                m.matched_skill for m in skill_matches[1:3]
+            ],  # Up to 2 more
+            "match_details": {
+                "original_skill": primary_skill.original_skill,
+                "match_type": primary_skill.match_type,
+                "experience_years": primary_skill.experience_years,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Smart fast path failed: {e}", exc_info=True)
+        return None
+
+
+# 🚀 NEW: Create QueryIntent from Fast Path Data
+def _create_fast_path_query_intent(
+    fast_path_result: Dict[str, Any], original_query: str
+):
+    """Create a QueryIntent object from fast path results to avoid redundant AI calls"""
+    from app.models.query_models import (
+        QueryIntent,
+        SkillMatch,
+        ExperienceRange,
+        LocationFilter,
+    )
+
+    try:
+        # Extract core information from fast path result
+        core_skill = fast_path_result.get("core_skill", "")
+        match_details = fast_path_result.get("match_details", {})
+        enhanced_filters = fast_path_result.get("enhanced_filters", {})
+        additional_skills = fast_path_result.get("additional_skills", [])
+
+        # Create skill matches
+        required_skills = []
+
+        # Add primary skill
+        if core_skill:
+            required_skills.append(
+                SkillMatch(
+                    skill=core_skill,
+                    confidence=fast_path_result.get("confidence", 0.9),
+                    source="smart_pattern_match",
+                    category="technical",
                 )
+            )
 
-                # 🚀 BUILD FAST PATH RESULT
-                enhanced_filters = original_filters.copy()
-
-                # Add core skill to filters (but don't make it too restrictive)
-                primary_skill = config["skills"][0]
-                enhanced_filters["skills"] = primary_skill
-
-                # Use simple embedding query optimized for semantic search
-                embedding_query = config["embedding_keywords"][0]
-
-                return {
-                    "core_skill": primary_skill,
-                    "enhanced_filters": enhanced_filters,
-                    "embedding_query": embedding_query,
-                    "matched_pattern": pattern,
-                    "optimization_type": "simple_skill_search",
-                }
-
-    # 🔍 NUMERIC EXPERIENCE PATTERNS: "5+ years Java", "senior Python developer"
-    experience_patterns = [
-        (r"(\d+)\+?\s*years?\s*(java|python|javascript|react|node|php)", r"\2"),
-        (r"senior\s+(java|python|javascript|react|node|php)", r"\1"),
-        (r"junior\s+(java|python|javascript|react|node|php)", r"\1"),
-        (r"(java|python|javascript|react|node|php)\s+with\s+(\d+)", r"\1"),
-    ]
-
-    import re
-
-    for pattern, skill_group in experience_patterns:
-        match = re.search(pattern, query_lower)
-        if match:
-            skill = match.group(1) if skill_group == r"\1" else match.group(2)
-            if skill in simple_patterns:
-                logger.info(f"⚡ FAST PATH: Matched experience pattern for '{skill}'")
-
-                enhanced_filters = original_filters.copy()
-                enhanced_filters["skills"] = skill
-
-                # Extract experience if present
-                exp_match = re.search(r"(\d+)", query_lower)
-                if exp_match:
-                    enhanced_filters["min_experience"] = int(exp_match.group(1))
-
-                return {
-                    "core_skill": skill,
-                    "enhanced_filters": enhanced_filters,
-                    "embedding_query": simple_patterns[skill]["embedding_keywords"][0],
-                    "matched_pattern": f"experience_pattern_{skill}",
-                    "optimization_type": "experience_skill_search",
-                }
-
-    # 🔍 LOCATION + SKILL PATTERNS: "Java developers in NYC", "Remote React engineers"
-    location_skill_patterns = [
-        (
-            r"(java|python|javascript|react|node|php)\s+.*\s+in\s+([a-zA-Z\s,]+)",
-            r"\1",
-            r"\2",
-        ),
-        (
-            r"(remote|remote work)\s+(java|python|javascript|react|node|php)",
-            "Remote",
-            r"\2",
-        ),
-        (
-            r"(java|python|javascript|react|node|php)\s+(remote|remote work)",
-            r"\1",
-            "Remote",
-        ),
-    ]
-
-    for pattern, location_group, skill_group in location_skill_patterns:
-        match = re.search(pattern, query_lower)
-        if match:
-            if location_group == "Remote":
-                location = "Remote"
-                skill = match.group(2) if skill_group == r"\2" else match.group(1)
-            else:
-                skill = match.group(1) if skill_group == r"\1" else match.group(2)
-                location = match.group(2) if location_group == r"\2" else match.group(1)
-
-            if skill in simple_patterns:
-                logger.info(
-                    f"⚡ FAST PATH: Matched location+skill pattern for '{skill}' in '{location}'"
+        # Add additional skills
+        for skill in additional_skills[:2]:  # Limit to 2 additional
+            required_skills.append(
+                SkillMatch(
+                    skill=skill,
+                    confidence=0.8,  # Slightly lower confidence for additional
+                    source="smart_pattern_match",
+                    category="technical",
                 )
+            )
 
-                enhanced_filters = original_filters.copy()
-                enhanced_filters["skills"] = skill
-                enhanced_filters["location"] = location.strip().title()
+        # Create experience range if detected
+        experience_range = None
+        experience_years = match_details.get("experience_years")
+        if experience_years:
+            experience_range = ExperienceRange(
+                min_years=experience_years,
+                max_years=None,  # Open-ended for fast path
+                confidence=0.9,
+                source="smart_pattern_extraction",
+            )
 
-                return {
-                    "core_skill": skill,
-                    "enhanced_filters": enhanced_filters,
-                    "embedding_query": simple_patterns[skill]["embedding_keywords"][0],
-                    "matched_pattern": f"location_skill_{skill}_{location}",
-                    "optimization_type": "location_skill_search",
-                }
+        # Create location filter if detected
+        location_filter = None
+        location = enhanced_filters.get("location")
+        if location:
+            location_filter = LocationFilter(
+                location=location,
+                type="city_state" if "," in location else "flexible",
+                confidence=0.9,
+                source="smart_pattern_extraction",
+            )
 
-    # 🚫 COMPLEX QUERY: Requires AI enhancement
-    logger.info(f"🧠 COMPLEX QUERY: '{query}' requires AI enhancement")
-    return None
+        # Create QueryIntent
+        query_intent = QueryIntent(
+            intent_type="candidate_search",
+            search_focus="skill_based",
+            confidence=fast_path_result.get("confidence", 0.9),
+            required_skills=required_skills,
+            preferred_skills=[],  # Fast path focuses on required skills
+            experience_range=experience_range,
+            location_filter=location_filter,
+            query_complexity="simple",
+            extraction_method="smart_pattern_match",
+            original_query=original_query,
+            processed_query=fast_path_result.get("embedding_query", original_query),
+            extraction_metadata={
+                "match_type": match_details.get("match_type", "smart_pattern"),
+                "pattern_confidence": fast_path_result.get("confidence", 0.9),
+                "optimization_type": fast_path_result.get(
+                    "optimization_type", "smart_pattern_match"
+                ),
+                "additional_skills_count": len(additional_skills),
+            },
+        )
+
+        logger.info(
+            f"✅ Created QueryIntent from fast path: {core_skill} ({query_intent.confidence:.2f} confidence)"
+        )
+        return query_intent
+
+    except Exception as e:
+        logger.error(
+            f"❌ Failed to create QueryIntent from fast path: {e}", exc_info=True
+        )
+        return None

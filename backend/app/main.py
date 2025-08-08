@@ -522,6 +522,12 @@ async def health_check(request: Request):
 
 
 # Add after the health endpoint
+@app.get("/ping", include_in_schema=False)
+async def ping_endpoint():
+    """Simple ping endpoint for health checks and testing."""
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+
+
 @app.get("/test", include_in_schema=False)
 async def test_endpoint(request: Request):
     """Simple test endpoint to verify backend is receiving requests."""
