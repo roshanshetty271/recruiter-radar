@@ -708,11 +708,17 @@ async def search_candidates(
         search_insights = await progressive_service.get_search_insights(search_metadata)
 
         # 📊 PAGINATION PROCESSING: Transform and paginate results
+        # IMPORTANT: Preserve order from service (already sorted by relevance desc)
         all_candidates = []
         for result_dict in all_raw_results:
             metadata = result_dict.get("metadata", {})
             distance = result_dict.get("distance", 1.0)
-            relevance_score = max(0.0, 1.0 - float(distance))
+            # Use relevance_score from service if present; else derive from distance
+            relevance_score = (
+                float(result_dict.get("relevance_score"))
+                if result_dict.get("relevance_score") is not None
+                else max(0.0, 1.0 - float(distance))
+            )
             skills_str = metadata.get("skills", "")
             candidate_skills_list = (
                 [s.strip() for s in skills_str.split(",") if s.strip()]
@@ -746,10 +752,27 @@ async def search_candidates(
                 )
             )
 
-        # 🎯 APPLY PAGINATION: Slice the results for current page
+        # 🎯 APPLY PAGINATION: Slice the results for current page (no reordering)
         total_candidates = len(all_candidates)
         end_index = skip + effective_page_size
         current_page_candidates = all_candidates[skip:end_index]
+
+        # 🛡️ ORDER INVARIANT: Ensure page starts with highest relevance
+        try:
+            if current_page_candidates:
+                first_rel = getattr(current_page_candidates[0], "relevance_score", 0.0)
+                service_top_rel = (
+                    float(all_candidates[0].relevance_score)
+                    if all_candidates and hasattr(all_candidates[0], "relevance_score")
+                    else None
+                )
+                if service_top_rel is not None and first_rel < service_top_rel:
+                    logger.error(
+                        "❌ ORDER INVARIANT VIOLATION: Page does not start with top relevance. "
+                        f"page_first={first_rel:.3f} vs service_top={service_top_rel:.3f}"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed order-invariant check: {e}")
 
         # 📈 CALCULATE PAGINATION METADATA
         total_pages = (
@@ -779,8 +802,14 @@ async def search_candidates(
             logger.info(
                 f"⚡ SMART FAST PATH PERFORMANCE: {search_time_ms:.0f}ms | {total_candidates} results | {fast_path_result.get('core_skill', 'unknown')} skill"
             )
+            # Even in fast path, intent parsing may fall back to LLM; reflect that accurately
+            ai_calls_used = (
+                "SKIPPED"
+                if query_enhancements.get("ai_calls", 0) == 0
+                else query_enhancements.get("ai_calls")
+            )
             logger.info(
-                f"⚡ Optimization: {fast_path_result.get('optimization_type', 'pattern_match')} | AI calls: 0 (SKIPPED)"
+                f"⚡ Optimization: {fast_path_result.get('optimization_type', 'pattern_match')} | AI calls: {ai_calls_used}"
             )
         else:
             logger.info(
@@ -962,6 +991,36 @@ async def search_candidates(
                 logger.info(
                     f"  ... and {len(current_page_candidates) - 3} more candidates"
                 )
+
+            # 📦 Emit a compact ID list for the page to correlate with RAW/FINAL tops
+            try:
+                page_ids = [
+                    getattr(c, "id", None) or getattr(c, "candidate_id", None)
+                    for c in current_page_candidates
+                ]
+                page_ids = [str(pid) for pid in page_ids if pid]
+                if page_ids:
+                    logger.info(f"📦 PAGE_TOP_IDS: {', '.join(page_ids[:10])}")
+            except Exception as e:
+                logger.warning(f"Failed to log PAGE_TOP_IDS: {e}")
+
+            # 🧾 FULL PAGE CANDIDATE LIST (for verification): ID | NAME | RELEVANCE | EXP | LOC | SKILLS
+            try:
+                logger.info("🧾 PAGE CANDIDATES (full list shown to user):")
+                for idx, c in enumerate(current_page_candidates, start=1):
+                    skills_str = (
+                        ", ".join(c.skills[:8])
+                        if isinstance(c.skills, list)
+                        else str(c.skills)
+                    )
+                    logger.info(
+                        (
+                            f"   {idx:>2}. id={c.id} | {c.name} | rel={c.relevance_score:.3f} | "
+                            f"exp={c.experience_years}y | loc={c.location} | skills=[{skills_str}]"
+                        )
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to log full PAGE candidates: {e}")
         else:
             logger.info("❌ No candidates found on this page.")
 
@@ -2815,7 +2874,7 @@ def _create_fast_path_query_intent(
         enhanced_filters = fast_path_result.get("enhanced_filters", {})
         additional_skills = fast_path_result.get("additional_skills", [])
 
-        # Create skill matches
+        # Create skill matches using valid SkillMatch fields
         required_skills = []
 
         # Add primary skill
@@ -2823,9 +2882,8 @@ def _create_fast_path_query_intent(
             required_skills.append(
                 SkillMatch(
                     skill=core_skill,
-                    confidence=fast_path_result.get("confidence", 0.9),
-                    source="smart_pattern_match",
-                    category="technical",
+                    confidence_score=float(fast_path_result.get("confidence", 0.9)),
+                    is_exact_match=True,
                 )
             )
 
@@ -2834,9 +2892,8 @@ def _create_fast_path_query_intent(
             required_skills.append(
                 SkillMatch(
                     skill=skill,
-                    confidence=0.8,  # Slightly lower confidence for additional
-                    source="smart_pattern_match",
-                    category="technical",
+                    confidence_score=0.8,  # Slightly lower confidence for additional
+                    is_exact_match=False,
                 )
             )
 
@@ -2864,25 +2921,11 @@ def _create_fast_path_query_intent(
 
         # Create QueryIntent
         query_intent = QueryIntent(
-            intent_type="candidate_search",
-            search_focus="skill_based",
-            confidence=fast_path_result.get("confidence", 0.9),
+            original_query=original_query,
             required_skills=required_skills,
             preferred_skills=[],  # Fast path focuses on required skills
-            experience_range=experience_range,
-            location_filter=location_filter,
-            query_complexity="simple",
-            extraction_method="smart_pattern_match",
-            original_query=original_query,
-            processed_query=fast_path_result.get("embedding_query", original_query),
-            extraction_metadata={
-                "match_type": match_details.get("match_type", "smart_pattern"),
-                "pattern_confidence": fast_path_result.get("confidence", 0.9),
-                "optimization_type": fast_path_result.get(
-                    "optimization_type", "smart_pattern_match"
-                ),
-                "additional_skills_count": len(additional_skills),
-            },
+            confidence_score=float(fast_path_result.get("confidence", 0.9)),
+            additional_filters={},
         )
 
         logger.info(

@@ -130,6 +130,34 @@ async def execute_similarity_search(
         temp_distances if len(temp_distances) == num_ids else ([None] * num_ids)
     )
 
+    # 🚨 NEW: Log top-10 RAW results by distance (pre-filter)
+    try:
+        raw_sorted = sorted(
+            [
+                (
+                    i,
+                    (
+                        res_metadatas[i].get("name", "Unknown")
+                        if res_metadatas[i]
+                        else "Unknown"
+                    ),
+                    res_ids[i],
+                    res_distances[i],
+                )
+                for i in range(len(res_ids))
+            ],
+            key=lambda x: x[3],  # sort by distance (lower is better)
+        )
+        logger.info("📊 RAW TOP (pre-filter, by distance):")
+        raw_top_ids = []
+        for rank, (idx, name, cid, dist) in enumerate(raw_sorted[:10], start=1):
+            logger.info(f"   {rank:>2}. {name} | id={cid} | distance={float(dist):.3f}")
+            raw_top_ids.append(str(cid))
+        if raw_top_ids:
+            logger.info(f"📦 RAW_TOP_IDS: {', '.join(raw_top_ids)}")
+    except Exception as e:
+        logger.warning(f"Failed to log RAW TOP results: {e}")
+
     # 🚨 NEW: Sample skills data from first 3 candidates
     unique_skills_sample = set()
     logger.info(f"🔧 DIAGNOSTIC: Sampling skills from first 3 ChromaDB results:")

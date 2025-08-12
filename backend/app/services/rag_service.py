@@ -600,8 +600,24 @@ class RAGService:
                     "🔍 Step 3: No query intent or results - returning all semantic matches"
                 )
 
-            # Step 4: Apply final result limiting and sorting
-            final_results = filtered_results[:k]
+            # Step 4: Apply final result sorting (by relevance desc, then distance asc) and limiting
+            def _final_sort_key(item: Dict[str, Any]):
+                try:
+                    if (
+                        "relevance_score" in item
+                        and item.get("relevance_score") is not None
+                    ):
+                        return (
+                            -float(item.get("relevance_score", 0.0)),
+                            float(item.get("distance", 1.0)),
+                        )
+                    # Fallback: sort by distance ascending if relevance not present
+                    return (0.0, float(item.get("distance", 1.0)))
+                except Exception:
+                    return (0.0, 1.0)
+
+            sorted_results = sorted(filtered_results, key=_final_sort_key)
+            final_results = sorted_results[:k]
 
             # Step 5: Enhanced logging
             search_time = (time.time() - search_start_time) * 1000
@@ -609,6 +625,42 @@ class RAGService:
                 f"🎯 Intelligent search completed in {search_time:.1f}ms: "
                 f"{len(final_results)} final candidates"
             )
+
+            # 📊 Log TOP-10 FINAL results (post-filter)
+            try:
+                # Sort by relevance score if present, else by distance ascending
+                def _final_sort_key(item):
+                    if "relevance_score" in item:
+                        # Higher relevance is better
+                        return (
+                            -float(item.get("relevance_score", 0.0)),
+                            float(item.get("distance", 1.0)),
+                        )
+                    return (0.0, float(item.get("distance", 1.0)))
+
+                top_final = sorted(final_results, key=_final_sort_key)[:10]
+                logger.info("📊 FINAL TOP (post-filter):")
+                final_top_ids = []
+                for rank, cand in enumerate(top_final, start=1):
+                    meta = cand.get("metadata", {})
+                    name = meta.get("name", "Unknown")
+                    cid = meta.get("candidate_id") or meta.get("id") or "Unknown"
+                    dist = cand.get("distance", 1.0)
+                    rel = cand.get("relevance_score")
+                    expl = cand.get("match_explanation", "-")
+                    if rel is not None:
+                        logger.info(
+                            f"   {rank:>2}. {name} | id={cid} | rel={float(rel):.3f} | dist={float(dist):.3f} | {expl}"
+                        )
+                    else:
+                        logger.info(
+                            f"   {rank:>2}. {name} | id={cid} | dist={float(dist):.3f} | {expl}"
+                        )
+                    final_top_ids.append(str(cid))
+                if final_top_ids:
+                    logger.info(f"📦 FINAL_TOP_IDS: {', '.join(final_top_ids)}")
+            except Exception as e:
+                logger.warning(f"Failed to log FINAL TOP results: {e}")
 
             if final_results:
                 top_result = final_results[0]
