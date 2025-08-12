@@ -793,24 +793,32 @@ def boost_relevance_score(
             f"🏆 Multiple skills bonus: {skill_match_count} skills (+{compound_boost:.2f})"
         )
 
-    # 🎯 MEDIUM BOOST: Role/title relevance
-    role_terms = [
-        "developer",
-        "engineer",
-        "programmer",
-        "architect",
-        "manager",
-        "analyst",
-        "scientist",
-    ]
-    query_roles = [
-        term for term in query_terms if any(role in term for role in role_terms)
-    ]
+    # 🎯 MEDIUM BOOST: Role/title relevance with soft downweights for non-dev roles
+    dev_role_signals = {"developer", "engineer", "programmer", "software"}
+    non_dev_downweight_signals = {
+        "product manager",
+        "project manager",
+        "scrum master",
+        "technical writer",
+        "designer",
+        "marketing",
+        "sales",
+    }
 
-    for role_term in query_roles:
-        if role_term in candidate_title or role_term in resume_text:
+    query_is_dev_intent = any(
+        term in {"developer", "developers", "software", "engineer", "engineers"}
+        for term in query_terms
+    )
+
+    if query_is_dev_intent:
+        # Boost candidates whose title/resume indicates dev roles
+        if any(signal in candidate_title for signal in dev_role_signals) or any(
+            signal in resume_text for signal in dev_role_signals
+        ):
             boost += 0.08
-            logger.debug(f"🎯 Role match: '{role_term}' in title/resume (+0.08)")
+        # Soft downweight clearly non-dev roles
+        if any(signal in candidate_title for signal in non_dev_downweight_signals):
+            boost -= 0.06
 
     # 📝 STANDARD BOOST: General term matches in resume
     for term in query_terms:
@@ -1756,6 +1764,34 @@ async def _find_best_skill_match(
     best_match = None
     best_score = 0.0
 
+    # 🚧 Guard against commonly-confused skill pairs (e.g., java vs javascript)
+    CONFLICTING_SKILL_PAIRS = {
+        "java": {"javascript", "js"},
+        "c": {"c++", "c#"},
+        # Do NOT block go ↔ golang (legitimate synonyms)
+        "r": {"react", "ruby"},
+        "javascript": {"java"},
+    }
+
+    PROGRAMMING_LANGUAGES = {
+        "python",
+        "java",
+        "javascript",
+        "typescript",
+        "go",
+        "golang",
+        "rust",
+        "c",
+        "c++",
+        "c#",
+        "r",
+        "swift",
+        "kotlin",
+        "php",
+        "ruby",
+        "scala",
+    }
+
     for candidate_skill in candidate_skills:
         candidate_skill_lower = candidate_skill.lower()
 
@@ -1771,6 +1807,15 @@ async def _find_best_skill_match(
         # 2. Check synonyms
         synonyms = await skills_taxonomy_service.get_skill_synonyms(target_skill_name)
         if candidate_skill_lower in [s.lower() for s in synonyms]:
+            # Block known-conflicting synonym pairs
+            if (
+                target_skill_name in CONFLICTING_SKILL_PAIRS
+                and candidate_skill_lower in CONFLICTING_SKILL_PAIRS[target_skill_name]
+            ):
+                logger.info(
+                    f"   ⚠️  Conflict blocked (synonym): '{target_skill_name}' vs '{candidate_skill_lower}'"
+                )
+                continue
             score = 0.95
             if score > best_score:
                 best_score = score
@@ -1786,7 +1831,30 @@ async def _find_best_skill_match(
             target_skill_name, candidate_skill_lower
         )
 
-        if similarity_score > best_score and similarity_score >= min_score_threshold:
+        # Block known-conflicting pairs even if semantically similar
+        if (
+            target_skill_name in CONFLICTING_SKILL_PAIRS
+            and candidate_skill_lower in CONFLICTING_SKILL_PAIRS[target_skill_name]
+        ):
+            logger.info(
+                f"   ⚠️  Conflict blocked (semantic): '{target_skill_name}' vs '{candidate_skill_lower}' (sim={similarity_score:.2f})"
+            )
+            continue
+
+        # Apply stricter threshold for language-to-language similarities to avoid typos (e.g., java vs javascript)
+        effective_threshold = min_score_threshold
+        if (
+            target_skill_name in PROGRAMMING_LANGUAGES
+            and candidate_skill_lower in PROGRAMMING_LANGUAGES
+            and {target_skill_name, candidate_skill_lower}
+            not in [
+                {"go", "golang"},
+                {"javascript", "js"},
+            ]
+        ):
+            effective_threshold = max(min_score_threshold, 0.9)
+
+        if similarity_score > best_score and similarity_score >= effective_threshold:
             best_score = similarity_score
             best_match = {
                 "target_skill": target_skill_name,

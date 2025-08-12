@@ -2929,7 +2929,7 @@ def _create_fast_path_query_intent(
         )
 
         logger.info(
-            f"✅ Created QueryIntent from fast path: {core_skill} ({query_intent.confidence:.2f} confidence)"
+            f"✅ Created QueryIntent from fast path: {core_skill} ({query_intent.confidence_score:.2f} confidence)"
         )
         return query_intent
 

@@ -285,6 +285,7 @@ async def execute_similarity_search(
         matches_found = 0
         no_matches_logged = []
 
+        # First pass: attempt strict city-level match
         for candidate_data in filtered_results:
             candidate_location = candidate_data.get("metadata", {}).get("location", "")
             candidate_name = candidate_data.get("metadata", {}).get("name", "Unknown")
@@ -331,9 +332,57 @@ async def execute_similarity_search(
             if suggestions:
                 logger.info(f"💡 Suggestions: {'; '.join(suggestions)}")
 
+        # Keep a backup of the pre-location-filter set for controlled broadening
+        filtered_results_backup = filtered_results
         filtered_results = location_filtered_results
         logger.info(
             f"execute_similarity_search: {len(filtered_results)} candidates remaining after SMART location post-filtering."
         )
+
+        # Progressive broadening: if zero matches, expand to metro/state instead of nationwide fallback
+        if matches_found == 0:
+            try:
+                # Expand to metro/state variations
+                expanded = location_service.expand_location_for_matching(
+                    location_to_post_filter
+                )
+                logger.info(
+                    f"🌐 Broadening location within region: {sorted(list(expanded))[:8]}..."
+                )
+                broadened_results: List[Dict[str, Any]] = []
+                candidate_pool = (
+                    filtered_results_backup
+                    if filtered_results_backup
+                    else formatted_results
+                )
+                for candidate_data in candidate_pool:
+                    candidate_location = candidate_data.get("metadata", {}).get(
+                        "location", ""
+                    )
+                    if (
+                        not isinstance(candidate_location, str)
+                        or not candidate_location.strip()
+                    ):
+                        continue
+                    cand_lower = candidate_location.lower()
+                    if any(
+                        (f", {v.lower()}") in cand_lower
+                        or (v.lower() == candidate_location.lower())
+                        or (v.lower() in cand_lower and len(v) > 3)
+                        for v in expanded
+                    ):
+                        broadened_results.append(candidate_data)
+
+                if broadened_results:
+                    logger.info(
+                        f"✅ Regional broadened matches: {len(broadened_results)} candidates"
+                    )
+                    filtered_results = broadened_results
+                else:
+                    logger.info(
+                        "⚠️ No regional matches found; retaining original filtered set (0)"
+                    )
+            except Exception as e:
+                logger.warning(f"Regional broadening failed: {e}")
 
     return filtered_results[:k], count_before_post_filter

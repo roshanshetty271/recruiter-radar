@@ -554,6 +554,20 @@ class RAGService:
 
             # Use legacy search logic for ChromaDB retrieval (no skills filtering yet)
             enhanced_filters = filters.copy() if filters else {}
+            # 🔧 Normalize incoming location filter for robust matching (e.g., "Boston, MA, USA" → "Boston, MA")
+            try:
+                if enhanced_filters and enhanced_filters.get("location"):
+                    from app.services.location_service import location_service
+
+                    original_loc = str(enhanced_filters.get("location"))
+                    normalized_loc = location_service.normalize_location(original_loc)
+                    if normalized_loc and normalized_loc != original_loc:
+                        logger.info(
+                            f"🧭 Normalized location: '{original_loc}' → '{normalized_loc}'"
+                        )
+                        enhanced_filters["location"] = normalized_loc
+            except Exception as e:
+                logger.warning(f"Location normalization skipped due to error: {e}")
 
             results, count_before_skills_filter = await execute_similarity_search(
                 collection=self.collection,
