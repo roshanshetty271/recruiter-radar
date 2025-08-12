@@ -28,23 +28,8 @@ import { ViewProfileModal } from "@/components/custom/view-profile-modal";
 import { useSavedCandidates } from "@/hooks/use-saved-candidates";
 import { toast } from "@/hooks/use-toast";
 import { CandidateComparison as CandidateComparisonModal } from "./candidate-comparison";
-
-interface Candidate {
-  id: string;
-  name: string;
-  title: string;
-  location: string;
-  distance: string;
-  matchScore: number;
-  experience: number;
-  skills: string[];
-  isOnline: boolean;
-  isVerified: boolean;
-  avatar: string;
-  source?: string; // 'demo' or 'uploaded_resume_batch'
-  uploadedAt?: string;
-  originalFilename?: string;
-}
+import { ProgressiveSearchFeedback } from "@/components/custom/progressive-search-feedback";
+import { FrontendCandidate } from "@/services/types";
 
 export function CandidateGrid({
   candidates,
@@ -52,20 +37,22 @@ export function CandidateGrid({
   searchQuery = "", // 🔥 NEW
   onGenerateOutreach, // 🔥 NEW
   totalCandidates, // 🔥 NEW
+  searchMetadata, // 🔥 NEW: Progressive search metadata
 }: {
-  candidates: Candidate[];
+  candidates: FrontendCandidate[];
   isLoading: boolean;
   searchQuery?: string; // 🔥 NEW
   onGenerateOutreach?: (candidateId: string) => void; // 🔥 NEW
   totalCandidates: number; // 🔥 NEW
+  searchMetadata?: any; // 🔥 NEW: Progressive search metadata
 }) {
   const { saveCandidate, removeCandidate, isSaved } = useSavedCandidates();
-  const [comparisonCandidates, setComparisonCandidates] = useState<Candidate[]>(
-    []
-  );
+  const [comparisonCandidates, setComparisonCandidates] = useState<
+    FrontendCandidate[]
+  >([]);
   const [showComparison, setShowComparison] = useState(false);
 
-  const toggleSave = (candidate: Candidate) => {
+  const toggleSave = (candidate: FrontendCandidate) => {
     if (isSaved(candidate.id)) {
       removeCandidate(candidate.id);
       toast({
@@ -77,7 +64,7 @@ export function CandidateGrid({
         id: candidate.id,
         name: candidate.name,
         skills: candidate.skills,
-        experience_years: candidate.experience,
+        experience_years: candidate.experience || 0,
         location: candidate.location,
       });
       toast({
@@ -87,7 +74,7 @@ export function CandidateGrid({
     }
   };
 
-  const addToComparison = (candidate: Candidate) => {
+  const addToComparison = (candidate: FrontendCandidate) => {
     if (
       comparisonCandidates.length < 3 &&
       !comparisonCandidates.find((c) => c.id === candidate.id)
@@ -128,24 +115,33 @@ export function CandidateGrid({
 
   if (candidates.length === 0) {
     return (
-      <div className="text-center py-16 space-y-6">
-        <div className="w-24 h-24 mx-auto bg-gray-800 rounded-full flex items-center justify-center">
-          <Star className="w-12 h-12 text-gray-600" />
+      <div className="space-y-6">
+        {/* 🧠 Progressive Search Feedback for Empty Results */}
+        <ProgressiveSearchFeedback
+          searchMetadata={searchMetadata}
+          resultCount={0}
+          isVisible={true}
+        />
+
+        <div className="text-center py-16 space-y-6">
+          <div className="w-24 h-24 mx-auto bg-gray-800 rounded-full flex items-center justify-center">
+            <Star className="w-12 h-12 text-gray-600" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-semibold text-white">
+              No candidates found
+            </h3>
+            <p className="text-gray-400">
+              Try adjusting your search criteria or filters
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            className="border-white/20 text-white hover:bg-white/10"
+          >
+            Clear Filters
+          </Button>
         </div>
-        <div className="space-y-2">
-          <h3 className="text-xl font-semibold text-white">
-            No candidates found
-          </h3>
-          <p className="text-gray-400">
-            Try adjusting your search criteria or filters
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          className="border-white/20 text-white hover:bg-white/10"
-        >
-          Clear Filters
-        </Button>
       </div>
     );
   }
@@ -177,6 +173,13 @@ export function CandidateGrid({
           </div>
         )}
       </div>
+
+      {/* 🧠 Progressive Search Feedback for Results */}
+      <ProgressiveSearchFeedback
+        searchMetadata={searchMetadata}
+        resultCount={totalCandidates}
+        isVisible={searchQuery.length > 0} // Only show when there's an active search
+      />
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Comparison Bar */}
@@ -230,7 +233,7 @@ function CandidateCard({
   isInComparison,
   delay,
 }: {
-  candidate: Candidate;
+  candidate: FrontendCandidate;
   searchQuery?: string; // 🔥 NEW
   isSaved: boolean;
   onToggleSave: () => void;
@@ -243,38 +246,218 @@ function CandidateCard({
   const [showAIAnalysis, setShowAIAnalysis] = useState(false); // 🔥 NEW
   const [open, setOpen] = useState(false);
 
-  // 🧠 NEW: Generate AI match analysis
+  // 🧠 ENHANCED: Generate proper AI match analysis with only real skills
   const generateMatchAnalysis = () => {
-    const queryWords = searchQuery
-      .toLowerCase()
-      .split(" ")
-      .filter((word) => word.length > 2);
-    const skillsLower = candidate.skills.map((s) => s.toLowerCase());
+    if (!searchQuery || searchQuery.trim().length === 0) {
+      return {
+        matchedSkills: [],
+        matchReasons: [],
+        confidenceScore: candidate.matchScore,
+      };
+    }
 
-    const matchedSkills = candidate.skills.filter((skill) =>
-      queryWords.some((word) => skill.toLowerCase().includes(word))
-    );
+    // Extract skills from search query (same logic as backend)
+    const extractSkillsFromQuery = (query: string): string[] => {
+      const queryLower = query.toLowerCase();
+      const roleSkillMapping: { [key: string]: string[] } = {
+        "web developer": [
+          "html",
+          "css",
+          "javascript",
+          "react",
+          "vue",
+          "angular",
+          "node.js",
+          "web development",
+        ],
+        "web dev": [
+          "html",
+          "css",
+          "javascript",
+          "react",
+          "vue",
+          "angular",
+          "node.js",
+          "web development",
+        ],
+        "frontend developer": [
+          "html",
+          "css",
+          "javascript",
+          "react",
+          "vue",
+          "angular",
+          "typescript",
+          "frontend",
+        ],
+        "front end developer": [
+          "html",
+          "css",
+          "javascript",
+          "react",
+          "vue",
+          "angular",
+          "typescript",
+          "frontend",
+        ],
+        "backend developer": [
+          "python",
+          "java",
+          "node.js",
+          "api",
+          "database",
+          "sql",
+          "backend",
+        ],
+        "back end developer": [
+          "python",
+          "java",
+          "node.js",
+          "api",
+          "database",
+          "sql",
+          "backend",
+        ],
+        "full stack developer": [
+          "javascript",
+          "python",
+          "react",
+          "node.js",
+          "database",
+          "api",
+          "full stack",
+        ],
+        "fullstack developer": [
+          "javascript",
+          "python",
+          "react",
+          "node.js",
+          "database",
+          "api",
+          "full stack",
+        ],
+        "data scientist": [
+          "python",
+          "machine learning",
+          "sql",
+          "pandas",
+          "data science",
+          "ai",
+        ],
+        "devops engineer": [
+          "docker",
+          "kubernetes",
+          "aws",
+          "ci/cd",
+          "devops",
+          "infrastructure",
+        ],
+        "mobile developer": [
+          "ios",
+          "android",
+          "swift",
+          "kotlin",
+          "react native",
+          "flutter",
+          "mobile",
+        ],
+      };
 
+      const skillKeywords = [
+        "python",
+        "java",
+        "javascript",
+        "typescript",
+        "react",
+        "angular",
+        "vue",
+        "node.js",
+        "html",
+        "css",
+        "docker",
+        "kubernetes",
+        "aws",
+        "azure",
+        "gcp",
+        "sql",
+        "nosql",
+        "mongodb",
+        "postgresql",
+        "redis",
+        "machine learning",
+        "ml",
+        "ai",
+        "tensorflow",
+        "pytorch",
+        "data science",
+        "devops",
+        "git",
+        "api",
+        "microservices",
+        "spring",
+        "django",
+        "flask",
+        "fastapi",
+        "graphql",
+        "rest",
+      ];
+
+      let extractedSkills: string[] = [];
+
+      // Check for role-based patterns
+      for (const [role, skills] of Object.entries(roleSkillMapping)) {
+        if (queryLower.includes(role)) {
+          extractedSkills.push(...skills);
+        }
+      }
+
+      // Check for explicit skill mentions
+      for (const skill of skillKeywords) {
+        if (queryLower.includes(skill)) {
+          extractedSkills.push(skill);
+        }
+      }
+
+      // Remove duplicates and normalize
+      return [...new Set(extractedSkills)].map(
+        (skill) => skill.charAt(0).toUpperCase() + skill.slice(1).toLowerCase()
+      );
+    };
+
+    const querySkills = extractSkillsFromQuery(searchQuery);
+
+    // Find skills that match the query
+    const matchedSkills = candidate.skills.filter((candidateSkill) => {
+      const candidateSkillLower = candidateSkill.toLowerCase();
+      return querySkills.some((querySkill) => {
+        const querySkillLower = querySkill.toLowerCase();
+        return (
+          candidateSkillLower.includes(querySkillLower) ||
+          querySkillLower.includes(candidateSkillLower) ||
+          candidateSkillLower === querySkillLower
+        );
+      });
+    });
+
+    // Generate ONLY skill-based match reasons (no fake UI elements)
     const matchReasons: string[] = [];
 
     if (matchedSkills.length > 0) {
-      matchReasons.push(
-        `🎯 ${matchedSkills.length} skill match${
-          matchedSkills.length > 1 ? "es" : ""
-        }: ${matchedSkills.slice(0, 3).join(", ")}`
-      );
+      const skillText = matchedSkills.slice(0, 3).join(", ");
+      const remainingCount = matchedSkills.length - 3;
+      const suffix = remainingCount > 0 ? `, +${remainingCount} more` : "";
+
+      matchReasons.push(`🎯 Skills: ${skillText}${suffix}`);
     }
 
-    if (candidate.experience >= 5) {
-      matchReasons.push(`⭐ Senior-level (${candidate.experience} years)`);
-    }
-
-    if (candidate.isVerified) {
-      matchReasons.push(`✅ Verified profile`);
-    }
-
-    if (candidate.isOnline) {
-      matchReasons.push(`🟢 Currently active`);
+    // Only add experience if it's genuinely relevant to the query
+    const candidateExperience = candidate.experience || 0;
+    if (
+      candidateExperience >= 5 &&
+      (searchQuery.toLowerCase().includes("senior") ||
+        searchQuery.toLowerCase().includes("lead"))
+    ) {
+      matchReasons.push(`⭐ ${candidateExperience} years experience`);
     }
 
     return {
@@ -282,26 +465,72 @@ function CandidateCard({
       matchReasons,
       confidenceScore: Math.min(
         100,
-        candidate.matchScore + matchedSkills.length * 10
+        candidate.matchScore + matchedSkills.length * 5
       ),
     };
   };
 
-  // 🎨 NEW: Get skill relevance color
+  // 🎨 ENHANCED: Better skill relevance detection
   const getSkillRelevance = (skill: string) => {
-    const queryWords = searchQuery.toLowerCase().split(" ");
+    if (!searchQuery || searchQuery.trim().length === 0) return 60;
+
+    const queryLower = searchQuery.toLowerCase();
     const skillLower = skill.toLowerCase();
-    return queryWords.some((word) => skillLower.includes(word)) ? 95 : 60;
+
+    // High relevance for exact matches or substring matches
+    if (queryLower.includes(skillLower) || skillLower.includes(queryLower)) {
+      return 95;
+    }
+
+    // Medium relevance for related terms
+    const queryWords = queryLower
+      .split(/\s+/)
+      .filter((word) => word.length > 2);
+    if (
+      queryWords.some(
+        (word) => skillLower.includes(word) || word.includes(skillLower)
+      )
+    ) {
+      return 80;
+    }
+
+    return 60;
   };
 
   const matchAnalysis = generateMatchAnalysis();
+
+  // 🔍 ENHANCED: Filter and prioritize skills for display
+  const getDisplaySkills = () => {
+    if (!searchQuery || searchQuery.trim().length === 0) {
+      return candidate.skills.slice(0, 5);
+    }
+
+    // Prioritize matched skills first, then others
+    const matchedSkills = matchAnalysis.matchedSkills;
+    const otherSkills = candidate.skills.filter(
+      (skill) =>
+        !matchedSkills.some(
+          (matched) => matched.toLowerCase() === skill.toLowerCase()
+        )
+    );
+
+    // Show matched skills first, then fill remaining slots with other skills
+    const displaySkills = [
+      ...matchedSkills.slice(0, 4),
+      ...otherSkills.slice(0, Math.max(0, 5 - matchedSkills.length)),
+    ];
+
+    return displaySkills.slice(0, 5);
+  };
+
+  const displaySkills = getDisplaySkills();
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: delay / 1000 }}
-      className="group relative w-full h-auto min-h-[400px] rounded-xl overflow-hidden cursor-pointer transform transition-all duration-300 hover:scale-102 hover:shadow-2xl hover:shadow-purple-500/25"
+      className="group relative w-full rounded-xl overflow-hidden cursor-pointer transform transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/25"
       style={{
         background: "rgba(255,255,255,0.05)",
         backdropFilter: "blur(12px)",
@@ -312,58 +541,60 @@ function CandidateCard({
     >
       {/* Gradient border animation */}
       <div className="absolute inset-0 bg-gradient-to-r from-purple-500/50 to-blue-500/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl" />
-      <div className="absolute inset-[1px] bg-gray-900/90 rounded-xl" />
+      <div className="absolute inset-[1px] bg-gray-900/95 rounded-xl" />
 
-      <div className="relative p-6 h-full flex flex-col space-y-4">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="relative">
+      <div className="relative p-4 h-full flex flex-col space-y-3">
+        {/* Header Section - Improved Layout */}
+        <div className="flex items-start justify-between space-x-3">
+          <div className="flex items-start space-x-3 flex-1 min-w-0">
+            <div className="relative flex-shrink-0">
               <img
                 src={candidate.avatar || "/placeholder.svg"}
                 alt={candidate.name}
-                className="w-12 h-12 rounded-full object-cover"
+                className="w-10 h-10 rounded-full object-cover"
               />
               {candidate.isOnline && (
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-gray-900 animate-pulse" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-900 animate-pulse" />
               )}
             </div>
 
-            <div>
-              <div className="flex items-center space-x-1">
-                <h3 className="font-semibold text-white">{candidate.name}</h3>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center space-x-1 mb-1">
+                <h3 className="font-semibold text-white text-sm leading-tight truncate">
+                  {candidate.name}
+                </h3>
                 {candidate.isVerified && (
-                  <CheckCircle className="w-4 h-4 text-blue-400" />
+                  <CheckCircle className="w-3 h-3 text-blue-400 flex-shrink-0" />
                 )}
                 {matchAnalysis.confidenceScore >= 90 && (
-                  <Sparkles className="w-4 h-4 text-yellow-400" />
+                  <Sparkles className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                 )}
               </div>
-              <p className="text-sm text-gray-400 truncate">
+              {/* Improved Job Title with Better Line Wrapping */}
+              <p className="text-xs text-gray-400 leading-tight line-clamp-2 break-words">
                 {candidate.title}
               </p>
             </div>
           </div>
 
-          {/* Enhanced Match Score */}
-          <div className="flex flex-col items-end space-y-2">
-            {/* 🏷️ SOURCE BADGE */}
-            <div className="flex items-center">
-              {candidate.source === "uploaded_resume_batch" ? (
-                <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs px-2 py-1">
-                  <Upload className="w-3 h-3 mr-1" />
-                  Uploaded
-                </Badge>
-              ) : (
-                <Badge className="bg-gray-700/50 text-gray-400 border-gray-700 text-xs px-2 py-1">
-                  <Database className="w-3 h-3 mr-1" />
-                  Demo
-                </Badge>
-              )}
-            </div>
+          {/* Compact Match Score and Source Badge */}
+          <div className="flex flex-col items-end space-y-1 flex-shrink-0">
+            {/* Source Badge - Smaller */}
+            {candidate.source === "uploaded_resume_batch" ? (
+              <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs px-1.5 py-0.5 h-5">
+                <Upload className="w-2.5 h-2.5 mr-1" />
+                New
+              </Badge>
+            ) : (
+              <Badge className="bg-gray-700/50 text-gray-400 border-gray-700 text-xs px-1.5 py-0.5 h-5">
+                <Database className="w-2.5 h-2.5 mr-1" />
+                Demo
+              </Badge>
+            )}
 
-            <div className="relative w-12 h-12">
-              <svg className="w-12 h-12 transform -rotate-90">
+            {/* Compact Match Score */}
+            <div className="relative w-10 h-10">
+              <svg className="w-10 h-10 transform -rotate-90">
                 <defs>
                   <linearGradient
                     id={`gradient-${candidate.id}`}
@@ -377,21 +608,21 @@ function CandidateCard({
                   </linearGradient>
                 </defs>
                 <circle
-                  cx="24"
-                  cy="24"
-                  r="20"
+                  cx="20"
+                  cy="20"
+                  r="16"
                   stroke="rgba(255,255,255,0.1)"
-                  strokeWidth="3"
+                  strokeWidth="2.5"
                   fill="none"
                 />
                 <circle
-                  cx="24"
-                  cy="24"
-                  r="20"
+                  cx="20"
+                  cy="20"
+                  r="16"
                   stroke={`url(#gradient-${candidate.id})`}
-                  strokeWidth="3"
+                  strokeWidth="2.5"
                   fill="none"
-                  strokeDasharray={`${candidate.matchScore * 1.26} 126`}
+                  strokeDasharray={`${candidate.matchScore * 1.005} 100.5`}
                   className="transition-all duration-1000"
                 />
               </svg>
@@ -404,17 +635,17 @@ function CandidateCard({
           </div>
         </div>
 
-        {/* 🧠 NEW: AI Analysis Toggle */}
+        {/* AI Analysis Toggle - More Compact */}
         {searchQuery && (
           <div className="flex items-center justify-between">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setShowAIAnalysis(!showAIAnalysis)}
-              className="text-purple-400 hover:text-purple-300 h-6 px-2 text-xs"
+              className="text-purple-400 hover:text-purple-300 h-5 px-2 text-xs"
             >
               <Brain className="w-3 h-3 mr-1" />
-              AI Analysis
+              Analysis
               {showAIAnalysis ? (
                 <ChevronUp className="w-3 h-3 ml-1" />
               ) : (
@@ -424,41 +655,41 @@ function CandidateCard({
             <div className="flex items-center space-x-1">
               <Target className="w-3 h-3 text-green-400" />
               <span className="text-xs text-green-400 font-medium">
-                {matchAnalysis.confidenceScore}% confidence
+                {matchAnalysis.confidenceScore}%
               </span>
             </div>
           </div>
         )}
 
-        {/* 🔥 NEW: AI Analysis Panel */}
+        {/* AI Analysis Panel - Improved */}
         <AnimatePresence>
           {showAIAnalysis && searchQuery && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-lg p-3 border border-purple-400/20"
+              className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-md p-2 border border-purple-400/20"
             >
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <div className="flex items-center space-x-2">
                   <Brain className="w-3 h-3 text-purple-400" />
                   <span className="text-xs font-semibold text-purple-200">
-                    Match Intelligence
+                    Match Analysis
                   </span>
                   <Progress
                     value={matchAnalysis.confidenceScore}
-                    className="w-12 h-1"
+                    className="w-8 h-1"
                   />
                 </div>
 
                 {matchAnalysis.matchReasons.length > 0 && (
                   <div className="space-y-1">
                     {matchAnalysis.matchReasons
-                      .slice(0, 3)
+                      .slice(0, 2)
                       .map((reason, index) => (
                         <p
                           key={index}
-                          className="text-xs text-blue-200 bg-blue-500/10 px-2 py-1 rounded"
+                          className="text-xs text-blue-200 bg-blue-500/10 px-1.5 py-0.5 rounded text-left"
                         >
                           {reason}
                         </p>
@@ -470,68 +701,71 @@ function CandidateCard({
           )}
         </AnimatePresence>
 
-        {/* Enhanced Skills */}
+        {/* Enhanced Skills - More Compact and Responsive */}
         <div className="flex flex-wrap gap-1">
-          {candidate.skills.slice(0, 3).map((skill) => {
+          {displaySkills.map((skill) => {
             const relevance = getSkillRelevance(skill);
             const isHighRelevance = relevance >= 90;
 
             return (
-              <motion.span
+              <span
                 key={skill}
-                whileHover={{ scale: 1.05 }}
-                className={`px-2 py-1 text-xs rounded-full transition-all ${
+                className={`px-2 py-0.5 text-xs rounded-full transition-all ${
                   isHighRelevance
-                    ? "bg-green-500/20 text-green-300 border border-green-400/30 shadow-sm"
+                    ? "bg-green-500/20 text-green-300 border border-green-400/30"
                     : "bg-white/10 text-gray-300 group-hover:bg-purple-500/20 group-hover:text-purple-200"
                 }`}
               >
                 <div className="flex items-center space-x-1">
-                  <span>{skill}</span>
-                  {isHighRelevance && <Star className="w-2 h-2 fill-current" />}
+                  <span className="truncate">{skill}</span>
+                  {isHighRelevance && (
+                    <Star className="w-2 h-2 fill-current flex-shrink-0" />
+                  )}
                 </div>
-              </motion.span>
+              </span>
             );
           })}
-          {candidate.skills.length > 3 && (
-            <span className="px-2 py-1 text-xs bg-white/10 text-gray-400 rounded-full">
-              +{candidate.skills.length - 3}
+          {candidate.skills.length > 5 && (
+            <span className="px-2 py-0.5 text-xs bg-white/10 text-gray-400 rounded-full">
+              +{candidate.skills.length - 5}
             </span>
           )}
         </div>
 
-        {/* Location & Experience */}
-        <div className="space-y-2">
-          <div className="flex items-center space-x-1 text-sm text-gray-400">
-            <MapPin className="w-3 h-3" />
-            <span>{candidate.location}</span>
-            <span className="text-xs">({candidate.distance})</span>
+        {/* Location & Experience - Compact */}
+        <div className="space-y-1.5">
+          <div className="flex items-center space-x-1 text-xs text-gray-400">
+            <MapPin className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">{candidate.location}</span>
+            <span className="text-xs flex-shrink-0">
+              ({candidate.distance})
+            </span>
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-400">
-              {candidate.experience} years exp
+            <span className="text-xs text-gray-400 flex-shrink-0">
+              {candidate.experience || 0} years
             </span>
             <div className="flex-1 bg-gray-700 rounded-full h-1">
               <div
                 className="bg-gradient-to-r from-purple-500 to-blue-500 h-1 rounded-full transition-all duration-1000"
                 style={{
-                  width: `${Math.min(candidate.experience * 10, 100)}%`,
+                  width: `${Math.min((candidate.experience || 0) * 10, 100)}%`,
                 }}
               />
             </div>
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="mt-auto space-y-3">
+        {/* Actions - Improved Layout */}
+        <div className="mt-auto space-y-2 pt-2">
           <Button
             variant="outline"
-            className="w-full border-white/20 text-white hover:bg-white/10 group"
+            className="w-full border-white/20 text-white hover:bg-white/10 group h-8 text-xs"
             onClick={() => setOpen(true)}
           >
             <span>View Profile</span>
-            <ExternalLink className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+            <ExternalLink className="w-3 h-3 ml-2 group-hover:translate-x-1 transition-transform" />
           </Button>
 
           {open && (
@@ -543,23 +777,23 @@ function CandidateCard({
                 name: candidate.name,
                 professional_summary: candidate.title,
                 skills: candidate.skills,
-                experience_years: candidate.experience,
+                experience_years: candidate.experience || 0,
               }}
             />
           )}
 
-          {/* 🔥 ENHANCED: Action buttons with AI outreach */}
-          <div className="flex space-x-2">
+          {/* Action buttons - More Compact */}
+          <div className="flex space-x-1">
             <Button
               size="sm"
               variant="ghost"
               onClick={onToggleSave}
-              className={`flex-1 ${
+              className={`flex-1 h-7 ${
                 isSaved ? "text-yellow-400" : "text-gray-400"
               } hover:text-yellow-300`}
             >
               <Bookmark
-                className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`}
+                className={`w-3 h-3 ${isSaved ? "fill-current" : ""}`}
               />
             </Button>
 
@@ -568,21 +802,21 @@ function CandidateCard({
               variant="ghost"
               onClick={onAddToComparison}
               disabled={isInComparison}
-              className={`flex-1 ${
+              className={`flex-1 h-7 ${
                 isInComparison ? "text-purple-400" : "text-gray-400"
               } hover:text-purple-300 disabled:opacity-50`}
             >
-              <Versus className="w-4 h-4" />
+              <Versus className="w-3 h-3" />
             </Button>
 
-            {/* 🔥 NEW: AI Outreach Button */}
+            {/* AI Outreach Button - Improved */}
             <Button
               size="sm"
               onClick={onGenerateOutreach}
-              className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-xs"
+              className="flex-1 h-7 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-xs px-2"
             >
               <Zap className="w-3 h-3 mr-1" />
-              AI Outreach
+              <span className="hidden sm:inline">AI</span> Outreach
             </Button>
           </div>
         </div>
@@ -630,7 +864,7 @@ function SkeletonCard({ delay }: { delay: number }) {
 }
 
 interface ComparisonBarProps {
-  candidates: Candidate[];
+  candidates: FrontendCandidate[];
   onRemove: (candidateId: string) => void;
   onCompare: () => void;
   onClear: () => void;
@@ -681,7 +915,7 @@ function ComparisonBar({
 }
 
 interface LegacyCandidateComparisonProps {
-  candidates: Candidate[];
+  candidates: FrontendCandidate[];
   isOpen: boolean;
   onClose: () => void;
   onRemove: (candidateId: string) => void;
@@ -746,7 +980,7 @@ function LegacyCandidateComparison({
                     Match Score: {candidate.matchScore}%
                   </p>
                   <p className="text-sm text-gray-400">
-                    Experience: {candidate.experience} years
+                    Experience: {candidate.experience || 0} years
                   </p>
                   <p className="text-sm text-gray-400">
                     Skills: {candidate.skills.join(", ")}

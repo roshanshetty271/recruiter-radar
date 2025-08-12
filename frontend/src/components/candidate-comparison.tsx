@@ -16,20 +16,10 @@ import {
 } from "lucide-react";
 
 import { AIComparisonAdvisor } from "./custom/ai-comparison-advisor";
+import { FrontendCandidate } from "@/services/types";
 
-interface Candidate {
-  id: number;
-  name: string;
-  title: string;
-  location: string;
-  distance: string;
-  matchScore: number;
-  experience: number;
-  skills: string[];
-  isOnline: boolean;
-  isVerified: boolean;
-  avatar: string;
-}
+// Use FrontendCandidate from types.ts instead of local interface
+type Candidate = FrontendCandidate;
 
 interface DetailedMetrics {
   technicalSkills: number;
@@ -88,7 +78,7 @@ export function CandidateComparison({
   candidates: Candidate[];
   isOpen: boolean;
   onClose: () => void;
-  onRemove: (id: number) => void;
+  onRemove: (id: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -185,9 +175,9 @@ export function CandidateComparison({
           {activeTab === "metrics" && <MetricsTab candidates={candidates} />}
           {activeTab === "ai-advisor" && (
             <AIComparisonAdvisor
-              candidateIds={candidates.map((c) => c.id.toString())}
+              candidateIds={candidates.map((c) => c.id)}
               candidateNames={candidates.reduce(
-                (acc, c) => ({ ...acc, [c.id.toString()]: c.name }),
+                (acc, c) => ({ ...acc, [c.id]: c.name }),
                 {}
               )}
               jobContext={{
@@ -208,7 +198,7 @@ function OverviewTab({
   onRemove,
 }: {
   candidates: Candidate[];
-  onRemove: (id: number) => void;
+  onRemove: (id: string) => void;
 }) {
   return (
     <div

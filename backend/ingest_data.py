@@ -195,7 +195,7 @@ async def process_single_candidate(
             return False
 
         # Step 5b: Prepare Metadata (with email normalization)
-        normalized_email = candidate.email.lower().strip() if candidate.email else ""
+        normalized_email = candidate.email.lower().strip() if candidate.email else None
 
         metadata = {
             "candidate_id": str(candidate.id),

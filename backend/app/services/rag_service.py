@@ -8,14 +8,17 @@ Key responsibilities:
 - Interfacing with ChromaConnector for DB client and collection access.
 - Providing asynchronous interfaces for document storage and retrieval.
 - Formatting data for storage and search results.
-- Supporting future RAG pipeline operations (e.g., query expansion, result synthesis).
+- Supporting intelligent query enhancement and semantic search.
+- Integrating with QueryEnhancementService for natural language understanding.
 """
 
 import logging
 import asyncio  # Added for asyncio.to_thread
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import json
+import hashlib
+import time
 
 # Removed direct chromadb imports, will come from connector or be internal to RAGService if needed
 # from chromadb.utils import embedding_functions # No longer needed here
@@ -35,6 +38,17 @@ from app.services.rag_operations.search_logic import (
     execute_similarity_search,
     SearchOperationError as OpsSearchOperationError,
 )
+
+# 🧠 NEW: Import intelligent search services
+from app.services.query_enhancement_service import (
+    QueryEnhancementService,
+    QueryEnhancementError,
+)
+from app.services.skills_taxonomy_service import (
+    SkillsTaxonomyService,
+    SkillsTaxonomyError,
+)
+from app.models.query_models import QueryIntent, QueryEnhancementResult
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +104,28 @@ class RAGService:
         # An empty list (previous implementation) broke `.get()` calls and downstream fallbacks.
         self._candidates_cache: Dict[str, CandidateProfile] = {}
         self._cache_loaded = False
+
+        # 🚀 NEW: Embedding cache for performance optimization
+        self._embedding_cache: Dict[str, Tuple[List[float], float]] = (
+            {}
+        )  # query_hash -> (embedding, timestamp)
+        self._cache_max_size = 100  # Limit cache size
+        self._cache_ttl_seconds = 3600  # 1 hour TTL for embeddings
+
+        # 🧠 NEW: Initialize intelligent search services
+        try:
+            self.query_enhancement_service = QueryEnhancementService()
+            self.skills_taxonomy_service = SkillsTaxonomyService()
+            self._intelligent_search_enabled = True
+            self.logger.info("✅ Intelligent search services initialized successfully")
+        except (QueryEnhancementError, SkillsTaxonomyError) as e:
+            self.logger.error(
+                f"❌ Failed to initialize intelligent search services: {e}"
+            )
+            self.query_enhancement_service = None
+            self.skills_taxonomy_service = None
+            self._intelligent_search_enabled = False
+            self.logger.warning("⚠️ Falling back to basic search functionality")
 
         self.logger.info(
             f"RAGService initialized with collection '{self.collection_name}'"
@@ -400,21 +436,26 @@ class RAGService:
         self,
         query_embedding: List[float],
         query_text: str,
-        k: int = 5,
+        k: int,
         filters: Optional[Dict[str, Any]] = None,
-    ) -> tuple[List[Dict[str, Any]], int]:
+        required_skills: Optional[List[str]] = None,
+        preferred_skills: Optional[List[str]] = None,
+        query_intent: Optional[QueryIntent] = None,  # 🚀 NEW: Accept pre-parsed intent
+    ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Performs a similarity search against the ChromaDB collection.
 
-        Uses the core `execute_similarity_search` logic and handles potential
-        errors, re-raising them as RAGService-specific exceptions.
+        Uses intelligent query enhancement when available, otherwise falls back
+        to the basic search logic.
 
         Args:
             query_embedding: The embedding vector of the search query.
             query_text: The original query string (for logging and context).
             k: The number of top results to return after all filtering.
             filters: Optional dictionary of metadata filters to apply.
-                     Expected to include `skills_query` if skills post-filtering is desired.
+            required_skills: DEPRECATED - Use query_text for intelligent parsing
+            preferred_skills: DEPRECATED - Use query_text for intelligent parsing
+            query_intent: 🚀 NEW - Pre-parsed query intent to avoid redundant AI calls
 
         Returns:
             A tuple containing:
@@ -432,40 +473,272 @@ class RAGService:
             )
             raise RAGServiceError("ChromaDB collection not initialized or accessible.")
 
+        # 🧠 Use intelligent search if available
+        if (
+            self._intelligent_search_enabled
+            and self.query_enhancement_service
+            and self.skills_taxonomy_service
+        ):
+            return await self._intelligent_similarity_search(
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k,
+                filters=filters,
+                query_intent=query_intent,  # 🚀 NEW: Pass pre-parsed intent
+            )
+        else:
+            # Fallback to legacy search with warning
+            if required_skills or preferred_skills:
+                logger.warning(
+                    "⚠️ Using deprecated skills parameters - intelligent search not available. "
+                    "Query text should contain skill requirements for best results."
+                )
+
+            return await self._legacy_similarity_search(
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k,
+                filters=filters,
+                required_skills=required_skills,
+                preferred_skills=preferred_skills,
+            )
+
+    async def _intelligent_similarity_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        k: int,
+        filters: Optional[Dict[str, Any]] = None,
+        query_intent: Optional[QueryIntent] = None,  # 🚀 NEW: Accept pre-parsed intent
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        🚀 OPTIMIZED INTELLIGENT SIMILARITY SEARCH (No redundant AI calls!)
+
+        This method:
+        1. Uses pre-parsed query intent (if provided) OR parses query using LLM
+        2. Performs semantic search with ChromaDB
+        3. Applies intelligent skills filtering
+        4. Returns properly filtered candidates
+        """
+        logger.info(f"🧠 Starting intelligent similarity search for: '{query_text}'")
+        search_start_time = time.time()
+
+        try:
+            # Step 1: Use pre-parsed intent OR parse query intent using LLM
+            if query_intent:
+                # 🚀 OPTIMIZED: Use already-parsed intent (no redundant AI call!)
+                logger.info("⚡ Step 1: Using pre-parsed query intent (FAST PATH)")
+                logger.info(
+                    f"✅ Using cached intent - Role: {query_intent.role_type}, "
+                    f"Skills: {len(query_intent.required_skills)} required, "
+                    f"{len(query_intent.preferred_skills)} preferred, "
+                    f"Confidence: {query_intent.confidence_score:.2f}"
+                )
+            else:
+                # 🐌 FALLBACK: Parse query intent using LLM (only if not provided)
+                logger.info("🔍 Step 1: Parsing query intent (fallback path)...")
+                enhancement_result = await self.query_enhancement_service.enhance_query(
+                    query_text
+                )
+                query_intent = enhancement_result.query_intent
+
+                logger.info(
+                    f"✅ Query parsed - Role: {query_intent.role_type}, "
+                    f"Skills: {len(query_intent.required_skills)} required, "
+                    f"{len(query_intent.preferred_skills)} preferred, "
+                    f"Confidence: {query_intent.confidence_score:.2f}"
+                )
+
+            # Step 2: Perform basic semantic search with ChromaDB
+            logger.info("🔍 Step 2: Performing semantic search...")
+
+            # Use legacy search logic for ChromaDB retrieval (no skills filtering yet)
+            enhanced_filters = filters.copy() if filters else {}
+
+            results, count_before_skills_filter = await execute_similarity_search(
+                collection=self.collection,
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k * 3,  # Get more results for better filtering
+                filters=enhanced_filters,
+            )
+
+            logger.info(
+                f"📊 ChromaDB returned {len(results)} candidates for intelligent filtering"
+            )
+
+            # Step 3: Apply intelligent skills filtering - ALWAYS TRY TO FILTER
+            if results and query_intent:
+                logger.info("🔍 Step 3: Applying intelligent skills filtering...")
+
+                # Import here to avoid circular imports
+                from app.services.search_utils import apply_intelligent_skills_filter
+
+                filtered_results = await apply_intelligent_skills_filter(
+                    candidates=results,
+                    query_intent=query_intent,
+                    skills_taxonomy_service=self.skills_taxonomy_service,
+                    strict_filtering=True,
+                    min_skill_match_score=0.6,
+                )
+
+                logger.info(
+                    f"📊 Intelligent filtering: {len(filtered_results)}/{len(results)} candidates passed skills filter"
+                )
+
+                # If filtering removed too many candidates, log the issue
+                if len(filtered_results) == 0 and len(results) > 0:
+                    logger.warning(
+                        f"⚠️ Skills filter removed ALL candidates! Query: '{query_text}'"
+                    )
+                    # For now, keep some results rather than showing none
+                    filtered_results = results[:5]
+                    logger.info(f"🔄 Fallback: Showing top 5 semantic matches instead")
+            else:
+                filtered_results = results
+                logger.info(
+                    "🔍 Step 3: No query intent or results - returning all semantic matches"
+                )
+
+            # Step 4: Apply final result sorting (by relevance desc, then distance asc) and limiting
+            def _final_sort_key(item: Dict[str, Any]):
+                try:
+                    if (
+                        "relevance_score" in item
+                        and item.get("relevance_score") is not None
+                    ):
+                        return (
+                            -float(item.get("relevance_score", 0.0)),
+                            float(item.get("distance", 1.0)),
+                        )
+                    # Fallback: sort by distance ascending if relevance not present
+                    return (0.0, float(item.get("distance", 1.0)))
+                except Exception:
+                    return (0.0, 1.0)
+
+            sorted_results = sorted(filtered_results, key=_final_sort_key)
+            final_results = sorted_results[:k]
+
+            # Step 5: Enhanced logging
+            search_time = (time.time() - search_start_time) * 1000
+            logger.info(
+                f"🎯 Intelligent search completed in {search_time:.1f}ms: "
+                f"{len(final_results)} final candidates"
+            )
+
+            # 📊 Log TOP-10 FINAL results (post-filter)
+            try:
+                # Sort by relevance score if present, else by distance ascending
+                def _final_sort_key(item):
+                    if "relevance_score" in item:
+                        # Higher relevance is better
+                        return (
+                            -float(item.get("relevance_score", 0.0)),
+                            float(item.get("distance", 1.0)),
+                        )
+                    return (0.0, float(item.get("distance", 1.0)))
+
+                top_final = sorted(final_results, key=_final_sort_key)[:10]
+                logger.info("📊 FINAL TOP (post-filter):")
+                final_top_ids = []
+                for rank, cand in enumerate(top_final, start=1):
+                    meta = cand.get("metadata", {})
+                    name = meta.get("name", "Unknown")
+                    cid = meta.get("candidate_id") or meta.get("id") or "Unknown"
+                    dist = cand.get("distance", 1.0)
+                    rel = cand.get("relevance_score")
+                    expl = cand.get("match_explanation", "-")
+                    if rel is not None:
+                        logger.info(
+                            f"   {rank:>2}. {name} | id={cid} | rel={float(rel):.3f} | dist={float(dist):.3f} | {expl}"
+                        )
+                    else:
+                        logger.info(
+                            f"   {rank:>2}. {name} | id={cid} | dist={float(dist):.3f} | {expl}"
+                        )
+                    final_top_ids.append(str(cid))
+                if final_top_ids:
+                    logger.info(f"📦 FINAL_TOP_IDS: {', '.join(final_top_ids)}")
+            except Exception as e:
+                logger.warning(f"Failed to log FINAL TOP results: {e}")
+
+            if final_results:
+                top_result = final_results[0]
+                metadata = top_result.get("metadata", {})
+                relevance = 1.0 - float(top_result.get("distance", 1.0))
+                match_explanation = top_result.get(
+                    "match_explanation", "No explanation"
+                )
+                logger.info(
+                    f"   Top match: {metadata.get('name', 'Unknown')} "
+                    f"(relevance: {relevance:.3f}) - {match_explanation}"
+                )
+
+            return final_results, count_before_skills_filter
+
+        except Exception as e:
+            logger.error(f"❌ Intelligent search failed: {e}", exc_info=True)
+            # Fallback to legacy search
+            logger.info("🔄 Falling back to legacy search...")
+            return await self._legacy_similarity_search(
+                query_embedding=query_embedding,
+                query_text=query_text,
+                k=k,
+                filters=filters,
+                required_skills=None,
+                preferred_skills=None,
+            )
+
+    async def _legacy_similarity_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        k: int,
+        filters: Optional[Dict[str, Any]] = None,
+        required_skills: Optional[List[str]] = None,
+        preferred_skills: Optional[List[str]] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        🔄 LEGACY SIMILARITY SEARCH (original implementation)
+
+        This is the original search logic kept for backward compatibility
+        and as a fallback when intelligent search fails.
+        """
         logger.debug(
-            f"RAGService: Initiating similarity search in collection '{self.collection_name}' with k={k}, filters={filters is not None}."
+            f"RAGService: Initiating legacy similarity search in collection '{self.collection_name}' with k={k}, filters={filters is not None}."
         )
         try:
+            # Add skills to filters for post-filtering
+            enhanced_filters = filters.copy() if filters else {}
+            if required_skills:
+                enhanced_filters["skills_query"] = required_skills
+                logger.info(f"🔍 RAG: Added skills to filters: {required_skills}")
+            else:
+                logger.info(f"🔍 RAG: No required_skills provided")
+
+            logger.info(f"🔍 RAG: Enhanced filters: {enhanced_filters}")
+
             # execute_similarity_search is already async
             results, count_before_post_filter = await execute_similarity_search(
                 collection=self.collection,
                 query_embedding=query_embedding,
                 query_text=query_text,
                 k=k,
-                filters=filters,
+                filters=enhanced_filters,
             )
 
-            # 🔍 RAW SEARCH RESULTS LOGGING
-            logger.info(f"🔍 RAW SEARCH RESULTS from ChromaDB (query: '{query_text}'):")
-            logger.info(
-                f"   📊 Found {len(results)} candidates (from {count_before_post_filter} before post-filtering)"
-            )
-            for i, result in enumerate(results, 1):
-                metadata = result.get("metadata", {})
-                distance = result.get("distance", 1.0)
-                relevance = 1.0 - float(distance) if distance is not None else 0.0
+            # 🔍 CONCISE SEARCH RESULTS LOGGING
+            logger.info(f"🔍 Legacy search completed: {len(results)} candidates found")
+            if results:
+                top_result = results[0]
+                metadata = top_result.get("metadata", {})
+                relevance = 1.0 - float(top_result.get("distance", 1.0))
                 logger.info(
-                    f"   {i:2d}. {metadata.get('name', 'Unknown')} (ID: {result.get('id', 'N/A')}) "
-                    f"- Distance: {distance:.4f}, Relevance: {relevance:.3f}"
+                    f"   Top: {metadata.get('name', 'Unknown')} (relevance: {relevance:.3f})"
                 )
-                logger.info(f"       Skills: {metadata.get('skills', 'N/A')}")
-                logger.info(
-                    f"       Location: {metadata.get('location', 'N/A')} | Experience: {metadata.get('experience_years', 'N/A')} years"
-                )
-            logger.info("-" * 60)
 
             logger.info(
-                f"RAGService: Similarity search completed. Candidates found (after post-filter, limited by k): {len(results)}. Candidates before post-filter: {count_before_post_filter}."
+                f"RAGService: Legacy similarity search completed. Candidates found (after post-filter, limited by k): {len(results)}. Candidates before post-filter: {count_before_post_filter}."
             )
             return results, count_before_post_filter
         except OpsSearchOperationError as e:
@@ -498,6 +771,8 @@ class RAGService:
         This cache is used by get_candidate_details_by_id.
         """
         logger.info("Attempting to load candidates into cache...")
+        load_start_time = time.time()
+
         try:
             # Get path from settings
             logger.info(
@@ -511,7 +786,12 @@ class RAGService:
                     f"Candidate data file not found: {candidates_path}"
                 )
 
-            logger.info(f"Loading candidates from: {candidates_path}")
+            # Check file size and modification time for monitoring
+            file_stat = candidates_path.stat()
+            file_size_mb = file_stat.st_size / (1024 * 1024)
+            logger.info(
+                f"Loading candidates from: {candidates_path} ({file_size_mb:.2f} MB)"
+            )
 
             with open(candidates_path, "r", encoding="utf-8") as f:
                 candidates_data = json.load(f)
@@ -521,11 +801,27 @@ class RAGService:
                 {}
             )  # Initialize with type hint
             load_errors = []
+            validation_warnings = []
 
             for idx, candidate_dict in enumerate(candidates_data):
                 try:
                     candidate = CandidateProfile.model_validate(candidate_dict)
                     self._candidates_cache[candidate.id] = candidate
+
+                    # Basic validation checks
+                    if not candidate.name or candidate.name.strip() == "":
+                        validation_warnings.append(
+                            f"Candidate {candidate.id} has empty name"
+                        )
+                    if not candidate.skills or len(candidate.skills) == 0:
+                        validation_warnings.append(
+                            f"Candidate {candidate.id} has no skills"
+                        )
+                    if candidate.experience_years < 0:
+                        validation_warnings.append(
+                            f"Candidate {candidate.id} has negative experience"
+                        )
+
                 except Exception as e:
                     load_errors.append(
                         f"Index {idx}, ID '{candidate_dict.get('id', 'N/A')}': {str(e)}"
@@ -534,20 +830,50 @@ class RAGService:
                         f"Failed to load/validate candidate at index {idx} (ID: '{candidate_dict.get('id', 'N/A')}'): {e}"
                     )
 
+            load_time = time.time() - load_start_time
+            cache_size = len(self._candidates_cache)
+
             logger.info(
-                f"Successfully loaded {len(self._candidates_cache)} out of {len(candidates_data)} candidates into cache."
+                f"Successfully loaded {cache_size} out of {len(candidates_data)} candidates into cache in {load_time:.2f}s."
+            )
+
+            # Set cache loaded flag for future checks
+            self._cache_loaded = True
+
+            # Log performance metrics
+            logger.info(
+                f"📊 Cache metrics: {cache_size} candidates, {file_size_mb:.2f}MB file, {load_time:.2f}s load time"
             )
 
             if load_errors:
                 logger.warning(
-                    f"Failed to load {len(load_errors)} candidates due to validation/processing errors. Details: {load_errors}"
+                    f"Failed to load {len(load_errors)} candidates due to validation/processing errors. Details: {load_errors[:3]}{'...' if len(load_errors) > 3 else ''}"
                 )
-                # Depending on strictness, could raise an error here if some failed, or just log.
-                # For now, we proceed with successfully loaded candidates.
+
+            if validation_warnings:
+                logger.warning(
+                    f"Data quality issues found in {len(validation_warnings)} candidates. First few: {validation_warnings[:3]}{'...' if len(validation_warnings) > 3 else ''}"
+                )
+
+            # Additional cache health checks
+            if cache_size == 0:
+                logger.error(
+                    "🚨 CRITICAL: Cache is empty after loading - this will cause performance issues!"
+                )
+                raise RAGServiceError("Candidate cache is empty after loading")
+            elif cache_size < 5:
+                logger.warning(
+                    f"⚠️ Cache size ({cache_size}) is very small - expected more candidates for production"
+                )
+            elif cache_size > 1000:
+                logger.info(
+                    f"📈 Large cache size ({cache_size}) - consider performance optimization"
+                )
 
         except FileNotFoundError as e:  # Specifically catch FileNotFoundError
             logger.error(f"Critical error loading candidates cache: {e}", exc_info=True)
             self._candidates_cache = {}  # Ensure cache is empty
+            self._cache_loaded = False
             raise RAGServiceError(
                 f"Failed to initialize candidate data cache - File Not Found: {e}"
             ) from e
@@ -557,6 +883,7 @@ class RAGService:
                 exc_info=True,
             )
             self._candidates_cache = {}  # Ensure cache is empty
+            self._cache_loaded = False
             raise RAGServiceError(
                 f"Failed to initialize candidate data cache - JSON Decode Error: {e}"
             ) from e
@@ -565,9 +892,215 @@ class RAGService:
         ) as e:  # Catch other RAGServiceError or Pydantic validation from model_validate if it bubbles up unexpectedly
             logger.error(f"Critical error loading candidates cache: {e}", exc_info=True)
             self._candidates_cache = {}  # Ensure cache is empty
+            self._cache_loaded = False
             raise RAGServiceError(
                 f"Failed to initialize candidate data cache: {e}"
             ) from e
+
+    def _get_query_hash(self, query: str) -> str:
+        """
+        🔑 Generate a hash for the query to use as cache key
+        """
+        return hashlib.md5(query.strip().lower().encode()).hexdigest()[:16]
+
+    def _cleanup_expired_cache(self) -> None:
+        """
+        🧹 Remove expired entries from embedding cache
+        """
+        current_time = time.time()
+        expired_keys = [
+            key
+            for key, (_, timestamp) in self._embedding_cache.items()
+            if current_time - timestamp > self._cache_ttl_seconds
+        ]
+
+        for key in expired_keys:
+            del self._embedding_cache[key]
+
+        if expired_keys:
+            logger.info(
+                f"🧹 Cleaned up {len(expired_keys)} expired embedding cache entries"
+            )
+
+    def _evict_oldest_cache_entries(self) -> None:
+        """
+        📦 Evict oldest entries if cache is too large
+        """
+        if len(self._embedding_cache) <= self._cache_max_size:
+            return
+
+        # Sort by timestamp and remove oldest entries
+        sorted_entries = sorted(
+            self._embedding_cache.items(), key=lambda x: x[1][1]  # Sort by timestamp
+        )
+
+        num_to_remove = (
+            len(self._embedding_cache) - self._cache_max_size + 10
+        )  # Remove extra for buffer
+        for key, _ in sorted_entries[:num_to_remove]:
+            del self._embedding_cache[key]
+
+        logger.info(f"📦 Evicted {num_to_remove} old embedding cache entries")
+
+    async def get_cached_embedding(self, query: str) -> Optional[List[float]]:
+        """
+        🚀 Get cached embedding for query, return None if not found or expired
+        """
+        query_hash = self._get_query_hash(query)
+
+        # Cleanup expired entries periodically
+        if len(self._embedding_cache) > 50:  # Only cleanup when cache is getting large
+            self._cleanup_expired_cache()
+
+        if query_hash not in self._embedding_cache:
+            return None
+
+        embedding, timestamp = self._embedding_cache[query_hash]
+
+        # Check if expired
+        if time.time() - timestamp > self._cache_ttl_seconds:
+            del self._embedding_cache[query_hash]
+            return None
+
+        logger.info("🎯 Cache HIT")
+        return embedding
+
+    async def cache_embedding(self, query: str, embedding: List[float]) -> None:
+        """
+        💾 Cache embedding for future use
+        """
+        query_hash = self._get_query_hash(query)
+        current_time = time.time()
+
+        # Evict old entries if needed
+        self._evict_oldest_cache_entries()
+
+        self._embedding_cache[query_hash] = (embedding, current_time)
+        logger.info(f"💾 Embedding cached (size: {len(self._embedding_cache)})")
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        📊 Get comprehensive cache statistics including candidate and embedding caches
+        """
+        current_time = time.time()
+
+        # Embedding cache stats
+        active_embedding_entries = sum(
+            1
+            for _, timestamp in self._embedding_cache.values()
+            if current_time - timestamp <= self._cache_ttl_seconds
+        )
+
+        # Candidate cache stats
+        candidate_cache_size = (
+            len(self._candidates_cache) if hasattr(self, "_candidates_cache") else 0
+        )
+        candidate_cache_loaded = getattr(self, "_cache_loaded", False)
+
+        # Calculate cache quality metrics
+        quality_score = 0.0
+        if candidate_cache_size > 0:
+            valid_candidates = sum(
+                1
+                for candidate in self._candidates_cache.values()
+                if candidate.name
+                and candidate.name.strip()
+                and len(candidate.skills) > 0
+            )
+            quality_score = valid_candidates / candidate_cache_size
+
+        return {
+            # Embedding cache metrics
+            "embedding_cache": {
+                "total_entries": len(self._embedding_cache),
+                "active_entries": active_embedding_entries,
+                "expired_entries": len(self._embedding_cache)
+                - active_embedding_entries,
+                "max_size": self._cache_max_size,
+                "ttl_seconds": self._cache_ttl_seconds,
+                "hit_rate": getattr(self, "_cache_hits", 0)
+                / max(getattr(self, "_cache_attempts", 1), 1),
+            },
+            # Candidate cache metrics
+            "candidate_cache": {
+                "total_candidates": candidate_cache_size,
+                "cache_loaded": candidate_cache_loaded,
+                "quality_score": round(quality_score, 3),
+                "status": (
+                    "healthy"
+                    if candidate_cache_size > 10 and quality_score > 0.8
+                    else "warning" if candidate_cache_size > 0 else "critical"
+                ),
+            },
+            # Overall health
+            "overall_health": (
+                "healthy"
+                if candidate_cache_loaded and candidate_cache_size > 10
+                else "degraded"
+            ),
+        }
+
+    async def refresh_candidate_cache(self) -> Dict[str, Any]:
+        """
+        🔄 Refresh the candidate cache and return refresh results
+        """
+        logger.info("🔄 Refreshing candidate cache...")
+        old_cache_size = (
+            len(self._candidates_cache) if hasattr(self, "_candidates_cache") else 0
+        )
+
+        try:
+            await self._load_candidates_cache()
+            new_cache_size = len(self._candidates_cache)
+
+            refresh_result = {
+                "success": True,
+                "old_size": old_cache_size,
+                "new_size": new_cache_size,
+                "improvement": new_cache_size - old_cache_size,
+                "message": f"Cache refreshed: {old_cache_size} → {new_cache_size} candidates",
+            }
+
+            logger.info(f"✅ {refresh_result['message']}")
+            return refresh_result
+
+        except Exception as e:
+            logger.error(f"❌ Cache refresh failed: {e}")
+            return {
+                "success": False,
+                "old_size": old_cache_size,
+                "new_size": (
+                    len(self._candidates_cache)
+                    if hasattr(self, "_candidates_cache")
+                    else 0
+                ),
+                "error": str(e),
+                "message": f"Cache refresh failed: {str(e)}",
+            }
+
+    def is_cache_healthy(self) -> bool:
+        """
+        🏥 Check if the candidate cache is in a healthy state
+        """
+        if not hasattr(self, "_candidates_cache") or not self._candidates_cache:
+            return False
+
+        if not getattr(self, "_cache_loaded", False):
+            return False
+
+        cache_size = len(self._candidates_cache)
+        if cache_size < 5:  # Minimum viable cache size
+            return False
+
+        # Check data quality
+        valid_candidates = sum(
+            1
+            for candidate in self._candidates_cache.values()
+            if candidate.name and candidate.name.strip() and len(candidate.skills) > 0
+        )
+
+        quality_ratio = valid_candidates / cache_size
+        return quality_ratio > 0.8  # At least 80% of candidates should have valid data
 
     async def get_candidate_details_by_id(self, candidate_id: str) -> CandidateProfile:
         """
@@ -589,6 +1122,22 @@ class RAGService:
                 "get_candidate_details_by_id called with empty candidate_id."
             )
             raise ValueError("Candidate ID cannot be empty")
+
+        # Check cache health and refresh if needed
+        if not self.is_cache_healthy():
+            logger.warning("🚨 Cache is unhealthy, attempting refresh...")
+            try:
+                refresh_result = await self.refresh_candidate_cache()
+                if refresh_result["success"]:
+                    logger.info(
+                        f"✅ Cache refreshed successfully: {refresh_result['message']}"
+                    )
+                else:
+                    logger.error(
+                        f"❌ Cache refresh failed: {refresh_result['message']}"
+                    )
+            except Exception as e:
+                logger.error(f"💥 Cache refresh attempt failed: {e}")
 
         # Ensure cache is loaded
         # hasattr check is good, also check if _candidates_cache is None or empty in some failure scenarios
@@ -616,9 +1165,17 @@ class RAGService:
         candidate = self._candidates_cache.get(cleaned_candidate_id)
 
         if not candidate:
+            cache_size = len(self._candidates_cache)
             logger.warning(
-                f"Candidate ID '{cleaned_candidate_id}' not found in cache of {len(self._candidates_cache)} candidates."
+                f"Candidate ID '{cleaned_candidate_id}' not found in cache of {cache_size} candidates."
             )
+
+            # If cache seems too small, suggest refresh
+            if cache_size < 10:
+                logger.info(
+                    "💡 Cache size is very small - consider refreshing the cache"
+                )
+
             raise ValueError(f"Candidate with ID '{cleaned_candidate_id}' not found")
 
         logger.debug(
@@ -674,10 +1231,15 @@ class RAGService:
             )
 
             # Reconstruct the CandidateProfile object from ChromaDB data
+            # Handle empty email strings by converting to None for EmailStr validation
+            email_value = metadata.get("email")
+            if email_value == "":
+                email_value = None
+
             candidate_data = {
                 "id": metadata.get("candidate_id", candidate_id),
                 "name": metadata.get("name"),
-                "email": metadata.get("email"),
+                "email": email_value,
                 "location": metadata.get("location"),
                 "experience_years": int(metadata.get("experience_years", 0)),
                 "skills": (

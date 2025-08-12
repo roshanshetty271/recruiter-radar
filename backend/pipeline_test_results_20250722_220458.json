@@ -1,0 +1,2675 @@
+{
+  "test_metadata": {
+    "timestamp": "2025-07-22T22:04:58.157821",
+    "test_type": "full_pipeline_end_to_end",
+    "api_base_url": "http://localhost:8000",
+    "total_test_cases": 86,
+    "test_categories": [
+      "skill_experience",
+      "database",
+      "typo",
+      "edge_case",
+      "skill_location",
+      "long_query",
+      "vague",
+      "single_skill",
+      "domain_specific",
+      "role",
+      "case_variation",
+      "complex_requirements",
+      "stress",
+      "special_chars",
+      "complex_fast",
+      "cloud",
+      "natural_language",
+      "alternative_name",
+      "multi_skill",
+      "numbers",
+      "non_english"
+    ]
+  },
+  "pipeline_statistics": {
+    "total_tests": 86,
+    "successful_searches": 2,
+    "failed_searches": 84,
+    "success_rate_percent": 2.33,
+    "fast_path_used": 0,
+    "intelligent_path_used": 0,
+    "fast_path_percentage": 0.0,
+    "intelligent_path_percentage": 0.0,
+    "average_response_time_ms": 0.0,
+    "average_search_time_ms": 0.0,
+    "average_candidates_returned": 0.0,
+    "zero_results_count": 0,
+    "zero_results_percentage": 0.0,
+    "performance_target_met": 0,
+    "performance_target_percentage": 0.0
+  },
+  "category_breakdown": {
+    "single_skill": {
+      "total_tests": 10,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "skill_experience": {
+      "total_tests": 5,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "skill_location": {
+      "total_tests": 5,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "complex_fast": {
+      "total_tests": 3,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "case_variation": {
+      "total_tests": 3,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "alternative_name": {
+      "total_tests": 4,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "database": {
+      "total_tests": 4,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "cloud": {
+      "total_tests": 3,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "role": {
+      "total_tests": 4,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "natural_language": {
+      "total_tests": 5,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "multi_skill": {
+      "total_tests": 5,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "complex_requirements": {
+      "total_tests": 4,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "domain_specific": {
+      "total_tests": 4,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "vague": {
+      "total_tests": 2,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "edge_case": {
+      "total_tests": 3,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "special_chars": {
+      "total_tests": 5,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "numbers": {
+      "total_tests": 3,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "long_query": {
+      "total_tests": 1,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "non_english": {
+      "total_tests": 1,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "typo": {
+      "total_tests": 2,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    },
+    "stress": {
+      "total_tests": 10,
+      "successful_tests": 0,
+      "fast_path_used": 0,
+      "intelligent_path_used": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "success_rate": 0
+    }
+  },
+  "path_analysis": {
+    "fast_path": {
+      "total_uses": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "under_1s": 0,
+      "under_2s": 0
+    },
+    "intelligent_path": {
+      "total_uses": 0,
+      "avg_response_time": 0,
+      "avg_candidates": 0,
+      "under_3s": 0,
+      "under_5s": 0
+    }
+  },
+  "performance_analysis": {
+    "error": "No successful tests for performance analysis"
+  },
+  "detailed_results": [
+    {
+      "query": "Java developers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 269.3
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.61
+    },
+    {
+      "query": "React developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 280.76
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.87
+    },
+    {
+      "query": "Angular developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 11.02
+    },
+    {
+      "query": "Vue developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Django developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Flask developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Spring Boot developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Java developer with 5+ years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 260.07
+    },
+    {
+      "query": "Python engineer over 3 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.04
+    },
+    {
+      "query": "Senior JavaScript developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.82
+    },
+    {
+      "query": "Junior React developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.34
+    },
+    {
+      "query": "React developer with 4 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 264.57
+    },
+    {
+      "query": "Java developer in California",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.21
+    },
+    {
+      "query": "Python engineer in CA",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 263.9
+    },
+    {
+      "query": "JavaScript developer in New York",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.24
+    },
+    {
+      "query": "React developer in San Francisco",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.32
+    },
+    {
+      "query": "Remote Java developer",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 25.28
+    },
+    {
+      "query": "Senior Java developer in California",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineer with 5+ years remote",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.07
+    },
+    {
+      "query": "React developer over 3 years in San Francisco",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.28
+    },
+    {
+      "query": "JAVA DEVELOPER",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 17.33
+    },
+    {
+      "query": "python engineer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 272.36
+    },
+    {
+      "query": "Javascript Developer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.27
+    },
+    {
+      "query": "JS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.25
+    },
+    {
+      "query": "ReactJS engineer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.0
+    },
+    {
+      "query": "NodeJS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.38
+    },
+    {
+      "query": "Golang developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.44
+    },
+    {
+      "query": "PostgreSQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.94
+    },
+    {
+      "query": "MongoDB engineer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.69
+    },
+    {
+      "query": "MySQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Redis developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.78
+    },
+    {
+      "query": "AWS developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Docker engineer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.37
+    },
+    {
+      "query": "Kubernetes developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 259.74
+    },
+    {
+      "query": "DevOps engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 27.96
+    },
+    {
+      "query": "Frontend developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.79
+    },
+    {
+      "query": "Backend engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.22
+    },
+    {
+      "query": "Full stack developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "I need a talented software engineer who knows machine learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 14.98
+    },
+    {
+      "query": "Looking for someone who can build scalable web applications",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 292.2
+    },
+    {
+      "query": "Find me a developer experienced in building APIs and microservices",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.32
+    },
+    {
+      "query": "Need a programmer who understands data structures and algorithms",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.14
+    },
+    {
+      "query": "Looking for talent in artificial intelligence and deep learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.26
+    },
+    {
+      "query": "React and Node.js developer with GraphQL experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 278.24
+    },
+    {
+      "query": "Python developer with machine learning and data science skills",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.71
+    },
+    {
+      "query": "Full stack engineer proficient in React, Node.js, and PostgreSQL",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.08
+    },
+    {
+      "query": "Java developer with Spring Boot, Kafka, and AWS experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.19
+    },
+    {
+      "query": "DevOps engineer skilled in Docker, Kubernetes, and Terraform",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.58
+    },
+    {
+      "query": "Senior architect with microservices and cloud native experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.05
+    },
+    {
+      "query": "Tech lead who can mentor junior developers and design systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 289.04
+    },
+    {
+      "query": "Principal engineer with expertise in distributed systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.71
+    },
+    {
+      "query": "CTO level candidate with startup and scaling experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "Fintech developer with payment processing experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.94
+    },
+    {
+      "query": "Healthcare software engineer familiar with HIPAA compliance",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.27
+    },
+    {
+      "query": "Gaming developer with Unity and C# experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 22.89
+    },
+    {
+      "query": "Blockchain developer with Solidity and smart contracts",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.84
+    },
+    {
+      "query": "Good programmer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.63
+    },
+    {
+      "query": "Talented developer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 257.04
+    },
+    {
+      "query": "",
+      "category": "edge_case",
+      "success": true,
+      "expected_error": true,
+      "actual_error": true,
+      "status_code": 404,
+      "response_time_ms": 14.32
+    },
+    {
+      "query": "   ",
+      "category": "edge_case",
+      "success": true,
+      "expected_error": true,
+      "actual_error": true,
+      "status_code": 404,
+      "response_time_ms": 263.97
+    },
+    {
+      "query": "a",
+      "category": "edge_case",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.68
+    },
+    {
+      "query": "C++ developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 254.55
+    },
+    {
+      "query": "C# engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.2
+    },
+    {
+      "query": ".NET developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.48
+    },
+    {
+      "query": "Node.js developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.47
+    },
+    {
+      "query": "React.js engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 282.11
+    },
+    {
+      "query": "Java developer 5 years",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.7
+    },
+    {
+      "query": "Python 3.9 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "Angular 15 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "I am looking for a very experienced senior software engineer who has worked with Java Spring Boot microservices architecture and has extensive experience in building scalable distributed systems",
+      "category": "long_query",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "développeur Python",
+      "category": "non_english",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "Javva developer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 31.44
+    },
+    {
+      "query": "Pyhton engineer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.59
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.05
+    },
+    {
+      "query": "Python engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.1
+    },
+    {
+      "query": "Java developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.77
+    },
+    {
+      "query": "React developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 265.36
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.78
+    },
+    {
+      "query": "Senior full stack developer with React Node.js and AWS",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.7
+    },
+    {
+      "query": "Machine learning engineer with Python TensorFlow and PyTorch",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 29.21
+    },
+    {
+      "query": "DevOps engineer with Kubernetes Docker and Terraform experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.65
+    },
+    {
+      "query": "Data scientist with Python machine learning and data visualization",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.3
+    },
+    {
+      "query": "Cloud architect with AWS microservices and serverless experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 267.9
+    }
+  ],
+  "failed_tests": [
+    {
+      "query": "Java developers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 269.3
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.61
+    },
+    {
+      "query": "React developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 280.76
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.87
+    },
+    {
+      "query": "Angular developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 11.02
+    },
+    {
+      "query": "Vue developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Django developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Flask developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Spring Boot developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Java developer with 5+ years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 260.07
+    },
+    {
+      "query": "Python engineer over 3 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.04
+    },
+    {
+      "query": "Senior JavaScript developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.82
+    },
+    {
+      "query": "Junior React developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.34
+    },
+    {
+      "query": "React developer with 4 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 264.57
+    },
+    {
+      "query": "Java developer in California",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.21
+    },
+    {
+      "query": "Python engineer in CA",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 263.9
+    },
+    {
+      "query": "JavaScript developer in New York",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.24
+    },
+    {
+      "query": "React developer in San Francisco",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.32
+    },
+    {
+      "query": "Remote Java developer",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 25.28
+    },
+    {
+      "query": "Senior Java developer in California",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineer with 5+ years remote",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.07
+    },
+    {
+      "query": "React developer over 3 years in San Francisco",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.28
+    },
+    {
+      "query": "JAVA DEVELOPER",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 17.33
+    },
+    {
+      "query": "python engineer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 272.36
+    },
+    {
+      "query": "Javascript Developer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.27
+    },
+    {
+      "query": "JS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.25
+    },
+    {
+      "query": "ReactJS engineer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.0
+    },
+    {
+      "query": "NodeJS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.38
+    },
+    {
+      "query": "Golang developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.44
+    },
+    {
+      "query": "PostgreSQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.94
+    },
+    {
+      "query": "MongoDB engineer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.69
+    },
+    {
+      "query": "MySQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Redis developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.78
+    },
+    {
+      "query": "AWS developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Docker engineer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.37
+    },
+    {
+      "query": "Kubernetes developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 259.74
+    },
+    {
+      "query": "DevOps engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 27.96
+    },
+    {
+      "query": "Frontend developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.79
+    },
+    {
+      "query": "Backend engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.22
+    },
+    {
+      "query": "Full stack developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "I need a talented software engineer who knows machine learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 14.98
+    },
+    {
+      "query": "Looking for someone who can build scalable web applications",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 292.2
+    },
+    {
+      "query": "Find me a developer experienced in building APIs and microservices",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.32
+    },
+    {
+      "query": "Need a programmer who understands data structures and algorithms",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.14
+    },
+    {
+      "query": "Looking for talent in artificial intelligence and deep learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.26
+    },
+    {
+      "query": "React and Node.js developer with GraphQL experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 278.24
+    },
+    {
+      "query": "Python developer with machine learning and data science skills",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.71
+    },
+    {
+      "query": "Full stack engineer proficient in React, Node.js, and PostgreSQL",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.08
+    },
+    {
+      "query": "Java developer with Spring Boot, Kafka, and AWS experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.19
+    },
+    {
+      "query": "DevOps engineer skilled in Docker, Kubernetes, and Terraform",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.58
+    },
+    {
+      "query": "Senior architect with microservices and cloud native experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.05
+    },
+    {
+      "query": "Tech lead who can mentor junior developers and design systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 289.04
+    },
+    {
+      "query": "Principal engineer with expertise in distributed systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.71
+    },
+    {
+      "query": "CTO level candidate with startup and scaling experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "Fintech developer with payment processing experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.94
+    },
+    {
+      "query": "Healthcare software engineer familiar with HIPAA compliance",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.27
+    },
+    {
+      "query": "Gaming developer with Unity and C# experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 22.89
+    },
+    {
+      "query": "Blockchain developer with Solidity and smart contracts",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.84
+    },
+    {
+      "query": "Good programmer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.63
+    },
+    {
+      "query": "Talented developer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 257.04
+    },
+    {
+      "query": "a",
+      "category": "edge_case",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.68
+    },
+    {
+      "query": "C++ developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 254.55
+    },
+    {
+      "query": "C# engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.2
+    },
+    {
+      "query": ".NET developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.48
+    },
+    {
+      "query": "Node.js developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.47
+    },
+    {
+      "query": "React.js engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 282.11
+    },
+    {
+      "query": "Java developer 5 years",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.7
+    },
+    {
+      "query": "Python 3.9 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "Angular 15 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "I am looking for a very experienced senior software engineer who has worked with Java Spring Boot microservices architecture and has extensive experience in building scalable distributed systems",
+      "category": "long_query",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "développeur Python",
+      "category": "non_english",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "Javva developer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 31.44
+    },
+    {
+      "query": "Pyhton engineer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.59
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.05
+    },
+    {
+      "query": "Python engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.1
+    },
+    {
+      "query": "Java developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.77
+    },
+    {
+      "query": "React developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 265.36
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.78
+    },
+    {
+      "query": "Senior full stack developer with React Node.js and AWS",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.7
+    },
+    {
+      "query": "Machine learning engineer with Python TensorFlow and PyTorch",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 29.21
+    },
+    {
+      "query": "DevOps engineer with Kubernetes Docker and Terraform experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.65
+    },
+    {
+      "query": "Data scientist with Python machine learning and data visualization",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.3
+    },
+    {
+      "query": "Cloud architect with AWS microservices and serverless experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 267.9
+    }
+  ],
+  "fast_path_tests": [],
+  "intelligent_path_tests": [],
+  "zero_result_tests": [
+    {
+      "query": "Java developers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 269.3
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.61
+    },
+    {
+      "query": "React developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 280.76
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.87
+    },
+    {
+      "query": "Angular developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 11.02
+    },
+    {
+      "query": "Vue developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Django developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Flask developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Spring Boot developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Java developer with 5+ years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 260.07
+    },
+    {
+      "query": "Python engineer over 3 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.04
+    },
+    {
+      "query": "Senior JavaScript developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.82
+    },
+    {
+      "query": "Junior React developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.34
+    },
+    {
+      "query": "React developer with 4 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 264.57
+    },
+    {
+      "query": "Java developer in California",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.21
+    },
+    {
+      "query": "Python engineer in CA",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 263.9
+    },
+    {
+      "query": "JavaScript developer in New York",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.24
+    },
+    {
+      "query": "React developer in San Francisco",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.32
+    },
+    {
+      "query": "Remote Java developer",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 25.28
+    },
+    {
+      "query": "Senior Java developer in California",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineer with 5+ years remote",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.07
+    },
+    {
+      "query": "React developer over 3 years in San Francisco",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.28
+    },
+    {
+      "query": "JAVA DEVELOPER",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 17.33
+    },
+    {
+      "query": "python engineer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 272.36
+    },
+    {
+      "query": "Javascript Developer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.27
+    },
+    {
+      "query": "JS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.25
+    },
+    {
+      "query": "ReactJS engineer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.0
+    },
+    {
+      "query": "NodeJS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.38
+    },
+    {
+      "query": "Golang developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.44
+    },
+    {
+      "query": "PostgreSQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.94
+    },
+    {
+      "query": "MongoDB engineer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.69
+    },
+    {
+      "query": "MySQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Redis developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.78
+    },
+    {
+      "query": "AWS developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Docker engineer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.37
+    },
+    {
+      "query": "Kubernetes developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 259.74
+    },
+    {
+      "query": "DevOps engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 27.96
+    },
+    {
+      "query": "Frontend developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.79
+    },
+    {
+      "query": "Backend engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.22
+    },
+    {
+      "query": "Full stack developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "I need a talented software engineer who knows machine learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 14.98
+    },
+    {
+      "query": "Looking for someone who can build scalable web applications",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 292.2
+    },
+    {
+      "query": "Find me a developer experienced in building APIs and microservices",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.32
+    },
+    {
+      "query": "Need a programmer who understands data structures and algorithms",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.14
+    },
+    {
+      "query": "Looking for talent in artificial intelligence and deep learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.26
+    },
+    {
+      "query": "React and Node.js developer with GraphQL experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 278.24
+    },
+    {
+      "query": "Python developer with machine learning and data science skills",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.71
+    },
+    {
+      "query": "Full stack engineer proficient in React, Node.js, and PostgreSQL",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.08
+    },
+    {
+      "query": "Java developer with Spring Boot, Kafka, and AWS experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.19
+    },
+    {
+      "query": "DevOps engineer skilled in Docker, Kubernetes, and Terraform",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.58
+    },
+    {
+      "query": "Senior architect with microservices and cloud native experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.05
+    },
+    {
+      "query": "Tech lead who can mentor junior developers and design systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 289.04
+    },
+    {
+      "query": "Principal engineer with expertise in distributed systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.71
+    },
+    {
+      "query": "CTO level candidate with startup and scaling experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "Fintech developer with payment processing experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.94
+    },
+    {
+      "query": "Healthcare software engineer familiar with HIPAA compliance",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.27
+    },
+    {
+      "query": "Gaming developer with Unity and C# experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 22.89
+    },
+    {
+      "query": "Blockchain developer with Solidity and smart contracts",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.84
+    },
+    {
+      "query": "Good programmer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.63
+    },
+    {
+      "query": "Talented developer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 257.04
+    },
+    {
+      "query": "",
+      "category": "edge_case",
+      "success": true,
+      "expected_error": true,
+      "actual_error": true,
+      "status_code": 404,
+      "response_time_ms": 14.32
+    },
+    {
+      "query": "   ",
+      "category": "edge_case",
+      "success": true,
+      "expected_error": true,
+      "actual_error": true,
+      "status_code": 404,
+      "response_time_ms": 263.97
+    },
+    {
+      "query": "a",
+      "category": "edge_case",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.68
+    },
+    {
+      "query": "C++ developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 254.55
+    },
+    {
+      "query": "C# engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.2
+    },
+    {
+      "query": ".NET developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.48
+    },
+    {
+      "query": "Node.js developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.47
+    },
+    {
+      "query": "React.js engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 282.11
+    },
+    {
+      "query": "Java developer 5 years",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.7
+    },
+    {
+      "query": "Python 3.9 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "Angular 15 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "I am looking for a very experienced senior software engineer who has worked with Java Spring Boot microservices architecture and has extensive experience in building scalable distributed systems",
+      "category": "long_query",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "développeur Python",
+      "category": "non_english",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "Javva developer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 31.44
+    },
+    {
+      "query": "Pyhton engineer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.59
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.05
+    },
+    {
+      "query": "Python engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.1
+    },
+    {
+      "query": "Java developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.77
+    },
+    {
+      "query": "React developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 265.36
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.78
+    },
+    {
+      "query": "Senior full stack developer with React Node.js and AWS",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.7
+    },
+    {
+      "query": "Machine learning engineer with Python TensorFlow and PyTorch",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 29.21
+    },
+    {
+      "query": "DevOps engineer with Kubernetes Docker and Terraform experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.65
+    },
+    {
+      "query": "Data scientist with Python machine learning and data visualization",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.3
+    },
+    {
+      "query": "Cloud architect with AWS microservices and serverless experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 267.9
+    }
+  ],
+  "high_performance_tests": [
+    {
+      "query": "Java developers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineers",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 269.3
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.61
+    },
+    {
+      "query": "React developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 280.76
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.87
+    },
+    {
+      "query": "Angular developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 11.02
+    },
+    {
+      "query": "Vue developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Django developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Flask developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.01
+    },
+    {
+      "query": "Spring Boot developer",
+      "category": "single_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 13.65
+    },
+    {
+      "query": "Java developer with 5+ years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 260.07
+    },
+    {
+      "query": "Python engineer over 3 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.04
+    },
+    {
+      "query": "Senior JavaScript developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.82
+    },
+    {
+      "query": "Junior React developer",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.34
+    },
+    {
+      "query": "React developer with 4 years",
+      "category": "skill_experience",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 264.57
+    },
+    {
+      "query": "Java developer in California",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.21
+    },
+    {
+      "query": "Python engineer in CA",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 263.9
+    },
+    {
+      "query": "JavaScript developer in New York",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.24
+    },
+    {
+      "query": "React developer in San Francisco",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.32
+    },
+    {
+      "query": "Remote Java developer",
+      "category": "skill_location",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 25.28
+    },
+    {
+      "query": "Senior Java developer in California",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.85
+    },
+    {
+      "query": "Python engineer with 5+ years remote",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.07
+    },
+    {
+      "query": "React developer over 3 years in San Francisco",
+      "category": "complex_fast",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.28
+    },
+    {
+      "query": "JAVA DEVELOPER",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 17.33
+    },
+    {
+      "query": "python engineer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 272.36
+    },
+    {
+      "query": "Javascript Developer",
+      "category": "case_variation",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.27
+    },
+    {
+      "query": "JS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.25
+    },
+    {
+      "query": "ReactJS engineer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.0
+    },
+    {
+      "query": "NodeJS developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.38
+    },
+    {
+      "query": "Golang developer",
+      "category": "alternative_name",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.44
+    },
+    {
+      "query": "PostgreSQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.94
+    },
+    {
+      "query": "MongoDB engineer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.69
+    },
+    {
+      "query": "MySQL developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Redis developer",
+      "category": "database",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 20.78
+    },
+    {
+      "query": "AWS developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 281.89
+    },
+    {
+      "query": "Docker engineer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.37
+    },
+    {
+      "query": "Kubernetes developer",
+      "category": "cloud",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 259.74
+    },
+    {
+      "query": "DevOps engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 27.96
+    },
+    {
+      "query": "Frontend developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.79
+    },
+    {
+      "query": "Backend engineer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 24.22
+    },
+    {
+      "query": "Full stack developer",
+      "category": "role",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "I need a talented software engineer who knows machine learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 14.98
+    },
+    {
+      "query": "Looking for someone who can build scalable web applications",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 292.2
+    },
+    {
+      "query": "Find me a developer experienced in building APIs and microservices",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.32
+    },
+    {
+      "query": "Need a programmer who understands data structures and algorithms",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.14
+    },
+    {
+      "query": "Looking for talent in artificial intelligence and deep learning",
+      "category": "natural_language",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.26
+    },
+    {
+      "query": "React and Node.js developer with GraphQL experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 278.24
+    },
+    {
+      "query": "Python developer with machine learning and data science skills",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.71
+    },
+    {
+      "query": "Full stack engineer proficient in React, Node.js, and PostgreSQL",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 287.08
+    },
+    {
+      "query": "Java developer with Spring Boot, Kafka, and AWS experience",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 23.19
+    },
+    {
+      "query": "DevOps engineer skilled in Docker, Kubernetes, and Terraform",
+      "category": "multi_skill",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.58
+    },
+    {
+      "query": "Senior architect with microservices and cloud native experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 15.05
+    },
+    {
+      "query": "Tech lead who can mentor junior developers and design systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 289.04
+    },
+    {
+      "query": "Principal engineer with expertise in distributed systems",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.71
+    },
+    {
+      "query": "CTO level candidate with startup and scaling experience",
+      "category": "complex_requirements",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 277.55
+    },
+    {
+      "query": "Fintech developer with payment processing experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.94
+    },
+    {
+      "query": "Healthcare software engineer familiar with HIPAA compliance",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 271.27
+    },
+    {
+      "query": "Gaming developer with Unity and C# experience",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 22.89
+    },
+    {
+      "query": "Blockchain developer with Solidity and smart contracts",
+      "category": "domain_specific",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 276.84
+    },
+    {
+      "query": "Good programmer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.63
+    },
+    {
+      "query": "Talented developer",
+      "category": "vague",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 257.04
+    },
+    {
+      "query": "",
+      "category": "edge_case",
+      "success": true,
+      "expected_error": true,
+      "actual_error": true,
+      "status_code": 404,
+      "response_time_ms": 14.32
+    },
+    {
+      "query": "   ",
+      "category": "edge_case",
+      "success": true,
+      "expected_error": true,
+      "actual_error": true,
+      "status_code": 404,
+      "response_time_ms": 263.97
+    },
+    {
+      "query": "a",
+      "category": "edge_case",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.68
+    },
+    {
+      "query": "C++ developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 254.55
+    },
+    {
+      "query": "C# engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 279.2
+    },
+    {
+      "query": ".NET developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 18.48
+    },
+    {
+      "query": "Node.js developer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.47
+    },
+    {
+      "query": "React.js engineer",
+      "category": "special_chars",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 282.11
+    },
+    {
+      "query": "Java developer 5 years",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.7
+    },
+    {
+      "query": "Python 3.9 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "Angular 15 developer",
+      "category": "numbers",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "I am looking for a very experienced senior software engineer who has worked with Java Spring Boot microservices architecture and has extensive experience in building scalable distributed systems",
+      "category": "long_query",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 19.92
+    },
+    {
+      "query": "développeur Python",
+      "category": "non_english",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 268.03
+    },
+    {
+      "query": "Javva developer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 31.44
+    },
+    {
+      "query": "Pyhton engineer",
+      "category": "typo",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 262.59
+    },
+    {
+      "query": "JavaScript developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.05
+    },
+    {
+      "query": "Python engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 273.1
+    },
+    {
+      "query": "Java developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 16.77
+    },
+    {
+      "query": "React developer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 265.36
+    },
+    {
+      "query": "Node.js engineer",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 21.78
+    },
+    {
+      "query": "Senior full stack developer with React Node.js and AWS",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 266.7
+    },
+    {
+      "query": "Machine learning engineer with Python TensorFlow and PyTorch",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 29.21
+    },
+    {
+      "query": "DevOps engineer with Kubernetes Docker and Terraform experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 270.65
+    },
+    {
+      "query": "Data scientist with Python machine learning and data visualization",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 26.3
+    },
+    {
+      "query": "Cloud architect with AWS microservices and serverless experience",
+      "category": "stress",
+      "success": false,
+      "error": "HTTP 404",
+      "response_time_ms": 267.9
+    }
+  ],
+  "expectation_failures": []
+}

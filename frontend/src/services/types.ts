@@ -228,3 +228,47 @@ export interface ComparisonRequest {
   job_role_description?: string;
   company_context?: string;
 }
+
+// Enhanced candidate profile data from backend AI extraction
+export interface WorkExperienceItem {
+  company: string;
+  position: string;
+  duration: string;
+  description: string;
+  technologies: string[];
+}
+
+export interface EducationItem {
+  institution: string;
+  degree: string;
+  field?: string;
+  year?: string;
+}
+
+export interface EnhancedCandidateProfile {
+  // Basic information
+  id: string;
+  name: string;
+  email?: string;
+  location?: string;
+  experience_years: number;
+  skills: string[];
+  visa_status?: string;
+  github_url?: string;
+  linkedin_url?: string;
+  raw_resume_text?: string;
+
+  // Enhanced structured data
+  professional_summary?: string;
+  current_title?: string;
+  work_experience: WorkExperienceItem[];
+  education: EducationItem[];
+  certifications: string[];
+  languages: string[];
+  key_achievements: string[];
+
+  // Extraction metadata
+  extraction_confidence: number;
+  has_structured_data: boolean;
+  extraction_timestamp?: string;
+}

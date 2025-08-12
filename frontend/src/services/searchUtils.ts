@@ -53,6 +53,19 @@ export function parseLocationFromQuery(query: string): LocationParseResult {
     /\b(remote|onsite|hybrid|work\s+from\s+home|wfh)\b/i,
     /\b([A-Z]{2})\s*(?:,|\s|$)/i,
   ];
+
+  // Skip extraction for queries that start with common search patterns
+  const skipPatterns = [
+    /^(show|find|get|search|list)\s+(me\s+)?/i,
+    /^(me\s+)?web\s+developers?/i,
+    /^(me\s+)?developers?/i,
+  ];
+
+  for (const skipPattern of skipPatterns) {
+    if (skipPattern.test(query)) {
+      return { cleanQuery: query };
+    }
+  }
   let location: string | undefined;
   let cleanQuery = query;
   const locationMapping: Record<string, string> = {

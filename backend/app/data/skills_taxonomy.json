@@ -1,0 +1,369 @@
+{
+  "role_mappings": {
+    "frontend_developer": {
+      "core_skills": [
+        {"skill": "javascript", "category": "programming_language", "priority": 1},
+        {"skill": "html", "category": "programming_language", "priority": 1},
+        {"skill": "css", "category": "programming_language", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "react", "category": "framework", "priority": 1},
+        {"skill": "angular", "category": "framework", "priority": 2},
+        {"skill": "vue", "category": "framework", "priority": 2},
+        {"skill": "typescript", "category": "programming_language", "priority": 2},
+        {"skill": "sass", "category": "tool", "priority": 3},
+        {"skill": "webpack", "category": "tool", "priority": 3}
+      ],
+      "related_skills": [
+        {"skill": "git", "category": "tool", "priority": 2},
+        {"skill": "responsive design", "category": "methodology", "priority": 2},
+        {"skill": "jest", "category": "tool", "priority": 3},
+        {"skill": "figma", "category": "tool", "priority": 3}
+      ]
+    },
+    "backend_developer": {
+      "core_skills": [
+        {"skill": "python", "category": "programming_language", "priority": 1},
+        {"skill": "java", "category": "programming_language", "priority": 1},
+        {"skill": "sql", "category": "database", "priority": 1},
+        {"skill": "api development", "category": "methodology", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "django", "category": "framework", "priority": 2},
+        {"skill": "fastapi", "category": "framework", "priority": 2},
+        {"skill": "spring", "category": "framework", "priority": 2},
+        {"skill": "flask", "category": "framework", "priority": 3},
+        {"skill": "express", "category": "framework", "priority": 3}
+      ],
+      "related_skills": [
+        {"skill": "postgresql", "category": "database", "priority": 2},
+        {"skill": "mongodb", "category": "database", "priority": 3},
+        {"skill": "redis", "category": "database", "priority": 3},
+        {"skill": "docker", "category": "tool", "priority": 2},
+        {"skill": "git", "category": "tool", "priority": 2}
+      ]
+    },
+    "fullstack_developer": {
+      "core_skills": [
+        {"skill": "javascript", "category": "programming_language", "priority": 1},
+        {"skill": "python", "category": "programming_language", "priority": 1},
+        {"skill": "html", "category": "programming_language", "priority": 1},
+        {"skill": "css", "category": "programming_language", "priority": 1},
+        {"skill": "sql", "category": "database", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "react", "category": "framework", "priority": 1},
+        {"skill": "node.js", "category": "framework", "priority": 1},
+        {"skill": "django", "category": "framework", "priority": 2},
+        {"skill": "fastapi", "category": "framework", "priority": 2},
+        {"skill": "express", "category": "framework", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "mongodb", "category": "database", "priority": 2},
+        {"skill": "postgresql", "category": "database", "priority": 2},
+        {"skill": "git", "category": "tool", "priority": 2},
+        {"skill": "docker", "category": "tool", "priority": 3}
+      ]
+    },
+    "mobile_developer": {
+      "core_skills": [
+        {"skill": "swift", "category": "programming_language", "priority": 1},
+        {"skill": "kotlin", "category": "programming_language", "priority": 1},
+        {"skill": "objective-c", "category": "programming_language", "priority": 2}
+      ],
+      "framework_skills": [
+        {"skill": "react native", "category": "framework", "priority": 1},
+        {"skill": "flutter", "category": "framework", "priority": 1},
+        {"skill": "xamarin", "category": "framework", "priority": 3},
+        {"skill": "ionic", "category": "framework", "priority": 3}
+      ],
+      "related_skills": [
+        {"skill": "xcode", "category": "tool", "priority": 2},
+        {"skill": "android studio", "category": "tool", "priority": 2},
+        {"skill": "git", "category": "tool", "priority": 2},
+        {"skill": "ui/ux design", "category": "methodology", "priority": 3}
+      ]
+    },
+    "devops_engineer": {
+      "core_skills": [
+        {"skill": "docker", "category": "tool", "priority": 1},
+        {"skill": "kubernetes", "category": "tool", "priority": 1},
+        {"skill": "linux", "category": "tool", "priority": 1},
+        {"skill": "bash", "category": "programming_language", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "terraform", "category": "tool", "priority": 1},
+        {"skill": "ansible", "category": "tool", "priority": 2},
+        {"skill": "jenkins", "category": "tool", "priority": 2},
+        {"skill": "gitlab ci", "category": "tool", "priority": 2},
+        {"skill": "github actions", "category": "tool", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "monitoring", "category": "methodology", "priority": 2},
+        {"skill": "prometheus", "category": "tool", "priority": 3},
+        {"skill": "grafana", "category": "tool", "priority": 3},
+        {"skill": "elk stack", "category": "tool", "priority": 3}
+      ]
+    },
+    "cloud_engineer": {
+      "core_skills": [
+        {"skill": "aws", "category": "cloud_platform", "priority": 1},
+        {"skill": "azure", "category": "cloud_platform", "priority": 1},
+        {"skill": "gcp", "category": "cloud_platform", "priority": 1},
+        {"skill": "terraform", "category": "tool", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "docker", "category": "tool", "priority": 1},
+        {"skill": "kubernetes", "category": "tool", "priority": 1},
+        {"skill": "serverless", "category": "methodology", "priority": 2},
+        {"skill": "microservices", "category": "methodology", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "networking", "category": "domain_knowledge", "priority": 2},
+        {"skill": "security", "category": "domain_knowledge", "priority": 2},
+        {"skill": "monitoring", "category": "methodology", "priority": 2},
+        {"skill": "cost optimization", "category": "methodology", "priority": 3}
+      ]
+    },
+    "data_scientist": {
+      "core_skills": [
+        {"skill": "python", "category": "programming_language", "priority": 1},
+        {"skill": "r", "category": "programming_language", "priority": 2},
+        {"skill": "sql", "category": "database", "priority": 1},
+        {"skill": "statistics", "category": "domain_knowledge", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "pandas", "category": "tool", "priority": 1},
+        {"skill": "numpy", "category": "tool", "priority": 1},
+        {"skill": "scikit-learn", "category": "tool", "priority": 1},
+        {"skill": "matplotlib", "category": "tool", "priority": 2},
+        {"skill": "seaborn", "category": "tool", "priority": 2},
+        {"skill": "jupyter", "category": "tool", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "machine learning", "category": "domain_knowledge", "priority": 1},
+        {"skill": "data visualization", "category": "methodology", "priority": 2},
+        {"skill": "a/b testing", "category": "methodology", "priority": 3},
+        {"skill": "tableau", "category": "tool", "priority": 3}
+      ]
+    },
+    "data_engineer": {
+      "core_skills": [
+        {"skill": "python", "category": "programming_language", "priority": 1},
+        {"skill": "sql", "category": "database", "priority": 1},
+        {"skill": "etl", "category": "methodology", "priority": 1},
+        {"skill": "data pipelines", "category": "methodology", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "apache spark", "category": "tool", "priority": 1},
+        {"skill": "kafka", "category": "tool", "priority": 1},
+        {"skill": "airflow", "category": "tool", "priority": 2},
+        {"skill": "hadoop", "category": "tool", "priority": 3}
+      ],
+      "related_skills": [
+        {"skill": "aws", "category": "cloud_platform", "priority": 2},
+        {"skill": "azure", "category": "cloud_platform", "priority": 2},
+        {"skill": "docker", "category": "tool", "priority": 2},
+        {"skill": "data warehousing", "category": "methodology", "priority": 2}
+      ]
+    },
+    "ml_engineer": {
+      "core_skills": [
+        {"skill": "python", "category": "programming_language", "priority": 1},
+        {"skill": "machine learning", "category": "domain_knowledge", "priority": 1},
+        {"skill": "deep learning", "category": "domain_knowledge", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "tensorflow", "category": "framework", "priority": 1},
+        {"skill": "pytorch", "category": "framework", "priority": 1},
+        {"skill": "scikit-learn", "category": "tool", "priority": 1},
+        {"skill": "keras", "category": "framework", "priority": 2},
+        {"skill": "mlflow", "category": "tool", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "docker", "category": "tool", "priority": 2},
+        {"skill": "kubernetes", "category": "tool", "priority": 3},
+        {"skill": "aws", "category": "cloud_platform", "priority": 2},
+        {"skill": "model deployment", "category": "methodology", "priority": 2}
+      ]
+    },
+    "qa_engineer": {
+      "core_skills": [
+        {"skill": "test automation", "category": "methodology", "priority": 1},
+        {"skill": "manual testing", "category": "methodology", "priority": 1},
+        {"skill": "bug tracking", "category": "methodology", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "selenium", "category": "tool", "priority": 1},
+        {"skill": "cypress", "category": "tool", "priority": 2},
+        {"skill": "junit", "category": "tool", "priority": 2},
+        {"skill": "testng", "category": "tool", "priority": 3},
+        {"skill": "postman", "category": "tool", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "jira", "category": "tool", "priority": 2},
+        {"skill": "git", "category": "tool", "priority": 2},
+        {"skill": "api testing", "category": "methodology", "priority": 2},
+        {"skill": "performance testing", "category": "methodology", "priority": 3}
+      ]
+    },
+    "product_manager": {
+      "core_skills": [
+        {"skill": "product strategy", "category": "methodology", "priority": 1},
+        {"skill": "user research", "category": "methodology", "priority": 1},
+        {"skill": "project management", "category": "methodology", "priority": 1},
+        {"skill": "stakeholder management", "category": "methodology", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "agile", "category": "methodology", "priority": 1},
+        {"skill": "scrum", "category": "methodology", "priority": 1},
+        {"skill": "kanban", "category": "methodology", "priority": 2},
+        {"skill": "roadmapping", "category": "methodology", "priority": 2}
+      ],
+      "related_skills": [
+        {"skill": "analytics", "category": "domain_knowledge", "priority": 2},
+        {"skill": "a/b testing", "category": "methodology", "priority": 2},
+        {"skill": "wireframing", "category": "methodology", "priority": 3},
+        {"skill": "jira", "category": "tool", "priority": 2}
+      ]
+    },
+    "designer": {
+      "core_skills": [
+        {"skill": "ui design", "category": "methodology", "priority": 1},
+        {"skill": "ux design", "category": "methodology", "priority": 1},
+        {"skill": "visual design", "category": "methodology", "priority": 1},
+        {"skill": "prototyping", "category": "methodology", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "figma", "category": "tool", "priority": 1},
+        {"skill": "sketch", "category": "tool", "priority": 2},
+        {"skill": "adobe creative suite", "category": "tool", "priority": 2},
+        {"skill": "invision", "category": "tool", "priority": 3}
+      ],
+      "related_skills": [
+        {"skill": "user research", "category": "methodology", "priority": 2},
+        {"skill": "wireframing", "category": "methodology", "priority": 2},
+        {"skill": "design systems", "category": "methodology", "priority": 2},
+        {"skill": "accessibility", "category": "methodology", "priority": 3}
+      ]
+    },
+    "security_engineer": {
+      "core_skills": [
+        {"skill": "cybersecurity", "category": "domain_knowledge", "priority": 1},
+        {"skill": "penetration testing", "category": "methodology", "priority": 1},
+        {"skill": "vulnerability assessment", "category": "methodology", "priority": 1},
+        {"skill": "incident response", "category": "methodology", "priority": 1}
+      ],
+      "framework_skills": [
+        {"skill": "nmap", "category": "tool", "priority": 2},
+        {"skill": "wireshark", "category": "tool", "priority": 2},
+        {"skill": "metasploit", "category": "tool", "priority": 3},
+        {"skill": "burp suite", "category": "tool", "priority": 3}
+      ],
+      "related_skills": [
+        {"skill": "networking", "category": "domain_knowledge", "priority": 2},
+        {"skill": "cryptography", "category": "domain_knowledge", "priority": 2},
+        {"skill": "compliance", "category": "domain_knowledge", "priority": 3},
+        {"skill": "risk assessment", "category": "methodology", "priority": 3}
+      ]
+    }
+  },
+  "skill_synonyms": {
+    "javascript": ["js", "ecmascript", "es6", "es2015", "vanilla js"],
+    "typescript": ["ts"],
+    "python": ["py"],
+    "react": ["reactjs", "react.js"],
+    "angular": ["angularjs", "angular2+"],
+    "vue": ["vuejs", "vue.js"],
+    "node.js": ["nodejs", "node"],
+    "html": ["html5"],
+    "css": ["css3", "stylesheets"],
+    "sass": ["scss"],
+    "postgresql": ["postgres", "psql"],
+    "mongodb": ["mongo"],
+    "kubernetes": ["k8s", "container orchestration"],
+    "docker": ["containerization"],
+    "aws": ["amazon web services"],
+    "azure": ["microsoft azure"],
+    "gcp": ["google cloud platform", "google cloud"],
+    "machine learning": ["ml", "artificial intelligence", "ai"],
+    "deep learning": ["dl", "neural networks"],
+    "tensorflow": ["tf"],
+    "pytorch": ["torch"],
+    "scikit-learn": ["sklearn"],
+    "react native": ["rn"],
+    "objective-c": ["objc"],
+    "c++": ["cpp", "cplusplus"],
+    "c#": ["csharp", "dotnet"],
+    "sql": ["structured query language"],
+    "nosql": ["non-relational database"],
+    "api": ["rest api", "restful api", "application programming interface"],
+    "git": ["version control", "source control"],
+    "jenkins": ["ci/cd"],
+    "jira": ["issue tracking"],
+    "agile": ["agile methodology"],
+    "scrum": ["scrum methodology"],
+    "devops": ["development operations"],
+    "ui/ux": ["user interface", "user experience"],
+    "frontend": ["front-end", "client-side"],
+    "backend": ["back-end", "server-side"],
+    "fullstack": ["full-stack", "full stack"]
+  },
+  "skill_categories": {
+    "programming_language": {
+      "description": "Core programming and scripting languages",
+      "examples": ["python", "javascript", "java", "c++", "go", "rust"]
+    },
+    "framework": {
+      "description": "Application frameworks and libraries",
+      "examples": ["react", "django", "spring", "tensorflow", "express"]
+    },
+    "database": {
+      "description": "Database systems and query languages",
+      "examples": ["postgresql", "mongodb", "redis", "sql", "elasticsearch"]
+    },
+    "cloud_platform": {
+      "description": "Cloud service providers and platforms",
+      "examples": ["aws", "azure", "gcp", "heroku", "digitalocean"]
+    },
+    "tool": {
+      "description": "Development tools, utilities, and software",
+      "examples": ["docker", "git", "webpack", "figma", "jira"]
+    },
+    "methodology": {
+      "description": "Development methodologies and practices",
+      "examples": ["agile", "tdd", "ci/cd", "microservices", "api design"]
+    },
+    "domain_knowledge": {
+      "description": "Specialized knowledge areas and domains",
+      "examples": ["machine learning", "cybersecurity", "blockchain", "fintech"]
+    }
+  },
+  "experience_mappings": {
+    "junior": {
+      "years_range": [0, 3],
+      "typical_skills_count": [3, 8],
+      "description": "Entry level, new graduate, or career changer"
+    },
+    "mid": {
+      "years_range": [2, 6],
+      "typical_skills_count": [6, 15],
+      "description": "Mid-level professional with solid experience"
+    },
+    "senior": {
+      "years_range": [5, 12],
+      "typical_skills_count": [10, 25],
+      "description": "Senior professional with extensive experience"
+    },
+    "lead": {
+      "years_range": [7, 15],
+      "typical_skills_count": [15, 30],
+      "description": "Technical lead with team management experience"
+    },
+    "principal": {
+      "years_range": [10, 25],
+      "typical_skills_count": [20, 40],
+      "description": "Principal/staff engineer with architectural expertise"
+    }
+  }
+} 

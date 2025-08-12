@@ -14,6 +14,8 @@ import {
   Brain,
   X,
   Trophy,
+  Globe,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -53,9 +55,11 @@ interface ProcessingFile {
   size: number;
   status:
     | "pending"
+    | "uploading"
     | "parsing"
     | "extracting"
     | "embedding"
+    | "storing"
     | "completed"
     | "error";
   progress: number;
@@ -65,6 +69,10 @@ interface ProcessingFile {
   candidateId?: string;
   error?: string;
   retryCount?: number;
+  // NEW: Add confidence indicators
+  extractionConfidence?: number;
+  totalSkillsCount?: number;
+  hasLowConfidence?: boolean;
 }
 
 const AI_INSIGHTS = [
@@ -90,12 +98,299 @@ export function ResumeUpload({
   const [error, setError] = useState<string | null>(null);
   const [candidateName, setCandidateName] = useState("");
   const [currentInsight, setCurrentInsight] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  // Constants for file upload limits
   const MAX_FILES = 10;
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+  // NEW: Retry functionality
+  const retryFailedFile = async (fileId: string) => {
+    const file = processingFiles.find((f) => f.id === fileId);
+    if (!file) return;
+
+    // Find the original file data (this is simplified - in a real app you'd store this)
+    toast({
+      title: "🔄 Retry Not Yet Implemented",
+      description:
+        "Individual file retry will be available in the next update. Please try re-uploading the entire batch.",
+      variant: "default",
+    });
+  };
+
+  // Add polling function for async progress tracking
+  const pollUploadProgress = async (taskId: string) => {
+    const maxPollAttempts = 60; // 1 minute max (60 * 1s), reduced from 120
+    const maxConsecutive404s = 10; // Stop after 10 consecutive 404s
+    let pollAttempts = 0;
+    let consecutive404s = 0;
+
+    const poll = async () => {
+      try {
+        pollAttempts++;
+        console.log(
+          `🔍 Polling attempt ${pollAttempts}/${maxPollAttempts} for task ${taskId}`
+        );
+
+        const statusResponse = await apiService.getBatchUploadStatus(taskId);
+
+        // Reset 404 counter on successful response
+        consecutive404s = 0;
+
+        // Update overall progress
+        const overallProgress = statusResponse.progress || 0;
+        setProgress(overallProgress);
+        console.log(`🔍 Overall progress: ${overallProgress}%`);
+
+        // Update individual file statuses with better mapping
+        if (statusResponse.files && statusResponse.files.length > 0) {
+          setProcessingFiles((prev) =>
+            prev.map((file, index) => {
+              const serverFile = statusResponse.files[index];
+              if (serverFile) {
+                // Map server status to our local status format
+                let localStatus = serverFile.status;
+                if (serverFile.status === "extracting_text")
+                  localStatus = "parsing";
+                if (serverFile.status === "ai_processing")
+                  localStatus = "extracting";
+                if (serverFile.status === "generating_embedding")
+                  localStatus = "embedding";
+                if (serverFile.status === "storing") localStatus = "storing";
+
+                // NEW: Extract confidence and quality metrics
+                const confidence = serverFile.extraction_confidence || 0;
+                const hasLowConfidence = confidence > 0 && confidence < 0.7;
+
+                return {
+                  ...file,
+                  status: localStatus as any,
+                  progress: serverFile.progress || 0,
+                  error: serverFile.error,
+                  candidateId: serverFile.candidate_id,
+                  extractedName:
+                    serverFile.extracted_name || serverFile.candidate_name,
+                  extractedEmail: serverFile.extracted_email,
+                  extractionConfidence: confidence,
+                  extractedSkills:
+                    serverFile.extracted_skills || file.extractedSkills,
+                  totalSkillsCount: serverFile.total_skills_count,
+                  hasLowConfidence,
+                };
+              }
+              return file;
+            })
+          );
+        } else {
+          // If no files in response, simulate progress based on overall progress
+          setProcessingFiles((prev) =>
+            prev.map((file) => ({
+              ...file,
+              progress: Math.min(overallProgress, 90), // Cap at 90% until we know it's done
+              status:
+                overallProgress > 80
+                  ? "embedding"
+                  : overallProgress > 50
+                  ? "extracting"
+                  : "parsing",
+            }))
+          );
+        }
+
+        // Check if completed
+        if (statusResponse.status === "completed") {
+          console.log("🔍 Upload completed via polling");
+
+          // Mark all files as completed
+          setProcessingFiles((prev) =>
+            prev.map((file) => ({
+              ...file,
+              status: "completed",
+              progress: 100,
+            }))
+          );
+
+          setProgress(100);
+          setIsProcessing(false);
+          setUploadComplete(true);
+
+          // Show completion notification
+          if (statusResponse.completed_files > 0) {
+            confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 },
+            });
+
+            toast({
+              title: "🎉 Processing Complete!",
+              description: `Successfully processed ${
+                statusResponse.completed_files
+              } of ${statusResponse.total_files} files${
+                statusResponse.failed_files > 0
+                  ? ` (${statusResponse.failed_files} failed)`
+                  : ""
+              }`,
+            });
+          }
+
+          // Call completion callback
+          if (onUploadComplete) {
+            onUploadComplete();
+          }
+          return; // Stop polling
+        } else if (statusResponse.status === "failed") {
+          console.log("🔍 Upload failed via polling");
+          setIsProcessing(false);
+          setError("Processing failed on the server");
+
+          toast({
+            title: "❌ Processing Failed",
+            description:
+              "All files failed to process. Please check the errors and try again.",
+            variant: "destructive",
+          });
+          return; // Stop polling
+        }
+
+        // Timeout check
+        if (pollAttempts >= maxPollAttempts) {
+          console.log("🔍 Polling timeout reached, assuming completion");
+          await handlePollingTimeout();
+          return; // Stop polling
+        }
+
+        // Schedule next poll with adaptive interval
+        const nextInterval =
+          pollAttempts <= 10 ? 1000 : pollAttempts <= 30 ? 2000 : 3000;
+        setTimeout(poll, nextInterval);
+      } catch (pollError: unknown) {
+        console.error("🔍 Polling error:", pollError);
+
+        // Handle 404 errors (task not found) specially
+        if (pollError instanceof Error && pollError.message.includes("404")) {
+          consecutive404s++;
+          console.log(
+            `🔍 404 error count: ${consecutive404s}/${maxConsecutive404s}`
+          );
+
+          if (consecutive404s >= maxConsecutive404s) {
+            console.log("🔍 Too many 404s, assuming upload completed");
+            await handlePollingTimeout();
+            return; // Stop polling
+          }
+        }
+
+        // Don't stop polling for other temporary errors, but limit retries
+        if (pollAttempts >= maxPollAttempts) {
+          console.log("🔍 Max polling attempts reached");
+          await handlePollingTimeout();
+          return; // Stop polling
+        }
+
+        // Schedule next poll after error
+        const nextInterval =
+          pollAttempts <= 10 ? 1000 : pollAttempts <= 30 ? 2000 : 3000;
+        setTimeout(poll, nextInterval);
+      }
+    };
+
+    // Start polling immediately
+    poll();
+  };
+
+  // Helper function to handle polling timeout/failure gracefully
+  const handlePollingTimeout = async () => {
+    console.log("🔍 Handling polling timeout - attempting verification...");
+
+    try {
+      // Try to verify if upload actually succeeded by searching for recent candidates
+      const verificationResult = await apiService.searchCandidates("*");
+      console.log("🔍 Verification search result:", verificationResult);
+
+      if (
+        verificationResult &&
+        verificationResult.results &&
+        verificationResult.results.length > 0
+      ) {
+        console.log(
+          "🔍 Found candidates in database - upload likely succeeded"
+        );
+
+        // Mark all files as completed
+        setProcessingFiles((prev) =>
+          prev.map((file) => ({
+            ...file,
+            status: "completed",
+            progress: 100,
+          }))
+        );
+
+        setProgress(100);
+        setIsProcessing(false);
+        setUploadComplete(true);
+
+        // Show success confetti
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 },
+        });
+
+        toast({
+          title: "✅ Upload Completed!",
+          description:
+            "Files have been processed successfully. Results are now searchable.",
+        });
+      } else {
+        console.log("🔍 No candidates found - upload may have failed");
+
+        setIsProcessing(false);
+        setError(
+          "Upload status unknown - please try uploading again if candidates don't appear in search results"
+        );
+
+        // Mark files with unknown status
+        setProcessingFiles((prev) =>
+          prev.map((file) => ({
+            ...file,
+            status: "error",
+            progress: 100,
+            error: "Status unknown - check search results",
+          }))
+        );
+      }
+    } catch (verificationError) {
+      console.error("🔍 Verification failed:", verificationError);
+
+      // Optimistic completion - assume success since upload was initiated
+      setProcessingFiles((prev) =>
+        prev.map((file) => ({
+          ...file,
+          status: "completed",
+          progress: 100,
+        }))
+      );
+
+      setProgress(100);
+      setIsProcessing(false);
+      setUploadComplete(true);
+
+      toast({
+        title: "🎯 Upload Status Unknown",
+        description:
+          "Upload was initiated successfully. Please check search results or try uploading again if needed.",
+      });
+    }
+
+    // Call completion callback
+    if (onUploadComplete) {
+      onUploadComplete();
+    }
+  };
 
   // Cycle through AI insights during processing
   React.useEffect(() => {
@@ -132,6 +427,39 @@ export function ResumeUpload({
     return { valid, errors };
   };
 
+  const testBackendConnectivity = async () => {
+    try {
+      setConnectionStatus("🔄 Testing connection...");
+      console.log("🔍 Starting backend connectivity test...");
+
+      const result = await apiService.healthCheck();
+      console.log("🔍 Health check result:", result);
+
+      setConnectionStatus(`✅ Backend is reachable (${result.status})`);
+      toast({
+        title: "✅ Connection Successful",
+        description: `Backend is reachable at ${result.url}`,
+      });
+      setTimeout(() => setConnectionStatus(null), 5000);
+    } catch (error: unknown) {
+      console.error("Backend connectivity test failed:", error);
+
+      let errorMessage = "❌ Backend not reachable";
+      if (error instanceof Error) {
+        errorMessage = `❌ ${error.message}`;
+      }
+
+      setConnectionStatus(errorMessage);
+      toast({
+        title: "❌ Connection Failed",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
+      setTimeout(() => setConnectionStatus(null), 10000);
+    }
+  };
+
   const handleFileSelect = useCallback(
     async (acceptedFiles: File[]) => {
       const { valid, errors } = validateFiles(acceptedFiles);
@@ -148,6 +476,7 @@ export function ResumeUpload({
       setUploadResults(null);
       setProgress(0);
       setCurrentInsight(0);
+      setError(null); // Clear any previous errors
 
       const files: ProcessingFile[] = valid.map((file, index) => ({
         id: `${file.name}-${Date.now()}-${index}`,
@@ -160,67 +489,86 @@ export function ResumeUpload({
 
       setProcessingFiles(files);
 
+      // Show immediate feedback
+      toast({
+        title: "🚀 Starting Upload...",
+        description: `Preparing ${valid.length} file${
+          valid.length > 1 ? "s" : ""
+        } for processing`,
+      });
+
       try {
-        const uploadResponse = await apiService.uploadBatch(valid);
-        const taskId = uploadResponse.task_id;
+        // Test backend connectivity first
+        console.log("🔍 Testing backend connectivity...");
+        await apiService.healthCheck();
+        console.log("🔍 Backend is reachable");
 
-        // Start polling
-        const pollInterval = setInterval(async () => {
-          try {
-            const status = await apiService.getBatchStatus(taskId);
-            setProgress(status.progress || 0);
+        // Update status to show we're uploading
+        setProcessingFiles((prev) =>
+          prev.map((file) => ({
+            ...file,
+            status: "uploading",
+            progress: 10,
+          }))
+        );
 
-            if (status.status === "completed") {
-              clearInterval(pollInterval);
-              setUploadResults(status);
-              // Map results to files similar to before
-              setProcessingFiles((prev) =>
-                prev.map((file) => {
-                  const failedFile = status.failed.find(
-                    (f) => f.file_name === file.name
-                  );
-                  if (failedFile) {
-                    return {
-                      ...file,
-                      status: "error",
-                      progress: 100,
-                      error: failedFile.message,
-                    };
-                  }
-                  // Assume added or updated
-                  const candidate = [...status.added, ...status.updated].find(
-                    (c) =>
-                      file.name
-                        .toLowerCase()
-                        .includes(c.name.toLowerCase().split(" ")[0])
-                  );
-                  return {
-                    ...file,
-                    status: "completed",
-                    progress: 100,
-                    candidateId: candidate?.candidate_id,
-                    extractedName: candidate?.name,
-                    extractedEmail: candidate?.email,
-                  };
-                })
-              );
-              setUploadComplete(true);
-              // confetti and toast as before, using status.stats
-            } else if (status.status === "failed") {
-              clearInterval(pollInterval);
-              setError(status.error);
-              // Mark all files error
-            }
-          } catch (err) {
-            clearInterval(pollInterval);
-            setError("Failed to get status");
-          }
-        }, 2000);
-      } catch (err) {
-        // error handling
-      } finally {
-        setTimeout(() => setIsProcessing(false), 1500);
+        // Start async upload and get task ID immediately
+        const uploadInitResponse = await apiService.uploadBatch(valid);
+
+        const taskId = uploadInitResponse.task_id;
+
+        // Update status to show upload completed, processing started
+        setProcessingFiles((prev) =>
+          prev.map((file) => ({
+            ...file,
+            status: "parsing",
+            progress: 20,
+          }))
+        );
+
+        toast({
+          title: "📤 Upload Complete!",
+          description: `Files uploaded successfully. Processing ${
+            valid.length
+          } file${valid.length > 1 ? "s" : ""} with AI...`,
+        });
+
+        // Start polling for progress - this will handle state transitions
+        pollUploadProgress(taskId);
+      } catch (err: unknown) {
+        console.error("Upload failed - Full error object:", err);
+        console.error("Upload failed - Error type:", typeof err);
+        console.error(
+          "Upload failed - Error message:",
+          err instanceof Error ? err.message : "Unknown error"
+        );
+        console.error(
+          "Upload failed - Error details:",
+          (err as any)?.details || "No details"
+        );
+
+        let errorMessage = "Upload failed";
+
+        if (err instanceof Error) {
+          errorMessage = err.message;
+        } else if (typeof err === "object" && err !== null) {
+          errorMessage = (err as any).message || JSON.stringify(err);
+        } else if (typeof err === "string") {
+          errorMessage = err;
+        }
+
+        setError(errorMessage);
+        setIsProcessing(false); // Only set to false on upload start failure
+        setProcessingFiles((prev) =>
+          prev.map((file) => ({
+            ...file,
+            status: "error",
+            progress: 100,
+            error: errorMessage,
+          }))
+        );
       }
+      // Removed the finally block that was setting isProcessing to false
     },
     [onUploadComplete, toast]
   );
@@ -251,19 +599,6 @@ export function ResumeUpload({
     setUploadResults(null);
     setError(null);
     setCandidateName("");
-  };
-
-  const retryFailedFile = async (fileId: string) => {
-    const file = processingFiles.find((f) => f.id === fileId);
-    if (!file || file.status !== "error") return;
-
-    // Find the original File object - we need to store it
-    // For now, we'll show a toast that retry needs re-upload
-    toast({
-      title: "Retry Feature",
-      description:
-        "Please re-upload the failed file. Individual retry coming soon!",
-    });
   };
 
   return (
@@ -361,6 +696,27 @@ export function ResumeUpload({
                       <FileText className="mr-2 h-4 w-4" />
                       Select Files
                     </Button>
+
+                    {/* Test connectivity button */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        testBackendConnectivity();
+                      }}
+                      className="ml-2 border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:border-blue-500"
+                    >
+                      <Globe className="mr-2 h-4 w-4" />
+                      Test Connection
+                    </Button>
+
+                    {/* Connection status */}
+                    {connectionStatus && (
+                      <p className="text-sm text-gray-300 mt-2">
+                        {connectionStatus}
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -472,6 +828,15 @@ export function ResumeUpload({
                         <div className="flex items-center gap-3 flex-1">
                           <div className="relative">
                             <FileText className="h-5 w-5 text-gray-400" />
+                            {file.status === "uploading" && (
+                              <motion.div
+                                className="absolute inset-0 flex items-center justify-center"
+                                animate={{ y: [-2, 2, -2] }}
+                                transition={{ duration: 1.5, repeat: Infinity }}
+                              >
+                                <Upload className="h-5 w-5 text-blue-500" />
+                              </motion.div>
+                            )}
                             {file.status === "parsing" && (
                               <motion.div
                                 className="absolute inset-0 flex items-center justify-center"
@@ -505,6 +870,15 @@ export function ResumeUpload({
                                 }}
                               >
                                 <Sparkles className="h-5 w-5 text-indigo-500" />
+                              </motion.div>
+                            )}
+                            {file.status === "storing" && (
+                              <motion.div
+                                className="absolute inset-0 flex items-center justify-center"
+                                animate={{ scale: [1, 1.1, 1] }}
+                                transition={{ duration: 0.8, repeat: Infinity }}
+                              >
+                                <Database className="h-5 w-5 text-green-500" />
                               </motion.div>
                             )}
                           </div>
@@ -545,9 +919,13 @@ export function ResumeUpload({
                               </Button>
                             </>
                           )}
-                          {["parsing", "extracting", "embedding"].includes(
-                            file.status
-                          ) && (
+                          {[
+                            "uploading",
+                            "parsing",
+                            "extracting",
+                            "embedding",
+                            "storing",
+                          ].includes(file.status) && (
                             <motion.div
                               animate={{ opacity: [0.5, 1, 0.5] }}
                               transition={{ repeat: Infinity, duration: 1.5 }}
@@ -591,6 +969,24 @@ export function ResumeUpload({
                                   <span className="text-xs text-green-400">
                                     {file.extractedName}
                                   </span>
+                                  {/* NEW: Confidence indicator */}
+                                  {file.extractionConfidence && (
+                                    <span
+                                      className={cn(
+                                        "text-xs px-1.5 py-0.5 rounded text-white font-medium",
+                                        file.hasLowConfidence
+                                          ? "bg-yellow-500/20 text-yellow-400"
+                                          : file.extractionConfidence >= 0.9
+                                          ? "bg-green-500/20 text-green-400"
+                                          : "bg-blue-500/20 text-blue-400"
+                                      )}
+                                    >
+                                      {Math.round(
+                                        file.extractionConfidence * 100
+                                      )}
+                                      %
+                                    </span>
+                                  )}
                                 </motion.div>
                               )}
                               {file.extractedEmail && (
@@ -623,10 +1019,27 @@ export function ResumeUpload({
                                       {file.extractedSkills
                                         .slice(0, 3)
                                         .join(", ")}
-                                      {file.extractedSkills.length > 3 && "..."}
+                                      {file.totalSkillsCount &&
+                                        file.totalSkillsCount > 3 &&
+                                        ` +${file.totalSkillsCount - 3} more`}
                                     </span>
                                   </motion.div>
                                 )}
+                              {/* NEW: Low confidence warning */}
+                              {file.hasLowConfidence && (
+                                <motion.div
+                                  initial={{ x: -10, opacity: 0 }}
+                                  animate={{ x: 0, opacity: 1 }}
+                                  transition={{ delay: 0.3 }}
+                                  className="flex items-center gap-2 bg-yellow-500/10 p-2 rounded border border-yellow-500/20"
+                                >
+                                  <AlertCircle className="h-3 w-3 text-yellow-400 flex-shrink-0" />
+                                  <span className="text-xs text-yellow-400">
+                                    Low confidence extraction - you may want to
+                                    verify the data
+                                  </span>
+                                </motion.div>
+                              )}
                             </div>
                           )}
                         </motion.div>

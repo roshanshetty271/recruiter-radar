@@ -15,6 +15,11 @@ import type { BackendCandidateResult, BackendSearchResponse } from "./types";
 export function mapBackendCandidatesToFrontend(
   backendResponse: SearchResponse | BackendSearchResponse
 ): FrontendCandidate[] {
+  if (!backendResponse.results || !Array.isArray(backendResponse.results)) {
+    console.error("❌ Invalid results structure:", backendResponse.results);
+    return [];
+  }
+
   return backendResponse.results.map((candidate, index) => {
     // Cast to any to access potentially missing properties safely
     const candidateAny = candidate as any;

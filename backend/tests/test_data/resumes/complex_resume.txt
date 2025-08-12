@@ -1,0 +1,69 @@
+Dr. Sarah Chen, PhD
+Senior Principal Architect | Cloud Infrastructure
+
+📧 sarah.chen@techgiant.com | 📱 +1-425-555-0199
+🔗 linkedin.com/in/sarahchen | 🐙 github.com/sarahchen
+📍 Seattle, WA | 🌐 sarahchen.dev
+
+PROFESSIONAL EXPERIENCE
+
+Senior Principal Architect | Microsoft Azure (Jan 2020 - Present)
+• Led architecture for global Azure regions serving 1B+ users
+• Reduced infrastructure costs by $50M annually through optimization
+• Mentored 15+ senior engineers across 3 continents
+• Technologies: Kubernetes, Terraform, Go, Azure, Docker
+
+Principal Software Engineer | Amazon Web Services (Mar 2016 - Dec 2019)
+• Designed and implemented EC2 auto-scaling algorithms
+• Achieved 99.99% uptime for critical services
+• Published 12 technical papers on distributed systems
+• Technologies: Java, Python, AWS, DynamoDB, Lambda
+
+Senior Software Engineer | Google (Jun 2012 - Feb 2016)
+• Core contributor to Google Cloud Platform
+• Improved query performance by 300% for BigQuery
+• Led team of 8 engineers on data pipeline projects
+• Technologies: C++, Python, BigQuery, Kubernetes
+
+Software Engineer | Facebook (Aug 2010 - May 2012)
+• Developed News Feed algorithms serving 500M+ users
+• Reduced page load times by 40% through optimization
+• Technologies: PHP, MySQL, Memcached, React
+
+EDUCATION
+
+PhD Computer Science | Stanford University (2006-2010)
+• Dissertation: "Distributed Consensus in Large-Scale Systems"
+• Research focus: Distributed systems, consensus algorithms
+• GPA: 3.9/4.0
+
+MS Computer Science | Carnegie Mellon University (2004-2006)
+• Specialization: Systems and Networking
+• GPA: 3.8/4.0
+
+BS Computer Science | UC Berkeley (2000-2004)
+• Magna Cum Laude, Phi Beta Kappa
+• GPA: 3.9/4.0
+
+CERTIFICATIONS & AWARDS
+• AWS Solutions Architect Professional (2018)
+• Google Cloud Professional Architect (2017)
+• Microsoft Azure Solutions Architect Expert (2021)
+• ACM Distinguished Scientist (2019)
+• IEEE Fellow (2020)
+
+TECHNICAL SKILLS
+Languages: Go, Python, Java, C++, JavaScript, TypeScript, Rust
+Cloud: AWS, Azure, GCP, Kubernetes, Docker, Terraform
+Databases: PostgreSQL, MongoDB, DynamoDB, BigQuery, Redis
+Tools: Git, Jenkins, CircleCI, Grafana, Prometheus, Elasticsearch
+
+PUBLICATIONS & PATENTS
+• 25+ peer-reviewed papers in SOSP, OSDI, NSDI
+• 8 US patents in distributed systems and cloud computing
+• Co-author of "Cloud Architecture Patterns" (O'Reilly, 2019)
+
+LANGUAGES
+• English (Native)
+• Mandarin (Fluent)
+• Spanish (Conversational) 

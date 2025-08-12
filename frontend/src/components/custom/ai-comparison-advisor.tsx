@@ -92,11 +92,63 @@ export function AIComparisonAdvisor({
         company_context: jobContext?.company,
       };
 
+      console.log("[AI Comparison] Starting analysis with request:", request);
+
       const result = await analyzeComparison(request);
+
+      console.log("[AI Comparison] Received result:", result);
+
+      // Validate the response structure before proceeding
+      if (!result) {
+        console.error("[AI Comparison] No result returned from API");
+        throw new Error("No analysis result received from server");
+      }
+
+      if (!result.winner) {
+        console.error("[AI Comparison] Missing winner in response:", result);
+        throw new Error(
+          "Invalid analysis result: missing winner recommendation"
+        );
+      }
+
+      if (!result.candidates || !Array.isArray(result.candidates)) {
+        console.error(
+          "[AI Comparison] Missing or invalid candidates array:",
+          result
+        );
+        throw new Error("Invalid analysis result: missing candidate insights");
+      }
+
+      console.log("[AI Comparison] Analysis completed successfully:", {
+        winner: result.winner.candidate_name,
+        candidateCount: result.candidates.length,
+        processingTime: result.processing_time_ms,
+        confidence: result.ai_confidence,
+      });
+
       analysisCache.set(cacheKey, result);
       setAnalysis(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed");
+      console.error("[AI Comparison] Analysis failed:", err);
+
+      // Provide more specific error messages
+      let errorMessage = "Analysis failed";
+      if (err instanceof Error) {
+        if (err.message.includes("Network")) {
+          errorMessage =
+            "Network error: Please check your connection and try again";
+        } else if (err.message.includes("timeout")) {
+          errorMessage = "Analysis timed out: Please try again";
+        } else if (err.message.includes("server")) {
+          errorMessage = "Server error: Please try again in a moment";
+        } else if (err.message.includes("missing")) {
+          errorMessage = err.message; // Use our custom validation messages
+        } else {
+          errorMessage = err.message;
+        }
+      }
+
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -292,29 +344,135 @@ function ErrorState({
   error: string;
   onRetry: () => void;
 }) {
+  // Categorize error types and provide helpful suggestions
+  const getErrorDetails = (errorMessage: string) => {
+    const message = errorMessage.toLowerCase();
+
+    if (message.includes("network") || message.includes("connection")) {
+      return {
+        title: "Connection Issue",
+        icon: "🌐",
+        color: "orange",
+        suggestions: [
+          "Check your internet connection",
+          "Try refreshing the page",
+          "Contact support if the issue persists",
+        ],
+      };
+    }
+
+    if (message.includes("timeout") || message.includes("timed out")) {
+      return {
+        title: "Analysis Timeout",
+        icon: "⏱️",
+        color: "yellow",
+        suggestions: [
+          "The analysis is taking longer than expected",
+          "Try again with fewer candidates",
+          "Check server status",
+        ],
+      };
+    }
+
+    if (message.includes("server") || message.includes("500")) {
+      return {
+        title: "Server Error",
+        icon: "🔧",
+        color: "red",
+        suggestions: [
+          "Our servers are experiencing issues",
+          "Please try again in a few minutes",
+          "Contact support if this continues",
+        ],
+      };
+    }
+
+    if (message.includes("missing") || message.includes("invalid")) {
+      return {
+        title: "Data Error",
+        icon: "📊",
+        color: "purple",
+        suggestions: [
+          "There was an issue with the candidate data",
+          "Try selecting different candidates",
+          "Refresh the page and try again",
+        ],
+      };
+    }
+
+    // Default error
+    return {
+      title: "Analysis Failed",
+      icon: "❌",
+      color: "red",
+      suggestions: [
+        "An unexpected error occurred",
+        "Please try again",
+        "Contact support if the problem persists",
+      ],
+    };
+  };
+
+  const errorDetails = getErrorDetails(error);
+  const colorClasses = {
+    red: "bg-red-500/20 text-red-400",
+    orange: "bg-orange-500/20 text-orange-400",
+    yellow: "bg-yellow-500/20 text-yellow-400",
+    purple: "bg-purple-500/20 text-purple-400",
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="flex flex-col items-center justify-center py-12 space-y-4"
+      className="flex flex-col items-center justify-center py-12 space-y-6"
     >
-      <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
-        <XCircle className="w-8 h-8 text-red-400" />
-      </div>
-
-      <div className="text-center space-y-2">
-        <h3 className="text-xl font-bold text-white">Analysis Failed</h3>
-        <p className="text-gray-400 max-w-md">{error}</p>
-      </div>
-
-      <Button
-        onClick={onRetry}
-        variant="outline"
-        className="border-gray-600 text-white hover:bg-white/10"
+      <div
+        className={`w-16 h-16 rounded-full flex items-center justify-center ${
+          colorClasses[errorDetails.color as keyof typeof colorClasses]
+        }`}
       >
-        <Zap className="w-4 h-4 mr-2" />
-        Try Again
-      </Button>
+        <span className="text-2xl">{errorDetails.icon}</span>
+      </div>
+
+      <div className="text-center space-y-3 max-w-md">
+        <h3 className="text-xl font-bold text-white">{errorDetails.title}</h3>
+        <p className="text-gray-400">{error}</p>
+
+        {/* Helpful suggestions */}
+        <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
+          <h4 className="text-sm font-medium text-white mb-2">
+            💡 What to try:
+          </h4>
+          <ul className="text-xs text-gray-400 space-y-1">
+            {errorDetails.suggestions.map((suggestion, index) => (
+              <li key={index} className="flex items-start">
+                <span className="text-blue-400 mr-2">•</span>
+                {suggestion}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <Button
+          onClick={onRetry}
+          variant="outline"
+          className="border-gray-600 text-white hover:bg-white/10"
+        >
+          <Zap className="w-4 h-4 mr-2" />
+          Try Again
+        </Button>
+
+        <Button
+          onClick={() => window.location.reload()}
+          variant="outline"
+          className="border-gray-600 text-gray-400 hover:bg-white/5"
+        >
+          Refresh Page
+        </Button>
+      </div>
     </motion.div>
   );
 }

@@ -7,10 +7,194 @@ Designed with future extensibility in mind while supporting MVP functionality.
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+import re
+from pydantic import BaseModel, Field, validator, model_validator
 from .candidate import CandidateProfile
 from .extraction_models import ExtractedResumeData
 from pydantic import EmailStr  # Local import to avoid top-level circular issues
+
+
+# ============= Search Validation Models =============
+
+
+class SearchQueryValidation(BaseModel):
+    """Validation model for search query parameters with comprehensive error handling"""
+
+    query: str = Field(
+        "", min_length=0, max_length=200, description="Natural language search query"
+    )
+    page: int = Field(1, ge=1, le=1000, description="Page number (1-based)")
+    page_size: int = Field(20, ge=1, le=100, description="Results per page")
+    limit: Optional[int] = Field(
+        None, ge=1, le=100, description="Legacy limit parameter"
+    )
+    visa_status: Optional[str] = Field(
+        None, max_length=50, description="Visa status filter"
+    )
+    location: Optional[str] = Field(None, max_length=100, description="Location filter")
+    min_experience: Optional[int] = Field(
+        None, ge=0, le=50, description="Minimum years of experience"
+    )
+    skills: Optional[str] = Field(
+        None, max_length=500, description="Comma-separated skills list"
+    )
+
+    @validator("query")
+    def validate_query_content(cls, v):
+        """Validate query content for potentially problematic characters"""
+        if not v:
+            return v
+
+        # Check for suspicious patterns that might cause issues
+        dangerous_patterns = [
+            r"<script",
+            r"javascript:",
+            r"data:",
+            r"vbscript:",
+            r"onload=",
+            r"onerror=",
+        ]
+
+        v_lower = v.lower()
+        for pattern in dangerous_patterns:
+            if re.search(pattern, v_lower):
+                raise ValueError(
+                    f"Query contains potentially unsafe content: {pattern}"
+                )
+
+        # Check for excessive special characters
+        special_char_count = len(re.findall(r"[<>{}[\]\\|]", v))
+        if special_char_count > 5:
+            raise ValueError(
+                "Query contains too many special characters that may affect search quality"
+            )
+
+        return v.strip()
+
+    @validator("visa_status")
+    def validate_visa_status(cls, v):
+        """Validate visa status against known values"""
+        if not v:
+            return v
+
+        valid_visa_statuses = {
+            "us citizen",
+            "us_citizen",
+            "citizen",
+            "h1b",
+            "h-1b",
+            "h1-b",
+            "green card",
+            "green_card",
+            "greencard",
+            "permanent resident",
+            "f1 opt",
+            "f-1 opt",
+            "opt",
+            "f1",
+            "f-1",
+            "l1",
+            "l-1",
+            "l1a",
+            "l1b",
+            "e3",
+            "e-3",
+            "tn",
+            "tn visa",
+            "o1",
+            "o-1",
+            "student",
+            "work authorization",
+            "pending",
+            "requires sponsorship",
+        }
+
+        v_normalized = v.lower().strip()
+        if v_normalized not in valid_visa_statuses:
+            # Don't raise error, just log warning for now (MVP approach)
+            pass
+
+        return v.strip()
+
+    @validator("location")
+    def validate_location(cls, v):
+        """Validate location string"""
+        if not v:
+            return v
+
+        # Basic sanity checks
+        if len(v) < 2:
+            raise ValueError("Location must be at least 2 characters")
+
+        # Check for obvious nonsense
+        if re.match(r'^[0-9!@#$%^&*()_+={}[\]|\\:";\'<>?,./]*$', v):
+            raise ValueError(
+                "Location appears to contain only numbers or special characters"
+            )
+
+        return v.strip()
+
+    @validator("skills")
+    def validate_skills_format(cls, v):
+        """Validate skills format and content"""
+        if not v:
+            return v
+
+        v = v.strip()
+        if not v:
+            return v
+
+        # Split by common delimiters
+        skills_list = re.split(r"[,;|]+", v)
+        skills_list = [skill.strip() for skill in skills_list if skill.strip()]
+
+        if len(skills_list) > 20:
+            raise ValueError("Too many skills specified (maximum 20)")
+
+        # Validate individual skills
+        for skill in skills_list:
+            if len(skill) < 1:
+                continue
+            if len(skill) > 50:
+                raise ValueError(f"Skill '{skill}' is too long (maximum 50 characters)")
+            if re.match(r'^[0-9!@#$%^&*()_+={}[\]|\\:";\'<>?,./]*$', skill):
+                raise ValueError(
+                    f"Skill '{skill}' appears to contain only numbers or special characters"
+                )
+
+        # Return cleaned up skills
+        return ",".join(skills_list)
+
+    @model_validator(mode="after")
+    def validate_pagination_logic(self):
+        """Validate pagination parameters work together correctly"""
+        page = self.page
+        page_size = self.page_size
+        limit = self.limit
+
+        # If both limit and page_size are provided, ensure they don't conflict
+        if limit is not None and page != 1:
+            raise ValueError("Cannot use 'limit' parameter with pagination (page > 1)")
+
+        # Validate reasonable pagination bounds
+        total_requested = page * page_size
+        if total_requested > 10000:
+            raise ValueError("Requested page would exceed maximum results (10,000)")
+
+        return self
+
+    class Config:
+        json_json_schema_extra = {
+            "example": {
+                "query": "Python developers with AI experience",
+                "page": 1,
+                "page_size": 20,
+                "visa_status": "US Citizen",
+                "location": "San Francisco",
+                "min_experience": 3,
+                "skills": "Python,FastAPI,Docker",
+            }
+        }
 
 
 # ============= Outreach Models =============
@@ -89,7 +273,7 @@ class OutreachRequest(BaseModel):
         return v.strip()
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "job_role_title": "Senior Python Developer",
                 "job_role_description": "Lead our AI initiatives",
@@ -138,7 +322,7 @@ class OutreachResponse(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "draft_message": "Hi Sarah,\\n\\nYour 5 years of experience building Python applications...",
                 "candidate_name": "Sarah Chen",
@@ -183,7 +367,7 @@ class PaginationInfo(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "current_page": 2,
                 "page_size": 20,
@@ -218,7 +402,7 @@ class SearchMetadata(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "query": "Python developers with AI experience",
                 "processing_time_ms": 245.7,
@@ -294,7 +478,7 @@ class SearchResponse(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "results": [
                     {
@@ -334,7 +518,7 @@ class ErrorResponse(BaseModel):
     request_id: Optional[str] = Field(None, description="Request ID for tracking")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "error": "not_found",
                 "message": "Candidate with ID 'candidate_999' not found",
@@ -400,7 +584,7 @@ class SearchQueryParams(BaseModel):
     class Config:
         """Pydantic configuration for SearchQueryParams."""
 
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "q": "Python developer with 5+ years FastAPI experience",
                 "limit": 10,
@@ -441,7 +625,7 @@ class UploadResponse(BaseModel):
     location: Optional[str] = Field(None, description="Extracted location")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "success": True,
                 "candidate_id": "uploaded_a1b2c3d4",
@@ -514,7 +698,7 @@ class UploadErrorResponse(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "success": False,
                 "error": "file_too_large",
@@ -579,6 +763,120 @@ class BatchUploadResponse(BaseModel):
     failed: List[FileError]
 
 
+# ============= Enhanced Candidate Profile Models =============
+
+
+class WorkExperienceItem(BaseModel):
+    """Structured work experience item extracted from resume."""
+
+    company: str = Field(..., description="Company/organization name")
+    position: str = Field(..., description="Job title/position")
+    duration: str = Field(
+        ..., description="Duration of employment (e.g., 'March 2021 - Present')"
+    )
+    description: str = Field(..., description="Job description and achievements")
+    technologies: List[str] = Field(
+        default_factory=list, description="Technologies used in this role"
+    )
+
+
+class EducationItem(BaseModel):
+    """Structured education item extracted from resume."""
+
+    institution: str = Field(..., description="Educational institution name")
+    degree: str = Field(..., description="Degree/certification obtained")
+    field: Optional[str] = Field(None, description="Field of study")
+    year: Optional[str] = Field(None, description="Graduation year or period")
+    gpa: Optional[str] = Field(None, description="GPA if mentioned")
+
+
+class EnhancedCandidateProfile(BaseModel):
+    """Enhanced candidate profile with AI-extracted structured data."""
+
+    # Basic information (from existing CandidateProfile)
+    id: str
+    name: str
+    email: Optional[EmailStr] = None
+    location: Optional[str] = None
+    experience_years: int
+    skills: List[str]
+    visa_status: Optional[str] = None
+    github_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    raw_resume_text: Optional[str] = None
+
+    # Enhanced structured data
+    professional_summary: Optional[str] = Field(
+        None, description="AI-extracted professional summary or objective"
+    )
+    current_title: Optional[str] = Field(
+        None, description="Current or most recent job title"
+    )
+    work_experience: List[WorkExperienceItem] = Field(
+        default_factory=list, description="Structured work experience history"
+    )
+    education: List[EducationItem] = Field(
+        default_factory=list, description="Structured education history"
+    )
+    certifications: List[str] = Field(
+        default_factory=list, description="Professional certifications"
+    )
+    languages: List[str] = Field(
+        default_factory=list, description="Programming and spoken languages"
+    )
+    key_achievements: List[str] = Field(
+        default_factory=list, description="AI-identified key achievements"
+    )
+
+    # Extraction metadata
+    extraction_confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score for AI extraction (0.0-1.0)",
+    )
+    has_structured_data: bool = Field(
+        default=False, description="Whether structured data was successfully extracted"
+    )
+    extraction_timestamp: Optional[datetime] = Field(
+        None, description="When the structured data was extracted"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "c001",
+                "name": "Alex Chen",
+                "email": "alex.chen@email.com",
+                "location": "San Francisco, CA",
+                "experience_years": 5,
+                "skills": ["Python", "React", "PostgreSQL", "Docker"],
+                "visa_status": "H1B",
+                "professional_summary": "Experienced full-stack engineer with 5+ years building scalable web applications...",
+                "current_title": "Senior Software Engineer",
+                "work_experience": [
+                    {
+                        "company": "TechCorp Inc.",
+                        "position": "Senior Software Engineer",
+                        "duration": "March 2021 - Present",
+                        "description": "Led migration of legacy monolith to microservices architecture...",
+                        "technologies": ["Python", "React", "Kubernetes"],
+                    }
+                ],
+                "education": [
+                    {
+                        "institution": "University of California, Berkeley",
+                        "degree": "Bachelor of Science in Computer Science",
+                        "field": "Computer Science",
+                        "year": "2015-2019",
+                    }
+                ],
+                "has_structured_data": True,
+                "extraction_confidence": 0.92,
+            }
+        }
+
+
 # ============= Candidate Insights Model =============
 
 
@@ -600,7 +898,7 @@ class CandidateInsightsResponse(BaseModel):
     )
 
     class Config:
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "candidate_id": "candidate_abc123",
                 "fit_score": 87.5,
@@ -639,7 +937,7 @@ class HiddenInsight(BaseModel):
     impact_level: str = Field(..., description="Impact level", example="high")
 
     class Config:
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "candidate_id": "victor_chen_001",
                 "insight_type": "rare_skill_combo",
@@ -667,7 +965,7 @@ class ComparisonMatrix(BaseModel):
     )
 
     class Config:
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "technical_match": {
                     "alex_chen": 61,
@@ -708,7 +1006,7 @@ class ComparisonWinner(BaseModel):
     )
 
     class Config:
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "candidate_id": "victor_chen_001",
                 "candidate_name": "Victor Chen",
@@ -763,7 +1061,7 @@ class ComparisonRequest(BaseModel):
         return v
 
     class Config:
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "candidate_ids": ["alex_chen_001", "victor_chen_001", "alex_popov_001"],
                 "job_role_title": "Senior React Developer",
@@ -809,7 +1107,7 @@ class ComparisonAnalysisResponse(BaseModel):
     )
 
     class Config:
-        json_schema_extra = {
+        json_json_schema_extra = {
             "example": {
                 "winner": {
                     "candidate_id": "victor_chen_001",

@@ -10,7 +10,18 @@ import { AnimatedBackground } from "@/components/animated-background";
 import { OutreachModal } from "@/components/custom/outreach-modal"; // FE-6 IMPORT
 import { ResumeUpload } from "@/components/custom/resume-upload"; // Upload component
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Upload, Star } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Search,
+  Upload,
+  Star,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  AlertTriangle,
+  CheckCircle,
+} from "lucide-react";
 // Import our services
 import { apiService } from "@/services/apiService";
 import {
@@ -38,18 +49,73 @@ interface SessionMetrics {
   timeSpent: number;
 }
 
+// 🔒 NEW: Enhanced error state management
+interface ErrorState {
+  hasError: boolean;
+  message: string;
+  type: "network" | "server" | "validation" | "timeout" | "unknown";
+  isRetryable: boolean;
+  retryCount: number;
+  lastErrorTime: number;
+  suggestions: string[];
+}
+
+// 🔒 NEW: Loading state with detailed status
+interface LoadingState {
+  isLoading: boolean;
+  stage: "idle" | "searching" | "processing" | "formatting" | "retrying";
+  progress: number; // 0-100
+  message: string;
+  startTime: number;
+}
+
+// 🔒 NEW: Network status monitoring
+interface NetworkStatus {
+  isOnline: boolean;
+  isSlowConnection: boolean;
+  lastChecked: number;
+}
+
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] =
     useState<boolean>(false);
   const [candidates, setCandidates] = useState<FrontendCandidate[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // 🔒 NEW: Enhanced loading and error states
+  const [loadingState, setLoadingState] = useState<LoadingState>({
+    isLoading: false,
+    stage: "idle",
+    progress: 0,
+    message: "",
+    startTime: 0,
+  });
+
+  const [errorState, setErrorState] = useState<ErrorState>({
+    hasError: false,
+    message: "",
+    type: "unknown",
+    isRetryable: false,
+    retryCount: 0,
+    lastErrorTime: 0,
+    suggestions: [],
+  });
+
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>({
+    isOnline: navigator.onLine,
+    isSlowConnection: false,
+    lastChecked: Date.now(),
+  });
+
   const [searchMetrics, setSearchMetrics] = useState<SearchMetrics>({
     totalResults: 0,
     searchTimeMs: 0,
     queryInterpretation: null,
   });
+
+  // 🧠 NEW: Progressive search metadata state
+  const [searchMetadata, setSearchMetadata] = useState<any>(null);
 
   // Saved candidates functionality
   const { savedCandidates } = useSavedCandidates();
@@ -91,6 +157,254 @@ export default function Dashboard() {
     null
   );
 
+  // 🔒 NEW: Network status monitoring
+  useEffect(() => {
+    const updateNetworkStatus = () => {
+      setNetworkStatus((prev) => ({
+        ...prev,
+        isOnline: navigator.onLine,
+        lastChecked: Date.now(),
+      }));
+    };
+
+    const handleNetworkChange = () => {
+      updateNetworkStatus();
+
+      if (navigator.onLine) {
+        toast({
+          title: "🌐 Connection Restored",
+          description: "Your internet connection is back online",
+        });
+
+        // Clear network-related errors
+        if (errorState.type === "network") {
+          setErrorState((prev) => ({ ...prev, hasError: false, message: "" }));
+        }
+      } else {
+        toast({
+          title: "📡 Connection Lost",
+          description: "You're currently offline. Some features may not work.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    // Add event listeners
+    window.addEventListener("online", handleNetworkChange);
+    window.addEventListener("offline", handleNetworkChange);
+
+    // Check connection speed (simple test)
+    const checkConnectionSpeed = async () => {
+      if (!navigator.onLine) return;
+
+      const startTime = Date.now();
+      try {
+        await fetch("/api/ping", { method: "HEAD", cache: "no-cache" });
+        const duration = Date.now() - startTime;
+
+        setNetworkStatus((prev) => ({
+          ...prev,
+          isSlowConnection: duration > 2000, // Consider slow if > 2 seconds
+        }));
+      } catch (error) {
+        // Ignore ping errors
+      }
+    };
+
+    // Check connection speed periodically
+    const speedCheckInterval = setInterval(checkConnectionSpeed, 30000); // Every 30 seconds
+
+    return () => {
+      window.removeEventListener("online", handleNetworkChange);
+      window.removeEventListener("offline", handleNetworkChange);
+      clearInterval(speedCheckInterval);
+    };
+  }, [errorState.type]);
+
+  // 🔒 NEW: Enhanced error classification
+  const classifyError = (error: any): Partial<ErrorState> => {
+    if (!networkStatus.isOnline) {
+      return {
+        type: "network",
+        message:
+          "No internet connection. Please check your network and try again.",
+        isRetryable: true,
+        suggestions: [
+          "Check your internet connection",
+          "Try refreshing the page",
+          "Switch to a different network if available",
+        ],
+      };
+    }
+
+    if (error?.type) {
+      switch (error.type) {
+        case "network_error":
+          return {
+            type: "network",
+            message:
+              "Network connection failed. Please check your internet and try again.",
+            isRetryable: true,
+            suggestions: [
+              "Check your internet connection",
+              "Disable VPN if you're using one",
+              "Try refreshing the page",
+            ],
+          };
+        case "timeout_error":
+          return {
+            type: "timeout",
+            message: "Request timed out. The server might be busy.",
+            isRetryable: true,
+            suggestions: [
+              "The server is taking longer than usual",
+              "Try again in a few seconds",
+              "Consider simplifying your search",
+            ],
+          };
+        case "server_error":
+          return {
+            type: "server",
+            message: "Server error occurred. Our team has been notified.",
+            isRetryable: true,
+            suggestions: [
+              "Try again in a moment",
+              "The issue is usually temporary",
+              "Contact support if the problem persists",
+            ],
+          };
+        case "validation_error":
+          return {
+            type: "validation",
+            message:
+              error.message ||
+              "Invalid search parameters. Please check your input.",
+            isRetryable: false,
+            suggestions: [
+              "Check your search terms for special characters",
+              "Try a shorter, simpler search",
+              "Remove some filters and try again",
+            ],
+          };
+        case "rate_limit_error":
+          return {
+            type: "server",
+            message: "Too many requests. Please wait a moment and try again.",
+            isRetryable: true,
+            suggestions: [
+              "Wait 30 seconds before searching again",
+              "Try fewer searches in quick succession",
+              "Consider upgrading for higher limits",
+            ],
+          };
+        default:
+          return {
+            type: "unknown",
+            message: error.message || "An unexpected error occurred.",
+            isRetryable: true,
+            suggestions: [
+              "Try refreshing the page",
+              "Clear your browser cache",
+              "Contact support if the issue continues",
+            ],
+          };
+      }
+    }
+
+    // Fallback for unknown errors
+    return {
+      type: "unknown",
+      message: error.message || "Something went wrong. Please try again.",
+      isRetryable: true,
+      suggestions: [
+        "Try refreshing the page",
+        "Check your internet connection",
+        "Contact support if the problem persists",
+      ],
+    };
+  };
+
+  // 🔒 NEW: Enhanced loading state management
+  const setLoadingStage = (
+    stage: LoadingState["stage"],
+    message: string,
+    progress: number = 0
+  ) => {
+    setLoadingState((prev) => ({
+      ...prev,
+      stage,
+      message,
+      progress: Math.min(100, Math.max(0, progress)),
+      startTime: stage !== "idle" ? prev.startTime || Date.now() : 0,
+    }));
+  };
+
+  // 🔒 NEW: Auto-retry mechanism
+  const performSearchWithRetry = async (
+    query: string,
+    filters: any,
+    page: number,
+    retryCount: number = 0
+  ): Promise<any> => {
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
+
+    try {
+      setLoadingStage(
+        "searching",
+        `Searching candidates${
+          retryCount > 0 ? ` (attempt ${retryCount + 1})` : ""
+        }...`,
+        20
+      );
+
+      const searchResults = await apiService.searchCandidates(query, {
+        ...activeFilters,
+        ...filters,
+        page: page,
+        page_size: pageSize,
+      } as any);
+
+      setLoadingStage("processing", "Processing results...", 60);
+      return searchResults;
+    } catch (error) {
+      console.error(`Search attempt ${retryCount + 1} failed:`, error);
+
+      const errorClassification = classifyError(error);
+
+      if (errorClassification.isRetryable && retryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff
+
+        setLoadingStage(
+          "retrying",
+          `Retrying in ${delay / 1000} seconds...`,
+          10
+        );
+
+        toast({
+          title: "🔄 Retrying Search",
+          description: `Attempt ${retryCount + 1} failed. Trying again in ${
+            delay / 1000
+          } seconds...`,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return performSearchWithRetry(query, filters, page, retryCount + 1);
+      }
+
+      // Update error state with classification
+      setErrorState((prev) => ({
+        ...prev,
+        hasError: true,
+        ...errorClassification,
+        retryCount: retryCount + 1,
+        lastErrorTime: Date.now(),
+      }));
+
+      throw error;
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -115,7 +429,8 @@ export default function Dashboard() {
       // Search for the specific candidate and open outreach modal
       const searchForCandidate = async () => {
         try {
-          setIsLoading(true);
+          setLoadingStage("searching", "Loading candidate for outreach...", 50);
+
           // Use a broad search to find candidates, then filter by ID
           const response = await apiService.searchCandidates("", {
             page: 1,
@@ -177,13 +492,20 @@ export default function Dashboard() {
           }
         } catch (error) {
           console.error("Failed to find candidate:", error);
+          const errorClassification = classifyError(error);
+          setErrorState((prev) => ({
+            ...prev,
+            hasError: true,
+            ...errorClassification,
+          }));
+
           toast({
             title: "Candidate Not Found",
             description: "Could not find the candidate you were working with.",
             variant: "destructive",
           });
         } finally {
-          setIsLoading(false);
+          setLoadingStage("idle", "", 0);
           // Clean up URL parameters
           window.history.replaceState({}, "", window.location.pathname);
         }
@@ -290,8 +612,8 @@ export default function Dashboard() {
 
     setSearchQuery(query);
     setHasSearched(true);
-    setErrorMessage(""); // Clear error on new search
-    setIsLoading(true);
+    setErrorState((prev) => ({ ...prev, hasError: false, message: "" })); // Clear error on new search
+    setLoadingStage("searching", "Preparing search...", 10);
 
     // Reset to page 1 for new searches, keep current page for pagination navigation
     const targetPage = resetPagination ? 1 : page;
@@ -308,13 +630,14 @@ export default function Dashboard() {
     }
 
     try {
-      // Call the API service with the query, filters, and pagination
-      const searchResults = await apiService.searchCandidates(query, {
-        ...activeFilters,
-        ...filters,
-        page: targetPage,
-        page_size: pageSize,
-      } as any);
+      // Use enhanced search with retry mechanism
+      const searchResults = await performSearchWithRetry(
+        query,
+        filters,
+        targetPage
+      );
+
+      setLoadingStage("formatting", "Formatting results...", 80);
 
       // Map the backend data to the format expected by our frontend
       const mappedCandidates = mapBackendCandidatesToFrontend(searchResults);
@@ -328,13 +651,16 @@ export default function Dashboard() {
         queryInterpretation: metrics.queryInterpretation || null,
       });
 
+      // 🧠 NEW: Capture progressive search metadata
+      setSearchMetadata(searchResults);
+
       // 📄 SET PAGINATION INFO
       if (searchResults.pagination) {
         setPaginationInfo(searchResults.pagination);
         setCurrentPage(searchResults.pagination.current_page);
       }
 
-      setIsLoading(false);
+      setLoadingStage("idle", "Search complete!", 100);
 
       // 🔧 FIX: Only show toast for NEW searches, not pagination
       // 🔧 FIX: Show total results count, not page results count
@@ -382,16 +708,22 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error("Search error:", error);
-      setIsLoading(false);
-      setErrorMessage(
-        error instanceof Error ? error.message : "An unexpected error occurred"
-      );
+      setLoadingStage("idle", "", 0);
+
+      const errorClassification = classifyError(error);
+      setErrorState((prev) => ({
+        ...prev,
+        hasError: true,
+        ...errorClassification,
+      }));
 
       // Only show error toast for NEW searches
       if (resetPagination) {
         toast({
-          title: "❌ Search Error",
-          description: "Failed to search candidates. Please try again.",
+          title: "❌ Search Failed",
+          description:
+            errorClassification.message ||
+            "Failed to search candidates. Please try again.",
           variant: "destructive",
         });
       }
@@ -536,7 +868,10 @@ export default function Dashboard() {
                             distance: c.distance ?? "",
                             experience: c.experience ?? 0,
                           }))}
-                          isLoading={isLoading}
+                          isLoading={
+                            loadingState.isLoading ||
+                            loadingState.stage !== "idle"
+                          }
                           searchQuery={
                             showSavedCandidates
                               ? "Saved Candidates"
@@ -548,11 +883,15 @@ export default function Dashboard() {
                               ? savedCandidates.length
                               : searchMetrics.totalResults
                           }
+                          searchMetadata={searchMetadata}
                         />
 
                         {/* 📄 PAGINATION COMPONENT - Only show for search results, not saved */}
                         {paginationInfo &&
-                          !isLoading &&
+                          !(
+                            loadingState.isLoading ||
+                            loadingState.stage !== "idle"
+                          ) &&
                           !showSavedCandidates && (
                             <CandidatePagination
                               pagination={paginationInfo}
@@ -560,7 +899,10 @@ export default function Dashboard() {
                               onPageSizeChange={handlePageSizeChange}
                               onLoadMore={handleLoadMore}
                               onExportAll={handleExportAll}
-                              loading={isLoading}
+                              loading={
+                                loadingState.isLoading ||
+                                loadingState.stage !== "idle"
+                              }
                               showLoadMore={true}
                               showExport={true}
                             />

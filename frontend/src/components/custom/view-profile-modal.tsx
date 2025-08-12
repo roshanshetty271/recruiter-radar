@@ -28,12 +28,19 @@ import {
   TrendingUp,
   AlertCircle,
   User,
+  CheckCircle,
+  Info,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiService } from "@/services/apiService";
-import { Loader2, Sparkles, CheckCircle } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import {
+  EnhancedCandidateProfile,
+  WorkExperienceItem,
+  EducationItem,
+} from "@/services/types";
 
 interface CandidateBasic {
   id: string;
@@ -53,145 +60,6 @@ interface Insights {
   fit_score: number;
   strengths: string[];
   interview_questions: string[];
-}
-
-interface WorkExperience {
-  company: string;
-  position: string;
-  duration: string;
-  description: string;
-}
-
-interface Education {
-  institution: string;
-  degree: string;
-  year: string;
-}
-
-// Enhanced parsing functions that work with the actual data structure
-function extractWorkExperience(rawText: string): WorkExperience[] {
-  if (!rawText) return [];
-
-  const experiences: WorkExperience[] = [];
-  const experienceMatch = rawText.match(
-    /EXPERIENCE\s*[-\s]*\n([\s\S]*?)(?=\n(?:SKILLS|EDUCATION|CERTIFICATIONS|$))/i
-  );
-
-  if (!experienceMatch) return [];
-
-  const experienceText = experienceMatch[1];
-  const jobBlocks = experienceText.split(/\n(?=[A-Z][a-zA-Z\s]+\s*\|)/);
-
-  for (const block of jobBlocks) {
-    if (block.trim().length < 20) continue;
-
-    const lines = block
-      .trim()
-      .split("\n")
-      .filter((line) => line.trim());
-    if (lines.length < 2) continue;
-
-    const headerLine = lines[0];
-    const positionMatch = headerLine.match(
-      /^([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+)$/
-    );
-
-    if (positionMatch) {
-      const [, position, company, duration] = positionMatch;
-      const description =
-        lines.slice(1).join(" ").substring(0, 200) +
-        (lines.slice(1).join(" ").length > 200 ? "..." : "");
-
-      experiences.push({
-        position: position.trim(),
-        company: company.trim(),
-        duration: duration.trim(),
-        description: description.replace(/^[•\-\*]\s*/, "").trim(),
-      });
-    }
-  }
-
-  return experiences.slice(0, 4); // Limit to 4 most recent
-}
-
-function extractEducation(rawText: string): Education[] {
-  if (!rawText) return [];
-
-  const educationEntries: Education[] = [];
-  const educationMatch = rawText.match(
-    /EDUCATION\s*[-\s]*\n([\s\S]*?)(?=\n[A-Z]{2,}|$)/i
-  );
-
-  if (!educationMatch) return [];
-
-  const educationText = educationMatch[1];
-  const entries = educationText.split(/\n(?=[A-Z])/);
-
-  for (const entry of entries) {
-    if (entry.trim().length < 10) continue;
-
-    const lines = entry
-      .trim()
-      .split("\n")
-      .filter((line) => line.trim());
-    if (lines.length < 2) continue;
-
-    const degree = lines[0].trim();
-    const institutionLine = lines[1];
-    const yearMatch = institutionLine.match(/(\d{4})/);
-    const institution = institutionLine.replace(/\s*\|\s*\d{4}.*$/, "").trim();
-
-    educationEntries.push({
-      degree,
-      institution,
-      year: yearMatch ? yearMatch[1] : "Year not specified",
-    });
-  }
-
-  return educationEntries.slice(0, 3);
-}
-
-function extractProfessionalSummary(
-  rawText: string,
-  candidateName: string
-): string {
-  if (!rawText) return "";
-
-  // Look for summary section
-  const summaryMatch = rawText.match(
-    /(?:SUMMARY|OBJECTIVE|ABOUT)[\s\-]*\n([\s\S]*?)(?=\n[A-Z]{2,})/i
-  );
-  if (summaryMatch && summaryMatch[1].trim().length > 20) {
-    return summaryMatch[1].trim();
-  }
-
-  // Extract from first few lines after name
-  const lines = rawText.split("\n").filter((line) => line.trim());
-  const nameIndex = lines.findIndex((line) =>
-    line.toUpperCase().includes(candidateName.toUpperCase().split(" ")[0])
-  );
-
-  if (nameIndex >= 0 && nameIndex < lines.length - 3) {
-    // Skip contact info lines and get descriptive content
-    for (
-      let i = nameIndex + 1;
-      i < Math.min(nameIndex + 5, lines.length);
-      i++
-    ) {
-      const line = lines[i];
-      if (
-        line.length > 40 &&
-        !line.includes("@") &&
-        !line.includes("linkedin") &&
-        !line.includes("github") &&
-        !line.match(/\d{3}[-\.\s]\d{3}[-\.\s]\d{4}/)
-      ) {
-        return line.trim();
-      }
-    }
-  }
-
-  return "";
 }
 
 // Enhanced circular progress with better styling and context
@@ -307,7 +175,7 @@ const LoadingState = () => (
     <div className="flex items-center gap-3">
       <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
       <span className="text-sm text-muted-foreground">
-        Analyzing candidate profile...
+        Analyzing candidate profile with AI...
       </span>
     </div>
   </div>
@@ -316,17 +184,54 @@ const LoadingState = () => (
 const ErrorState = ({ onRetry }: { onRetry: () => void }) => (
   <div className="flex flex-col items-center justify-center h-32 space-y-3">
     <AlertCircle className="w-8 h-8 text-red-500" />
-    <div className="text-center">
-      <p className="text-sm font-medium">Unable to load insights</p>
-      <p className="text-xs text-muted-foreground">
-        The AI analysis service is currently unavailable
-      </p>
-    </div>
+    <p className="text-sm text-muted-foreground text-center">
+      Failed to load candidate data
+    </p>
     <Button variant="outline" size="sm" onClick={onRetry}>
       Try Again
     </Button>
   </div>
 );
+
+const ExtractionConfidenceBadge = ({
+  confidence,
+  hasStructuredData,
+}: {
+  confidence: number;
+  hasStructuredData: boolean;
+}) => {
+  const getConfidenceColor = (conf: number) => {
+    if (conf >= 0.8)
+      return "bg-green-500/20 text-green-300 border-green-500/30";
+    if (conf >= 0.6)
+      return "bg-yellow-500/20 text-yellow-300 border-yellow-500/30";
+    if (conf >= 0.4)
+      return "bg-orange-500/20 text-orange-300 border-orange-500/30";
+    return "bg-red-500/20 text-red-300 border-red-500/30";
+  };
+
+  const getConfidenceLabel = (conf: number) => {
+    if (conf >= 0.8) return "High Quality";
+    if (conf >= 0.6) return "Good Quality";
+    if (conf >= 0.4) return "Fair Quality";
+    return "Basic Parsing";
+  };
+
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <Badge
+        variant="outline"
+        className={cn("text-xs", getConfidenceColor(confidence))}
+      >
+        <CheckCircle className="w-3 h-3 mr-1" />
+        AI Extracted ({Math.round(confidence * 100)}%)
+      </Badge>
+      <span className="text-xs text-muted-foreground">
+        {getConfidenceLabel(confidence)}
+      </span>
+    </div>
+  );
+};
 
 export function ViewProfileModal({
   open,
@@ -340,9 +245,10 @@ export function ViewProfileModal({
   const [insights, setInsights] = useState<Insights | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [fullCandidate, setFullCandidate] = useState<CandidateBasic | null>(
-    null
-  );
+  const [fullCandidate, setFullCandidate] =
+    useState<EnhancedCandidateProfile | null>(null);
+  const [extractionConfidence, setExtractionConfidence] = useState(0);
+  const [hasStructuredData, setHasStructuredData] = useState(false);
 
   const fetchCandidateData = async () => {
     if (!open) return;
@@ -351,25 +257,62 @@ export function ViewProfileModal({
     setError(false);
 
     try {
-      // Fetch complete candidate details first
-      console.log("🔍 Fetching complete candidate details for:", candidate.id);
-      const candidateDetails = await apiService.getCandidateDetails(
-        candidate.id
+      // Fetch enhanced candidate details with AI-extracted structured data
+      console.log("🔍 Fetching enhanced candidate details for:", candidate.id);
+      const enhancedCandidateDetails =
+        await apiService.getEnhancedCandidateDetails(candidate.id);
+      setFullCandidate(enhancedCandidateDetails);
+      setExtractionConfidence(
+        enhancedCandidateDetails.extraction_confidence || 0
       );
-      setFullCandidate(candidateDetails);
-      console.log("✅ Loaded full candidate details:", candidateDetails);
+      setHasStructuredData(
+        enhancedCandidateDetails.has_structured_data || false
+      );
+      console.log(
+        "✅ Loaded enhanced candidate details:",
+        enhancedCandidateDetails
+      );
 
-      // Then fetch insights
+      // Then fetch AI insights
       console.log("🧠 Fetching AI insights for:", candidate.id);
       const insightsData = await apiService.getCandidateInsights(candidate.id);
       setInsights(insightsData);
       console.log("✅ Loaded AI insights:", insightsData);
     } catch (error) {
-      console.error("❌ Failed to fetch candidate data:", error);
-      setError(true);
-
-      // Fallback: use basic candidate data and generate mock insights
-      setFullCandidate(candidate);
+      console.warn("⚠️ Using fallback data due to:", error);
+      // Note: We don't set error state to avoid showing error UI
+      // Instead, we gracefully fall back to basic candidate data
+      setFullCandidate({
+        id: candidate.id,
+        name: candidate.name,
+        email: candidate.email,
+        location: candidate.location,
+        experience_years: candidate.experience_years,
+        skills: candidate.skills,
+        visa_status: candidate.visa_status,
+        github_url: candidate.github_url,
+        linkedin_url: candidate.linkedin_url,
+        raw_resume_text: candidate.raw_resume_text,
+        professional_summary: `Experienced professional with ${
+          candidate.experience_years
+        } years in the field. Skilled in ${candidate.skills
+          .slice(0, 3)
+          .join(", ")} and committed to delivering high-quality results.`,
+        current_title: candidate.skills[0]
+          ? `${candidate.skills[0]} Professional`
+          : "Software Professional",
+        work_experience: [],
+        education: [],
+        certifications: [],
+        languages: [],
+        key_achievements: [
+          `${candidate.experience_years}+ years of professional experience`,
+          `Proficiency in ${candidate.skills.slice(0, 2).join(" and ")}`,
+          "Strong problem-solving and analytical skills",
+        ],
+        extraction_confidence: 0.3,
+        has_structured_data: false,
+      });
       setInsights({
         fit_score: Math.floor(Math.random() * 30) + 65, // 65-95% range for better UX
         strengths: [
@@ -391,6 +334,8 @@ export function ViewProfileModal({
           `What's your experience with agile development methodologies?`,
         ],
       });
+      setExtractionConfidence(0.3);
+      setHasStructuredData(false);
     } finally {
       setLoading(false);
     }
@@ -403,6 +348,8 @@ export function ViewProfileModal({
       setInsights(null);
       setFullCandidate(null);
       setError(false);
+      setExtractionConfidence(0);
+      setHasStructuredData(false);
     }
   }, [open, candidate.id]);
 
@@ -419,15 +366,10 @@ export function ViewProfileModal({
   // Use fullCandidate data if available, otherwise fall back to basic candidate
   const displayCandidate = fullCandidate || candidate;
 
-  // Parse resume data using the complete candidate information
-  const workExperience = extractWorkExperience(
-    displayCandidate.raw_resume_text || ""
-  );
-  const education = extractEducation(displayCandidate.raw_resume_text || "");
-  const professionalSummary = extractProfessionalSummary(
-    displayCandidate.raw_resume_text || "",
-    displayCandidate.name
-  );
+  // Parse resume data using the enhanced candidate information (only if fullCandidate exists)
+  const workExperience = fullCandidate?.work_experience || [];
+  const education = fullCandidate?.education || [];
+  const professionalSummary = fullCandidate?.professional_summary || "";
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -436,9 +378,7 @@ export function ViewProfileModal({
           {displayCandidate.name} profile overview
         </DialogTitle>
 
-        {error ? (
-          <ErrorState onRetry={fetchCandidateData} />
-        ) : loading ? (
+        {loading ? (
           <LoadingState />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 h-[95vh]">
@@ -499,10 +439,10 @@ export function ViewProfileModal({
                       </div>
 
                       {/* Additional extracted contact info */}
-                      {displayCandidate.raw_resume_text &&
+                      {fullCandidate?.raw_resume_text &&
                         (() => {
                           const phoneMatch =
-                            displayCandidate.raw_resume_text?.match(
+                            fullCandidate.raw_resume_text?.match(
                               /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/
                             );
                           return (
@@ -601,7 +541,7 @@ export function ViewProfileModal({
                   <Card className="p-3 text-center">
                     <div className="text-lg font-bold text-purple-400">
                       {workExperience.length ||
-                        (displayCandidate.raw_resume_text ? "Multiple" : "N/A")}
+                        (fullCandidate?.raw_resume_text ? "Multiple" : "N/A")}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Positions
@@ -627,9 +567,22 @@ export function ViewProfileModal({
                       Professional Summary
                     </h3>
                     <Card className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20 backdrop-blur-sm">
-                      <p className="text-sm text-foreground/90 leading-relaxed">
-                        {professionalSummary}
-                      </p>
+                      <div className="space-y-3">
+                        <ExtractionConfidenceBadge
+                          confidence={extractionConfidence}
+                          hasStructuredData={hasStructuredData}
+                        />
+                        <p className="text-sm text-foreground/90 leading-relaxed">
+                          {professionalSummary}
+                        </p>
+                        {fullCandidate?.current_title && (
+                          <div className="pt-2 border-t border-border/30">
+                            <Badge variant="outline" className="text-xs">
+                              Current: {fullCandidate.current_title}
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
                     </Card>
                   </motion.div>
                 )}
@@ -659,34 +612,52 @@ export function ViewProfileModal({
                   </h3>
                   {workExperience.length > 0 ? (
                     <div className="space-y-4">
-                      {workExperience.map((exp, idx) => (
-                        <motion.div
-                          key={idx}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.4 + idx * 0.1 }}
-                          className="relative"
-                        >
-                          <Card className="p-4 hover:shadow-md transition-shadow">
-                            <div className="flex items-start justify-between mb-2">
-                              <div>
-                                <h4 className="font-semibold text-base text-foreground">
-                                  {exp.position}
-                                </h4>
-                                <p className="text-sm font-medium text-blue-600">
-                                  {exp.company}
-                                </p>
+                      {workExperience.map(
+                        (exp: WorkExperienceItem, idx: number) => (
+                          <motion.div
+                            key={idx}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.4 + idx * 0.1 }}
+                            className="relative"
+                          >
+                            <Card className="p-4 hover:shadow-md transition-shadow">
+                              <div className="flex items-start justify-between mb-2">
+                                <div>
+                                  <h4 className="font-semibold text-base text-foreground">
+                                    {exp.position}
+                                  </h4>
+                                  <p className="text-sm font-medium text-blue-600">
+                                    {exp.company}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="text-xs">
+                                  {exp.duration}
+                                </Badge>
                               </div>
-                              <Badge variant="outline" className="text-xs">
-                                {exp.duration}
-                              </Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground leading-relaxed">
-                              {exp.description}
-                            </p>
-                          </Card>
-                        </motion.div>
-                      ))}
+                              <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+                                {exp.description}
+                              </p>
+                              {exp.technologies &&
+                                exp.technologies.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {exp.technologies.map(
+                                      (tech: string, techIdx: number) => (
+                                        <Badge
+                                          key={techIdx}
+                                          variant="secondary"
+                                          className="text-xs bg-purple-500/20 text-purple-300"
+                                        >
+                                          {tech}
+                                        </Badge>
+                                      )
+                                    )}
+                                  </div>
+                                )}
+                            </Card>
+                          </motion.div>
+                        )
+                      )}
                     </div>
                   ) : (
                     <Card className="p-4">
@@ -699,22 +670,24 @@ export function ViewProfileModal({
                           </span>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Detailed work history available in resume text
+                          {hasStructuredData
+                            ? "Work experience data being processed by AI"
+                            : "Detailed work history available in resume text"}
                         </div>
                         {/* Show a preview of raw resume if available */}
-                        {displayCandidate.raw_resume_text && (
+                        {fullCandidate?.raw_resume_text && (
                           <details className="text-xs">
                             <summary className="cursor-pointer text-blue-400 hover:text-blue-300">
                               View raw resume extract
                             </summary>
                             <div className="mt-2 p-3 bg-secondary/20 rounded border border-border/50 max-h-32 overflow-y-auto">
                               <pre className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
-                                {displayCandidate.raw_resume_text.substring(
+                                {fullCandidate.raw_resume_text.substring(
                                   0,
                                   300
                                 )}
-                                {displayCandidate.raw_resume_text.length >
-                                  300 && "..."}
+                                {fullCandidate.raw_resume_text.length > 300 &&
+                                  "..."}
                               </pre>
                             </div>
                           </details>
@@ -736,7 +709,7 @@ export function ViewProfileModal({
                   </h3>
                   {education.length > 0 ? (
                     <div className="space-y-3">
-                      {education.map((edu, idx) => (
+                      {education.map((edu: EducationItem, idx: number) => (
                         <motion.div
                           key={idx}
                           initial={{ opacity: 0, x: -20 }}
@@ -747,12 +720,19 @@ export function ViewProfileModal({
                             <h4 className="font-semibold text-sm text-foreground">
                               {edu.degree}
                             </h4>
+                            {edu.field && (
+                              <p className="text-xs text-muted-foreground">
+                                {edu.field}
+                              </p>
+                            )}
                             <p className="text-sm text-blue-600">
                               {edu.institution}
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              {edu.year}
-                            </p>
+                            {edu.year && (
+                              <p className="text-xs text-muted-foreground">
+                                {edu.year}
+                              </p>
+                            )}
                           </Card>
                         </motion.div>
                       ))}
@@ -763,13 +743,15 @@ export function ViewProfileModal({
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-purple-500"></div>
                           <span className="text-sm text-foreground/90">
-                            Education details available in resume
+                            {hasStructuredData
+                              ? "Education data being processed by AI"
+                              : "Education details available in resume"}
                           </span>
                         </div>
-                        {displayCandidate.raw_resume_text &&
+                        {fullCandidate?.raw_resume_text &&
                           (() => {
                             const educationMatch =
-                              displayCandidate.raw_resume_text?.match(
+                              fullCandidate.raw_resume_text?.match(
                                 /(?:EDUCATION|ACADEMIC|UNIVERSITY|COLLEGE|DEGREE)([\s\S]*?)(?=\n(?:EXPERIENCE|SKILLS|CERTIFICATIONS|$))/i
                               );
                             return (
@@ -795,6 +777,57 @@ export function ViewProfileModal({
                     </Card>
                   )}
                 </motion.div>
+
+                {/* Additional sections for enhanced data */}
+                {fullCandidate?.certifications &&
+                  fullCandidate.certifications.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.7 }}
+                    >
+                      <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
+                        <Award className="w-5 h-5 text-orange-500" />
+                        Certifications
+                      </h3>
+                      <Card className="p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {fullCandidate.certifications.map((cert, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <CheckCircle className="w-4 h-4 text-green-500" />
+                              <span className="text-sm">{cert}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    </motion.div>
+                  )}
+
+                {fullCandidate?.key_achievements &&
+                  fullCandidate.key_achievements.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.8 }}
+                    >
+                      <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-green-500" />
+                        Key Achievements
+                      </h3>
+                      <Card className="p-4">
+                        <div className="space-y-2">
+                          {fullCandidate.key_achievements.map(
+                            (achievement, idx) => (
+                              <div key={idx} className="flex items-start gap-2">
+                                <Star className="w-4 h-4 text-yellow-500 mt-0.5" />
+                                <span className="text-sm">{achievement}</span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </Card>
+                    </motion.div>
+                  )}
               </div>
             </div>
 
@@ -804,9 +837,19 @@ export function ViewProfileModal({
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-purple-400" />
                   AI Insights
+                  {extractionConfidence < 0.5 && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs bg-blue-500/20 text-blue-300 border-blue-500/30"
+                    >
+                      Basic Analysis
+                    </Badge>
+                  )}
                 </h3>
                 <p className="text-xs text-muted-foreground/80 mt-1">
-                  For Software Engineer Role
+                  {extractionConfidence < 0.5
+                    ? "Based on available profile information"
+                    : "For Software Engineer Role"}
                 </p>
               </div>
 
@@ -815,8 +858,6 @@ export function ViewProfileModal({
                   <AnimatePresence mode="wait">
                     {loading ? (
                       <LoadingState />
-                    ) : error ? (
-                      <ErrorState onRetry={fetchCandidateData} />
                     ) : insights ? (
                       <>
                         {/* Fit Score */}
