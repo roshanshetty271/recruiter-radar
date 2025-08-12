@@ -160,6 +160,7 @@ class LocationMappingService:
             "berkeley": "CA",
             # New York
             "new york": "NY",
+            "new york city": "NY",
             "nyc": "NY",
             "manhattan": "NY",
             "brooklyn": "NY",
@@ -279,6 +280,27 @@ class LocationMappingService:
 
         location_lower = location.lower().strip()
 
+        # Strip trailing country and normalize "City, ST[, Country]" → "City, ST"
+        # Examples: "New York, NY, USA" → "New York, NY"; "New York City, NY" → "New York, NY"
+        import re
+
+        city_state_match = re.match(
+            r"^\s*([^,]+?)\s*,\s*([A-Za-z]{2})(?:\s*,\s*.*)?$",
+            location,
+            flags=re.IGNORECASE,
+        )
+        if city_state_match:
+            raw_city = city_state_match.group(1).strip().lower()
+            raw_state = city_state_match.group(2).strip().upper()
+
+            # Collapse known aliases (e.g., NYC/New York City → New York)
+            if raw_city in {"new york city", "nyc"}:
+                city_formatted = "New York"
+            else:
+                city_formatted = raw_city.title()
+
+            return f"{city_formatted}, {raw_state}"
+
         # Handle special work arrangements
         work_arrangements = {
             "remote": "Remote",
@@ -296,10 +318,16 @@ class LocationMappingService:
         if location_lower in self.state_abbreviations:
             return self.state_abbreviations[location_lower]
 
-        # Handle city to state mapping
+        # Handle city to state mapping (includes aliases like 'nyc', 'new york city')
         if location_lower in self.city_to_state:
             state_abbrev = self.city_to_state[location_lower]
-            return f"{location.title()}, {state_abbrev}"
+            # Normalize 'new york city' to 'New York'
+            city_formatted = (
+                "New York"
+                if location_lower in {"new york city", "nyc"}
+                else location.title()
+            )
+            return f"{city_formatted}, {state_abbrev}"
 
         # Return title case as fallback
         return location.title()
@@ -509,21 +537,19 @@ class LocationMappingService:
         - "california" matches "los angeles, ca" ✅
         - "ma" matches "boston, ma" ✅
         """
-        # Common state patterns in candidate locations
-        state_patterns = [
-            f", {search_variation}",  # ", CA"
-            f" {search_variation}",  # " CA"
-            f"{search_variation},",  # "CA,"
-            f"{search_variation} ",  # "CA "
-        ]
+        # Strict word-boundary matching to avoid substrings inside city names (e.g., "SpokaNE")
+        # Accept forms like ", CA", " CA", "CA,", "CA " with boundaries
+        abbr = re.escape(search_variation.upper())
+        full = re.escape(search_variation.lower())
 
-        for pattern in state_patterns:
-            if pattern in candidate_location:
+        # Check two-letter abbreviation strictly
+        if len(search_variation) == 2:
+            # Patterns: ", CA", " CA", "CA,", "CA " with boundaries
+            if re.search(rf"[,\s]\b{abbr}\b", candidate_location, flags=re.IGNORECASE):
                 return True
-
-        # Full state name matching
-        if len(search_variation) > 3:  # Likely a full state name
-            if search_variation in candidate_location:
+        else:
+            # Full state name matching with word boundaries
+            if re.search(rf"\b{full}\b", candidate_location, flags=re.IGNORECASE):
                 return True
 
         return False

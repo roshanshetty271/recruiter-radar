@@ -93,6 +93,9 @@ class QueryEnhancementService:
             if query_intent.role_type:
                 query_intent = await self._expand_role_skills(query_intent)
 
+            # Apply post-processing for specific role intents detected from raw query text
+            query_intent = self._adjust_for_pm_intent(query, query_intent)
+
             processing_time = (time.time() - start_time) * 1000
 
             logger.info(
@@ -115,6 +118,8 @@ class QueryEnhancementService:
             if fallback_on_error:
                 logger.info("Using fallback query parsing")
                 query_intent = await self._fallback_parse_query(query)
+                # Apply post-processing even in fallback mode
+                query_intent = self._adjust_for_pm_intent(query, query_intent)
                 processing_time = (time.time() - start_time) * 1000
 
                 return QueryEnhancementResult(
@@ -126,6 +131,71 @@ class QueryEnhancementService:
                 )
             else:
                 raise QueryEnhancementError(f"Query enhancement failed: {e}", e)
+
+    def _adjust_for_pm_intent(self, raw_query: str, intent: QueryIntent) -> QueryIntent:
+        """Lightweight rule-based adjustment when PM intent is detected.
+
+        - If the user asks for project/program managers, ensure role intent reflects management, not developer.
+        - Avoid injecting developer-centric required skills; prefer PM-related preferred skills.
+        - Keep adjustments soft to avoid hardcoding candidates.
+        """
+        q = raw_query.lower()
+        pm_signals = [
+            "project manager",
+            "program manager",
+            "scrum master",
+            "delivery manager",
+            "project managers",
+            "program managers",
+        ]
+
+        if any(sig in q for sig in pm_signals):
+            # If role is generic or developer, nudge towards generic without dev skill injection
+            from app.models.query_models import RoleType, SkillMatch
+
+            if intent.role_type in (None, RoleType.GENERIC):
+                intent.role_type = RoleType.GENERIC
+
+            # Remove obviously dev-centric required skills if they were injected for a PM query
+            dev_like = {
+                "python",
+                "java",
+                "javascript",
+                "react",
+                "node",
+                "kubernetes",
+                "docker",
+            }
+            intent.required_skills = [
+                s for s in intent.required_skills if s.skill not in dev_like
+            ]
+
+            # Add PM-centric preferred skills softly if empty
+            if not intent.preferred_skills:
+                pm_pref = [
+                    SkillMatch(
+                        skill="agile", confidence_score=0.7, is_exact_match=True
+                    ),
+                    SkillMatch(
+                        skill="scrum", confidence_score=0.7, is_exact_match=True
+                    ),
+                    SkillMatch(skill="jira", confidence_score=0.6, is_exact_match=True),
+                    SkillMatch(
+                        skill="stakeholder management",
+                        confidence_score=0.6,
+                        is_exact_match=True,
+                    ),
+                    SkillMatch(
+                        skill="roadmaps", confidence_score=0.6, is_exact_match=True
+                    ),
+                ]
+                intent.preferred_skills.extend(pm_pref)
+
+            logger.info(
+                "✅ Adjusted intent for PM query: emphasized PM skills, removed dev-only requirements"
+            )
+
+        return intent
 
     async def _parse_query_with_llm(self, query: str) -> QueryIntent:
         """Parse query using OpenAI LLM with structured prompts"""

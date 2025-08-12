@@ -1653,6 +1653,22 @@ class SmartPatternMatcher:
             "position",
             "role",
             "job",
+            # Extra stop-words to avoid false skill matches from locations/phrases
+            "new",
+            "york",
+            "north",
+            "south",
+            "east",
+            "west",
+            "developers",
+            "developer",
+            "engineer",
+            "engineers",
+            "software",
+            "someone",
+            "in",
+            "city",
+            "state",
         }
         return word.lower() in common_words
 
@@ -1673,23 +1689,38 @@ class SmartPatternMatcher:
                 experience_years=experience,
             )
 
-        # 2. Partial match (html matches html5, react matches react.js)
+        # 2. Partial match (allow only well-known display variants; enforce word boundaries)
         for skill_lower, skill_proper in self.skills_lower.items():
-            # Check both directions: "html" in "html5" and "html5" in "html"
-            if potential_lower in skill_lower or skill_lower in potential_lower:
-                # Additional validation - length should be reasonable
-                if abs(len(potential_lower) - len(skill_lower)) <= 5:
-                    experience = self._extract_experience_for_skill(
-                        potential_skill, query
-                    )
-                    confidence = 0.9 if potential_lower in skill_lower else 0.8
-                    return MatchResult(
-                        matched_skill=skill_proper,
-                        original_skill=potential_skill,
-                        confidence=confidence,
-                        match_type="partial",
-                        experience_years=experience,
-                    )
+            # Allow only specific suffix-style variants and enforce boundaries
+            allowed_variants = [
+                ("react", {"react.js", "reactjs"}),
+                ("node", {"node.js", "nodejs"}),
+                ("vue", {"vue.js", "vuejs"}),
+                ("html", {"html5"}),
+                ("angular", {"angular.js", "angularjs"}),
+            ]
+
+            def _is_allowed_partial(base: str, variant: str) -> bool:
+                for b, variants in allowed_variants:
+                    if base == b and variant in variants:
+                        return True
+                return False
+
+            # Check base→variant (e.g., "react" → "react.js") and variant→base
+            if potential_lower == skill_lower:
+                continue
+            if _is_allowed_partial(potential_lower, skill_lower) or _is_allowed_partial(
+                skill_lower, potential_lower
+            ):
+                experience = self._extract_experience_for_skill(potential_skill, query)
+                confidence = 0.85
+                return MatchResult(
+                    matched_skill=skill_proper,
+                    original_skill=potential_skill,
+                    confidence=confidence,
+                    match_type="partial",
+                    experience_years=experience,
+                )
 
         # 3. Fuzzy match (for typos, variations)
         best_match = None
@@ -1765,41 +1796,60 @@ class SmartPatternMatcher:
         return []
 
     def extract_location(self, query: str) -> Optional[str]:
-        """Extract location using comprehensive location matching"""
-        query_lower = query.lower()
+        """Extract location using robust gazetteer matching with word boundaries"""
+        query_lower = query.lower().strip()
 
-        # Enhanced location patterns
-        location_patterns = [
-            r"in\s+([A-Z][a-zA-Z\s,\-\.]+?)(?:\s|$|,|\.|!|\?)",
-            r"(?:from|based\s+in|located\s+in|working\s+from)\s+([A-Z][a-zA-Z\s,\-\.]+?)(?:\s|$|,|\.|!|\?)",
-            r"\b(remote|Remote|REMOTE)\b",
-            r"(?:^|\s)(remote)(?:\s|$|,|\.|!|\?)",
-            r"([A-Z]{2})\s+(?:based|area|region)",  # State abbreviations
-        ]
+        # 1) Prefer explicit multi-word/longest matches from our gazetteer
+        #    Sort locations by length (desc) so we pick the most specific first (e.g., "new york city" > "new york" > "ny")
+        locations_by_length = sorted(
+            self.locations_lower.items(), key=lambda kv: len(kv[0]), reverse=True
+        )
 
-        for pattern in location_patterns:
-            match = re.search(pattern, query)
-            if match:
-                location = match.group(1).strip()
-                location_lower = location.lower()
+        def _word_boundary_contains(text: str, phrase: str) -> bool:
+            # Match whole phrase with boundaries; ignore case
+            return (
+                re.search(rf"\b{re.escape(phrase)}\b", text, flags=re.IGNORECASE)
+                is not None
+            )
 
-                # Direct match in our comprehensive location list
-                if location_lower in self.locations_lower:
-                    return self.locations_lower[location_lower]
+        # Track abbreviation matches separately; only accept if query contains the exact token
+        best_match: Optional[str] = None
+        for loc_lower, loc_proper in locations_by_length:
+            # Skip 2-letter abbreviations on this pass
+            if len(loc_lower) <= 2:
+                continue
+            if _word_boundary_contains(query_lower, loc_lower):
+                best_match = loc_proper
+                break
 
-                # Partial match for cities/states
-                for loc_lower, loc_proper in self.locations_lower.items():
-                    if location_lower in loc_lower or loc_lower in location_lower:
-                        return loc_proper
+        if best_match:
+            return best_match
 
-                # If it looks like a valid location but not in our list, return as-is
-                if (
-                    len(location) > 2
-                    and location.replace(" ", "")
-                    .replace(",", "")
-                    .replace(".", "")
-                    .isalpha()
-                ):
-                    return location.title()
+        # 2) As a fallback, allow abbreviations only if the exact token appears (e.g., "in NY")
+        words = set(re.findall(r"\b[A-Za-z]{1,}\b", query))
+        for loc_lower, loc_proper in self.locations_lower.items():
+            if len(loc_lower) == 2 and loc_lower.upper() in words:
+                return loc_proper
+
+        # 3) Last resort: basic patterns for free-form city names, then title-case
+        m = re.search(
+            r"\b(?:in|from|based in|located in|working from)\s+([A-Za-z][A-Za-z\s\-\.,]+)\b",
+            query,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            raw = m.group(1).strip(" ,.!?")
+            # Remove trailing country if present
+            raw = re.sub(
+                r",\s*(usa|united states|u\.s\.a\.|u\.s\.)\.?$",
+                "",
+                raw,
+                flags=re.IGNORECASE,
+            )
+            # If it matches any known location by boundary, return the proper form
+            for loc_lower, loc_proper in locations_by_length:
+                if _word_boundary_contains(raw.lower(), loc_lower):
+                    return loc_proper
+            return raw.title()
 
         return None
