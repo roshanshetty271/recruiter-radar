@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
+
 import {
   Mail,
   MapPin,
@@ -30,6 +31,9 @@ import {
   User,
   CheckCircle,
   Info,
+  FileText,
+  Search,
+  X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiService } from "@/services/apiService";
@@ -54,6 +58,322 @@ interface CandidateBasic {
   linkedin_url?: string;
   raw_resume_text?: string;
   visa_status?: string;
+}
+
+// 🚀 COMPLETELY REDESIGNED: Comprehensive Resume View Component
+function ResumeViewComponent({
+  candidateName,
+  rawResumeText,
+}: {
+  candidateName: string;
+  rawResumeText: string;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Check if resume text is available
+  if (!rawResumeText || rawResumeText.trim() === "Resume text not available") {
+    return (
+      <Card className="p-8 bg-gradient-to-b from-slate-900/80 to-slate-800/80 border-slate-700/50">
+        <div className="text-center">
+          <FileText className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            Resume Not Available
+          </h3>
+          <p className="text-muted-foreground text-sm">
+            The original resume document is not available for this candidate.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  // Enhanced text processing and highlighting
+  const processResumeText = (text: string, searchTerm?: string) => {
+    // Clean and normalize the text
+    const cleanText = text
+      .replace(/\r\n/g, "\n") // Normalize line breaks
+      .replace(/\t/g, "    ") // Convert tabs to spaces
+      .trim();
+
+    // Highlight search terms if provided
+    if (searchTerm && searchTerm.length > 2) {
+      const regex = new RegExp(
+        `(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
+        "gi"
+      );
+      return cleanText.replace(
+        regex,
+        '<mark class="bg-yellow-300 text-black px-1 rounded">$1</mark>'
+      );
+    }
+
+    return cleanText;
+  };
+
+  // Parse resume text into sections for better formatting
+  const parseResumeIntoSections = (text: string) => {
+    const lines = text.split("\n");
+    const sections: Array<{
+      title: string;
+      content: string[];
+      type: "header" | "section" | "content";
+      startIndex: number;
+    }> = [];
+
+    let currentSection: string[] = [];
+    let currentTitle = "";
+    let isInSection = false;
+
+    lines.forEach((line, index) => {
+      const trimmedLine = line.trim();
+
+      // Detect section headers (all caps, common section names)
+      const sectionRegex =
+        /^(PROFESSIONAL\s+EXPERIENCE|EXPERIENCE|WORK\s+EXPERIENCE|EDUCATION|SKILLS|TECHNICAL\s+SKILLS|CERTIFICATIONS|PROJECTS|SUMMARY|PROFESSIONAL\s+SUMMARY|OBJECTIVE|CONTACT|LANGUAGES|ACHIEVEMENTS)$/i;
+
+      if (
+        sectionRegex.test(trimmedLine) ||
+        (trimmedLine === trimmedLine.toUpperCase() &&
+          trimmedLine.length > 3 &&
+          trimmedLine.length < 30)
+      ) {
+        // Save previous section if exists
+        if (currentTitle && currentSection.length > 0) {
+          sections.push({
+            title: currentTitle,
+            content: [...currentSection],
+            type: "section",
+            startIndex: index - currentSection.length,
+          });
+        }
+
+        // Start new section
+        currentTitle = trimmedLine;
+        currentSection = [];
+        isInSection = true;
+      } else if (isInSection) {
+        currentSection.push(line); // Keep original formatting including indentation
+      } else {
+        // Header content (name, contact info, etc.)
+        if (index < 10) {
+          // Assume first 10 lines are header
+          if (!sections.find((s) => s.type === "header")) {
+            sections.push({
+              title: "Contact Information",
+              content: [],
+              type: "header",
+              startIndex: 0,
+            });
+          }
+          const headerSection = sections.find((s) => s.type === "header");
+          if (headerSection) {
+            headerSection.content.push(line);
+          }
+        }
+      }
+    });
+
+    // Add the last section
+    if (currentTitle && currentSection.length > 0) {
+      sections.push({
+        title: currentTitle,
+        content: [...currentSection],
+        type: "section",
+        startIndex: lines.length - currentSection.length,
+      });
+    }
+
+    return sections;
+  };
+
+  const sections = parseResumeIntoSections(rawResumeText);
+
+  return (
+    <div className="space-y-6">
+      {/* Enhanced Header with Search */}
+      <Card className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-500/20 rounded-lg">
+              <FileText className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">
+                Complete Resume Document
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Full original content • {rawResumeText.split("\n").length} lines
+                • {rawResumeText.length} characters
+              </p>
+            </div>
+          </div>
+          <Badge
+            variant="outline"
+            className="text-xs bg-green-500/20 text-green-300 border-green-500/30"
+          >
+            Original Format
+          </Badge>
+        </div>
+
+        {/* Search functionality */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search resume content..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-background/50 border border-border/50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            />
+          </div>
+          {searchTerm && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSearchTerm("")}
+              className="h-10 px-3"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      {/* Resume Sections - Formatted View */}
+      <div className="space-y-4">
+        {sections.map((section, index) => (
+          <motion.div
+            key={index}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.1 }}
+          >
+            <Card
+              className={`p-4 ${
+                section.type === "header"
+                  ? "bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20"
+                  : "bg-background/50 border-border/50"
+              }`}
+            >
+              <h4
+                className={`font-semibold mb-3 flex items-center gap-2 ${
+                  section.type === "header"
+                    ? "text-blue-400"
+                    : "text-foreground"
+                }`}
+              >
+                {section.type === "header" && <User className="w-4 h-4" />}
+                {section.title.includes("EXPERIENCE") && (
+                  <Briefcase className="w-4 h-4" />
+                )}
+                {section.title.includes("EDUCATION") && (
+                  <GraduationCap className="w-4 h-4" />
+                )}
+                {section.title.includes("SKILLS") && (
+                  <Zap className="w-4 h-4" />
+                )}
+                {section.title.includes("CERT") && (
+                  <Award className="w-4 h-4" />
+                )}
+                {!section.title.includes("EXPERIENCE") &&
+                  !section.title.includes("EDUCATION") &&
+                  !section.title.includes("SKILLS") &&
+                  !section.title.includes("CERT") &&
+                  section.type !== "header" && <Star className="w-4 h-4" />}
+                {section.title}
+              </h4>
+
+              <div className="space-y-2">
+                {section.content.map((line, lineIndex) => {
+                  const trimmedLine = line.trim();
+                  if (!trimmedLine)
+                    return <div key={lineIndex} className="h-2" />;
+
+                  // Format different types of lines
+                  if (
+                    trimmedLine.startsWith("•") ||
+                    trimmedLine.startsWith("-")
+                  ) {
+                    return (
+                      <div
+                        key={lineIndex}
+                        className="flex items-start gap-2 text-sm text-foreground/80"
+                      >
+                        <span className="text-purple-400 mt-1">•</span>
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: processResumeText(
+                              trimmedLine.substring(1).trim(),
+                              searchTerm
+                            ),
+                          }}
+                        />
+                      </div>
+                    );
+                  } else if (
+                    /\d{4}/.test(trimmedLine) &&
+                    (trimmedLine.includes("-") ||
+                      trimmedLine.includes("Present"))
+                  ) {
+                    return (
+                      <div
+                        key={lineIndex}
+                        className="flex items-center gap-2 text-sm text-yellow-300"
+                      >
+                        <Calendar className="w-3 h-3" />
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: processResumeText(trimmedLine, searchTerm),
+                          }}
+                        />
+                      </div>
+                    );
+                  } else if (
+                    trimmedLine.includes("@") ||
+                    trimmedLine.includes("http")
+                  ) {
+                    return (
+                      <div
+                        key={lineIndex}
+                        className="flex items-center gap-2 text-sm text-blue-300"
+                      >
+                        {trimmedLine.includes("@") && (
+                          <Mail className="w-3 h-3" />
+                        )}
+                        {trimmedLine.includes("http") && (
+                          <Globe className="w-3 h-3" />
+                        )}
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: processResumeText(trimmedLine, searchTerm),
+                          }}
+                        />
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <p
+                        key={lineIndex}
+                        className={`text-sm leading-relaxed ${
+                          section.type === "header"
+                            ? "text-center text-foreground font-medium"
+                            : "text-foreground/90"
+                        }`}
+                        dangerouslySetInnerHTML={{
+                          __html: processResumeText(trimmedLine, searchTerm),
+                        }}
+                      />
+                    );
+                  }
+                })}
+              </div>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 interface Insights {
@@ -555,279 +875,317 @@ export function ViewProfileModal({
                   </Card>
                 </motion.div>
 
-                {/* Professional Summary */}
-                {professionalSummary && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                  >
-                    <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
-                      <User className="w-5 h-5 text-blue-500" />
-                      Professional Summary
-                    </h3>
-                    <Card className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20 backdrop-blur-sm">
-                      <div className="space-y-3">
-                        <ExtractionConfidenceBadge
-                          confidence={extractionConfidence}
-                          hasStructuredData={hasStructuredData}
-                        />
-                        <p className="text-sm text-foreground/90 leading-relaxed">
-                          {professionalSummary}
-                        </p>
-                        {fullCandidate?.current_title && (
-                          <div className="pt-2 border-t border-border/30">
-                            <Badge variant="outline" className="text-xs">
-                              Current: {fullCandidate.current_title}
-                            </Badge>
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  </motion.div>
-                )}
-
-                {/* Skills Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                >
-                  <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-yellow-500" />
-                    Technical Skills
-                  </h3>
-                  <SkillsVisualization skills={displayCandidate.skills} />
-                </motion.div>
-
-                {/* Work Experience */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                >
-                  <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <Briefcase className="w-5 h-5 text-green-500" />
-                    Work Experience
-                  </h3>
-                  {workExperience.length > 0 ? (
-                    <div className="space-y-4">
-                      {workExperience.map(
-                        (exp: WorkExperienceItem, idx: number) => (
-                          <motion.div
-                            key={idx}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: 0.4 + idx * 0.1 }}
-                            className="relative"
-                          >
-                            <Card className="p-4 hover:shadow-md transition-shadow">
-                              <div className="flex items-start justify-between mb-2">
-                                <div>
-                                  <h4 className="font-semibold text-base text-foreground">
-                                    {exp.position}
-                                  </h4>
-                                  <p className="text-sm font-medium text-blue-600">
-                                    {exp.company}
-                                  </p>
-                                </div>
-                                <Badge variant="outline" className="text-xs">
-                                  {exp.duration}
-                                </Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground leading-relaxed mb-3">
-                                {exp.description}
-                              </p>
-                              {exp.technologies &&
-                                exp.technologies.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {exp.technologies.map(
-                                      (tech: string, techIdx: number) => (
-                                        <Badge
-                                          key={techIdx}
-                                          variant="secondary"
-                                          className="text-xs bg-purple-500/20 text-purple-300"
-                                        >
-                                          {tech}
-                                        </Badge>
-                                      )
-                                    )}
-                                  </div>
-                                )}
-                            </Card>
-                          </motion.div>
-                        )
-                      )}
-                    </div>
-                  ) : (
-                    <Card className="p-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                          <span className="text-sm text-foreground/90">
-                            {displayCandidate.experience_years} years of
-                            professional experience
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {hasStructuredData
-                            ? "Work experience data being processed by AI"
-                            : "Detailed work history available in resume text"}
-                        </div>
-                        {/* Show a preview of raw resume if available */}
-                        {fullCandidate?.raw_resume_text && (
-                          <details className="text-xs">
-                            <summary className="cursor-pointer text-blue-400 hover:text-blue-300">
-                              View raw resume extract
-                            </summary>
-                            <div className="mt-2 p-3 bg-secondary/20 rounded border border-border/50 max-h-32 overflow-y-auto">
-                              <pre className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
-                                {fullCandidate.raw_resume_text.substring(
-                                  0,
-                                  300
-                                )}
-                                {fullCandidate.raw_resume_text.length > 300 &&
-                                  "..."}
-                              </pre>
-                            </div>
-                          </details>
-                        )}
-                      </div>
-                    </Card>
-                  )}
-                </motion.div>
-
-                {/* Education */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                >
-                  <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <GraduationCap className="w-5 h-5 text-purple-500" />
-                    Education
-                  </h3>
-                  {education.length > 0 ? (
-                    <div className="space-y-3">
-                      {education.map((edu: EducationItem, idx: number) => (
-                        <motion.div
-                          key={idx}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.6 + idx * 0.1 }}
-                        >
-                          <Card className="p-4">
-                            <h4 className="font-semibold text-sm text-foreground">
-                              {edu.degree}
-                            </h4>
-                            {edu.field && (
-                              <p className="text-xs text-muted-foreground">
-                                {edu.field}
-                              </p>
-                            )}
-                            <p className="text-sm text-blue-600">
-                              {edu.institution}
-                            </p>
-                            {edu.year && (
-                              <p className="text-xs text-muted-foreground">
-                                {edu.year}
-                              </p>
-                            )}
-                          </Card>
-                        </motion.div>
-                      ))}
-                    </div>
-                  ) : (
-                    <Card className="p-4">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-purple-500"></div>
-                          <span className="text-sm text-foreground/90">
-                            {hasStructuredData
-                              ? "Education data being processed by AI"
-                              : "Education details available in resume"}
-                          </span>
-                        </div>
-                        {fullCandidate?.raw_resume_text &&
-                          (() => {
-                            const educationMatch =
-                              fullCandidate.raw_resume_text?.match(
-                                /(?:EDUCATION|ACADEMIC|UNIVERSITY|COLLEGE|DEGREE)([\s\S]*?)(?=\n(?:EXPERIENCE|SKILLS|CERTIFICATIONS|$))/i
-                              );
-                            return (
-                              educationMatch && (
-                                <details className="text-xs">
-                                  <summary className="cursor-pointer text-purple-400 hover:text-purple-300">
-                                    View education section
-                                  </summary>
-                                  <div className="mt-2 p-3 bg-secondary/20 rounded border border-border/50">
-                                    <pre className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
-                                      {educationMatch[1]
-                                        .trim()
-                                        .substring(0, 200)}
-                                      {educationMatch[1].trim().length > 200 &&
-                                        "..."}
-                                    </pre>
-                                  </div>
-                                </details>
-                              )
-                            );
-                          })()}
-                      </div>
-                    </Card>
-                  )}
-                </motion.div>
-
-                {/* Additional sections for enhanced data */}
-                {fullCandidate?.certifications &&
-                  fullCandidate.certifications.length > 0 && (
+                {/* Profile Content - No Tabs Needed */}
+                <div className="w-full space-y-6">
+                  {/* Professional Summary */}
+                  {professionalSummary && (
                     <motion.div
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.7 }}
+                      transition={{ delay: 0.1 }}
                     >
                       <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
-                        <Award className="w-5 h-5 text-orange-500" />
-                        Certifications
+                        <User className="w-5 h-5 text-blue-500" />
+                        Professional Summary
                       </h3>
-                      <Card className="p-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {fullCandidate.certifications.map((cert, idx) => (
-                            <div key={idx} className="flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4 text-green-500" />
-                              <span className="text-sm">{cert}</span>
+                      <Card className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20 backdrop-blur-sm">
+                        <div className="space-y-3">
+                          <ExtractionConfidenceBadge
+                            confidence={extractionConfidence}
+                            hasStructuredData={hasStructuredData}
+                          />
+                          <p className="text-sm text-foreground/90 leading-relaxed">
+                            {professionalSummary}
+                          </p>
+                          {fullCandidate?.current_title && (
+                            <div className="pt-2 border-t border-border/30">
+                              <Badge variant="outline" className="text-xs">
+                                Current: {fullCandidate.current_title}
+                              </Badge>
                             </div>
-                          ))}
-                        </div>
-                      </Card>
-                    </motion.div>
-                  )}
-
-                {fullCandidate?.key_achievements &&
-                  fullCandidate.key_achievements.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.8 }}
-                    >
-                      <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
-                        <TrendingUp className="w-5 h-5 text-green-500" />
-                        Key Achievements
-                      </h3>
-                      <Card className="p-4">
-                        <div className="space-y-2">
-                          {fullCandidate.key_achievements.map(
-                            (achievement, idx) => (
-                              <div key={idx} className="flex items-start gap-2">
-                                <Star className="w-4 h-4 text-yellow-500 mt-0.5" />
-                                <span className="text-sm">{achievement}</span>
-                              </div>
-                            )
                           )}
                         </div>
                       </Card>
                     </motion.div>
                   )}
+
+                  {/* Skills Section */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                  >
+                    <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-yellow-500" />
+                      Technical Skills
+                    </h3>
+                    <SkillsVisualization skills={displayCandidate.skills} />
+                  </motion.div>
+
+                  {/* Work Experience */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                  >
+                    <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                      <Briefcase className="w-5 h-5 text-green-500" />
+                      Work Experience
+                    </h3>
+                    {workExperience.length > 0 ? (
+                      <div className="space-y-4">
+                        {workExperience.map(
+                          (exp: WorkExperienceItem, idx: number) => (
+                            <motion.div
+                              key={idx}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: 0.4 + idx * 0.1 }}
+                              className="relative"
+                            >
+                              <Card className="p-4 hover:shadow-md transition-shadow">
+                                <div className="flex items-start justify-between mb-2">
+                                  <div>
+                                    <h4 className="font-semibold text-base text-foreground">
+                                      {exp.title || exp.position}
+                                    </h4>
+                                    <p className="text-sm font-medium text-blue-600">
+                                      {exp.company}
+                                    </p>
+                                    {exp.location && (
+                                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                                        <MapPin className="w-3 h-3" />
+                                        {exp.location}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <Badge variant="outline" className="text-xs">
+                                    {exp.duration}
+                                  </Badge>
+                                </div>
+                                {exp.description && (
+                                  <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+                                    {exp.description}
+                                  </p>
+                                )}
+                                {exp.technologies &&
+                                  exp.technologies.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {exp.technologies.map(
+                                        (tech: string, techIdx: number) => (
+                                          <Badge
+                                            key={techIdx}
+                                            variant="secondary"
+                                            className="text-xs bg-purple-500/20 text-purple-300"
+                                          >
+                                            {tech}
+                                          </Badge>
+                                        )
+                                      )}
+                                    </div>
+                                  )}
+                              </Card>
+                            </motion.div>
+                          )
+                        )}
+                      </div>
+                    ) : (
+                      <Card className="p-4">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                            <span className="text-sm text-foreground/90">
+                              {displayCandidate.experience_years} years of
+                              professional experience
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {hasStructuredData
+                              ? "Work experience data being processed by AI"
+                              : "Detailed work history available in resume text"}
+                          </div>
+                          {/* Show a preview of raw resume if available */}
+                          {fullCandidate?.raw_resume_text && (
+                            <details className="text-xs">
+                              <summary className="cursor-pointer text-blue-400 hover:text-blue-300">
+                                View raw resume extract
+                              </summary>
+                              <div className="mt-2 p-3 bg-secondary/20 rounded border border-border/50 max-h-32 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
+                                  {fullCandidate.raw_resume_text.substring(
+                                    0,
+                                    300
+                                  )}
+                                  {fullCandidate.raw_resume_text.length > 300 &&
+                                    "..."}
+                                </pre>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      </Card>
+                    )}
+                  </motion.div>
+
+                  {/* Education */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                  >
+                    <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                      <GraduationCap className="w-5 h-5 text-purple-500" />
+                      Education
+                    </h3>
+                    {education.length > 0 ? (
+                      <div className="space-y-3">
+                        {education.map((edu: EducationItem, idx: number) => (
+                          <motion.div
+                            key={idx}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.6 + idx * 0.1 }}
+                          >
+                            <Card className="p-4">
+                              <h4 className="font-semibold text-sm text-foreground">
+                                {edu.degree}
+                              </h4>
+                              {edu.field && (
+                                <p className="text-xs text-muted-foreground">
+                                  {edu.field}
+                                </p>
+                              )}
+                              <p className="text-sm text-blue-600">
+                                {edu.school || edu.institution}
+                              </p>
+                              {(edu.graduation_year || edu.year) && (
+                                <p className="text-xs text-muted-foreground">
+                                  {edu.graduation_year || edu.year}
+                                </p>
+                              )}
+                              {edu.description && (
+                                <div className="mt-3 pt-3 border-t border-border/20">
+                                  <div className="text-xs text-muted-foreground space-y-1">
+                                    {edu.description
+                                      .split(" | ")
+                                      .map((detail, detailIdx) => (
+                                        <div
+                                          key={detailIdx}
+                                          className="flex items-start gap-2"
+                                        >
+                                          <span className="text-blue-500 mt-1">
+                                            •
+                                          </span>
+                                          <span className="flex-1">
+                                            {detail.trim()}
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+                            </Card>
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <Card className="p-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                            <span className="text-sm text-foreground/90">
+                              {hasStructuredData
+                                ? "Education data being processed by AI"
+                                : "Education details available in resume"}
+                            </span>
+                          </div>
+                          {fullCandidate?.raw_resume_text &&
+                            (() => {
+                              const educationMatch =
+                                fullCandidate.raw_resume_text?.match(
+                                  /(?:EDUCATION|ACADEMIC|UNIVERSITY|COLLEGE|DEGREE)([\s\S]*?)(?=\n(?:EXPERIENCE|SKILLS|CERTIFICATIONS|$))/i
+                                );
+                              return (
+                                educationMatch && (
+                                  <details className="text-xs">
+                                    <summary className="cursor-pointer text-purple-400 hover:text-purple-300">
+                                      View education section
+                                    </summary>
+                                    <div className="mt-2 p-3 bg-secondary/20 rounded border border-border/50">
+                                      <pre className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
+                                        {educationMatch[1]
+                                          .trim()
+                                          .substring(0, 200)}
+                                        {educationMatch[1].trim().length >
+                                          200 && "..."}
+                                      </pre>
+                                    </div>
+                                  </details>
+                                )
+                              );
+                            })()}
+                        </div>
+                      </Card>
+                    )}
+                  </motion.div>
+
+                  {/* Additional sections for enhanced data */}
+                  {fullCandidate?.certifications &&
+                    fullCandidate.certifications.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.7 }}
+                      >
+                        <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
+                          <Award className="w-5 h-5 text-orange-500" />
+                          Certifications
+                        </h3>
+                        <Card className="p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {fullCandidate.certifications.map((cert, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-2"
+                              >
+                                <CheckCircle className="w-4 h-4 text-green-500" />
+                                <span className="text-sm">{cert}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+                      </motion.div>
+                    )}
+
+                  {fullCandidate?.key_achievements &&
+                    fullCandidate.key_achievements.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.8 }}
+                      >
+                        <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
+                          <TrendingUp className="w-5 h-5 text-green-500" />
+                          Key Achievements
+                        </h3>
+                        <Card className="p-4">
+                          <div className="space-y-2">
+                            {fullCandidate.key_achievements.map(
+                              (achievement, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-start gap-2"
+                                >
+                                  <Star className="w-4 h-4 text-yellow-500 mt-0.5" />
+                                  <span className="text-sm">{achievement}</span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </Card>
+                      </motion.div>
+                    )}
+                </div>
               </div>
             </div>
 

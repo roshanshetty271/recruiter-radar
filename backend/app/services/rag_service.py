@@ -150,8 +150,10 @@ class RAGService:
             if value is not None:
                 # ChromaDB only accepts str, int, float, bool
                 if isinstance(value, (list, dict)):
-                    # Convert complex types to string
-                    sanitized[key] = str(value) if value else ""
+                    # Convert complex types to JSON string (not Python str representation)
+                    import json
+
+                    sanitized[key] = json.dumps(value) if value else ""
                 elif isinstance(value, bool):
                     sanitized[key] = value
                 elif isinstance(value, (int, float)):
@@ -216,7 +218,7 @@ class RAGService:
         embedding: List[float],
         metadata: Dict[str, Any],
         document_text: Optional[str] = None,
-    ):
+    ) -> str:
         """
         Asynchronously adds a single candidate profile to the ChromaDB collection with robust deduplication.
         Uses asyncio.to_thread for the synchronous ChromaDB `add` operation.
@@ -317,6 +319,8 @@ class RAGService:
                 )
 
         # 3. Sanitize metadata before storage (CRITICAL FIX for ChromaDB None values)
+        # Ensure metadata.candidate_id reflects the FINAL document id we will store/update.
+        # For updates, this will be overwritten below to use existing_id.
         clean_metadata = self._sanitize_metadata(metadata)
         logger.info(
             f"🧹 Sanitized metadata for candidate {candidate_id}: source={clean_metadata.get('source')}"
@@ -329,6 +333,8 @@ class RAGService:
                 logger.info(
                     f"📝 UPDATING existing candidate {existing_id} instead of creating duplicate"
                 )
+                # Ensure metadata carries the canonical candidate id
+                clean_metadata["candidate_id"] = existing_id
                 await asyncio.to_thread(
                     self.collection.update,
                     ids=[existing_id],
@@ -339,9 +345,11 @@ class RAGService:
                 logger.info(
                     f"✅ RAGService: Successfully updated candidate ID '{existing_id}' in collection '{self.collection_name}'"
                 )
+                final_id = existing_id
             else:
                 # ADD new candidate
                 logger.info(f"➕ ADDING new candidate {candidate_id}")
+                clean_metadata["candidate_id"] = candidate_id
                 await asyncio.to_thread(
                     self.collection.add,
                     ids=[candidate_id],
@@ -352,6 +360,7 @@ class RAGService:
                 logger.info(
                     f"✅ RAGService: Successfully added candidate ID '{candidate_id}' in collection '{self.collection_name}'"
                 )
+                final_id = candidate_id
         except Exception as e:
             logger.error(
                 f"❌ RAGService: Failed to add/update candidate ID '{candidate_id}' to collection '{self.collection_name}': {e}",
@@ -360,6 +369,8 @@ class RAGService:
             raise DocumentStorageError(
                 f"Failed to add/update candidate '{candidate_id}' in collection: {e}"
             ) from e
+
+        return final_id
 
     async def batch_add_candidates(
         self, candidates_data: List[Dict[str, Any]]
@@ -1265,6 +1276,8 @@ class RAGService:
                 "github_url": metadata.get("github_url"),
                 "linkedin_url": metadata.get("linkedin_url"),
                 "visa_status": metadata.get("visa_status"),
+                # 🎯 FIXED: Include the complete metadata (containing fast_path_extraction)
+                "metadata": metadata,
             }
             return CandidateProfile(**candidate_data)
 

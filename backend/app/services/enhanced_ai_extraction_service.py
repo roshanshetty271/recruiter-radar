@@ -600,7 +600,11 @@ Return detailed JSON with all fields from ExtractedResumeData model. Calculate t
         return [r if isinstance(r, ExtractedResumeData) else None for r in results]
 
     async def extract_structured_profile_data(
-        self, candidate_id: str, raw_resume_text: str, candidate_name: str
+        self,
+        candidate_id: str,
+        raw_resume_text: str,
+        candidate_name: str,
+        fast_path_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Extract structured profile data optimized for the View Profile modal.
@@ -609,6 +613,7 @@ Return detailed JSON with all fields from ExtractedResumeData model. Calculate t
             candidate_id: Unique candidate identifier
             raw_resume_text: Raw resume text to parse
             candidate_name: Candidate's name for context
+            fast_path_data: Optional fast-path extraction results to use as fallback
 
         Returns:
             Dictionary with structured data including work_experience, education,
@@ -621,50 +626,55 @@ Return detailed JSON with all fields from ExtractedResumeData model. Calculate t
         cache_key = f"profile_extraction_{candidate_id}"
 
         try:
-            # Optimized prompt for profile data extraction
+            # Enhanced prompt for comprehensive data extraction
             extraction_prompt = f"""
-Extract structured data from this resume for candidate profile display. Be precise and comprehensive.
+You are an expert resume parser. Extract structured data from this resume for candidate profile display.
 
 CANDIDATE: {candidate_name}
-RESUME TEXT:
-{raw_resume_text[:3000]}  # Limit to avoid token limits
+FULL RESUME TEXT:
+{raw_resume_text}
 
-Extract and format as JSON:
+EXTRACT ALL INFORMATION and format as JSON:
+
+EXAMPLE OUTPUT FORMAT:
 {{
-    "professional_summary": "2-3 sentence summary of their background and expertise",
-    "current_title": "Their most recent or current job title",
+    "professional_summary": "Brief summary of background and expertise",
+    "current_title": "Most recent job title",
     "work_experience": [
         {{
-            "company": "Company Name",
-            "position": "Job Title",
-            "duration": "Start Date - End Date (or Present)",
-            "description": "Key achievements and responsibilities in 150-200 chars",
-            "technologies": ["tech1", "tech2", "tech3"]
+            "company": "Actual Company Name",
+            "position": "Actual Job Title", 
+            "duration": "Jan 2023 - Present",
+            "description": "Key achievements and responsibilities",
+            "technologies": ["Python", "React", "AWS"]
         }}
     ],
     "education": [
         {{
-            "institution": "University/School Name",
-            "degree": "Degree Type and Field",
-            "field": "Field of Study",
-            "year": "Graduation Year or Period"
+            "institution": "University Name",
+            "degree": "Bachelor of Science",
+            "field": "Computer Science", 
+            "year": "2020"
         }}
     ],
-    "certifications": ["cert1", "cert2", "cert3"],
-    "languages": ["programming languages and spoken languages"],
-    "key_achievements": ["achievement1", "achievement2", "achievement3"],
+    "certifications": ["AWS Certified", "Google Analytics"],
+    "languages": ["Python", "JavaScript", "English", "Spanish"],
+    "key_achievements": ["Led team of 5", "Increased efficiency by 40%"],
     "extraction_confidence": 0.95
 }}
 
-IMPORTANT RULES:
-- Extract ALL work experience entries, not just recent ones
-- Include internships, part-time roles, and contract work
-- For education, include degrees, bootcamps, and relevant courses
-- Keep descriptions concise but informative
-- Set extraction_confidence based on data quality (0.0-1.0)
-- If a section is missing/unclear, use empty arrays but don't skip
-- Prioritize accuracy over completeness
-"""
+CRITICAL INSTRUCTIONS:
+1. Look for sections like "PROFESSIONAL EXPERIENCE", "WORK EXPERIENCE", "EXPERIENCE", "EMPLOYMENT"
+2. Look for sections like "EDUCATION", "ACADEMIC BACKGROUND", "DEGREES"
+3. Extract EVERY job and education entry you find - don't skip any
+4. For work experience: extract company name, job title, dates, and key accomplishments
+5. For education: extract school name, degree type, field of study, graduation year
+6. If dates are embedded with company/location, parse them out (e.g., "Company, City Jan 2020 - Dec 2022")
+7. Be thorough - scan the ENTIRE resume text for all relevant information
+8. If you find education or work experience, the arrays must NOT be empty
+9. Even partial information is better than empty arrays
+
+RETURN VALID JSON ONLY - NO OTHER TEXT."""
 
             # Make AI extraction call with optimized settings
             llm_response = await self.llm_service.client.chat.completions.create(
@@ -672,22 +682,77 @@ IMPORTANT RULES:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert resume parser specializing in structured data extraction for recruitment systems. Always return valid JSON.",
+                        "content": "You are an expert resume parser. You MUST extract ALL work experience and education entries found in resumes. Never return empty arrays if data exists. Always return valid JSON.",
                     },
                     {"role": "user", "content": extraction_prompt},
                 ],
                 temperature=0.1,  # Low temperature for consistency
                 response_format={"type": "json_object"},
-                max_tokens=1500,
-                timeout=10,
+                max_tokens=3000,  # Increased for full extraction
+                timeout=15,  # Increased timeout for longer processing
             )
 
             # Parse the JSON response
             raw_json = llm_response.choices[0].message.content
+
+            # 🚨 DEBUG: Log raw OpenAI response
+            logger.info(f"🤖 RAW OpenAI RESPONSE for {candidate_name}:")
+            logger.info(f"📄 Response length: {len(raw_json)} characters")
+            logger.info(
+                f"📄 Raw JSON: {raw_json[:1000]}{'...' if len(raw_json) > 1000 else ''}"
+            )
+
             structured_data = orjson.loads(raw_json)
+
+            # 🚨 DEBUG: Log parsed data before validation
+            logger.info(f"🔍 PARSED DATA BEFORE VALIDATION:")
+            logger.info(
+                f"   Work Experience entries: {len(structured_data.get('work_experience', []))}"
+            )
+            logger.info(
+                f"   Education entries: {len(structured_data.get('education', []))}"
+            )
+            if structured_data.get("work_experience"):
+                for i, exp in enumerate(structured_data.get("work_experience", [])[:3]):
+                    logger.info(f"   Work Exp {i+1}: {exp}")
+            if structured_data.get("education"):
+                for i, edu in enumerate(structured_data.get("education", [])[:3]):
+                    logger.info(f"   Education {i+1}: {edu}")
 
             # Validate and clean the extracted data
             structured_data = self._validate_structured_data(structured_data)
+
+            # 🚨 DEBUG: Log data after validation
+            logger.info(f"🔍 PARSED DATA AFTER VALIDATION:")
+            logger.info(
+                f"   Work Experience entries: {len(structured_data.get('work_experience', []))}"
+            )
+            logger.info(
+                f"   Education entries: {len(structured_data.get('education', []))}"
+            )
+            if structured_data.get("work_experience"):
+                for i, exp in enumerate(structured_data.get("work_experience", [])[:3]):
+                    logger.info(f"   Final Work Exp {i+1}: {exp}")
+            if structured_data.get("education"):
+                for i, edu in enumerate(structured_data.get("education", [])[:3]):
+                    logger.info(f"   Final Education {i+1}: {edu}")
+
+            # 🚀 ENHANCED FALLBACK: Use fast-path data if AI extraction returned empty arrays
+            if fast_path_data and self._should_use_fast_path_fallback(structured_data):
+                logger.info(
+                    f"🔄 Enhanced extraction returned empty arrays - using fast-path fallback for {candidate_name}"
+                )
+                structured_data = self._merge_with_fast_path_data(
+                    structured_data, fast_path_data
+                )
+
+                logger.info(f"🚀 FALLBACK APPLIED:")
+                logger.info(
+                    f"   Work Experience entries: {len(structured_data.get('work_experience', []))}"
+                )
+                logger.info(
+                    f"   Education entries: {len(structured_data.get('education', []))}"
+                )
 
             # Record successful extraction
             self.analytics.record_extraction(
@@ -752,39 +817,96 @@ IMPORTANT RULES:
         if isinstance(data.get("work_experience"), list):
             validated_experience = []
             for exp in data["work_experience"]:
-                if isinstance(exp, dict) and "company" in exp and "position" in exp:
-                    validated_exp = {
-                        "company": str(exp.get("company", "Unknown Company")),
-                        "position": str(exp.get("position", "Unknown Position")),
-                        "duration": str(exp.get("duration", "Duration not specified")),
-                        "description": str(exp.get("description", ""))[
-                            :300
-                        ],  # Limit length
-                        "technologies": (
-                            exp.get("technologies", [])
-                            if isinstance(exp.get("technologies"), list)
-                            else []
-                        ),
-                    }
-                    validated_experience.append(validated_exp)
+                if isinstance(exp, dict):
+                    # More flexible validation - accept if we have basic info
+                    company = str(exp.get("company", "")).strip()
+                    # Handle both 'title' and 'position' field names for compatibility
+                    position = str(exp.get("title", exp.get("position", ""))).strip()
+
+                    # Accept entry if we have at least company OR position
+                    if company or position:
+                        validated_exp = {
+                            "company": company or "Company name not specified",
+                            "position": position or "Position not specified",
+                            "duration": str(
+                                exp.get("duration", "Duration not specified")
+                            ),
+                            "description": str(exp.get("description", ""))[
+                                :300
+                            ],  # Limit length
+                            "technologies": (
+                                exp.get("technologies", [])
+                                if isinstance(exp.get("technologies"), list)
+                                else []
+                            ),
+                        }
+                        validated_experience.append(validated_exp)
+
+                        # 🚀 DEBUG: Log successful validation
+                        from app.core.config import settings
+
+                        if settings.app_verbose_extraction:
+                            import logging
+
+                            logger = logging.getLogger(__name__)
+                            logger.info(f"✅ WORK EXP VALIDATED: {validated_exp}")
+                    else:
+                        # 🚨 DEBUG: Log rejected entries
+                        from app.core.config import settings
+
+                        if settings.app_verbose_extraction:
+                            import logging
+
+                            logger = logging.getLogger(__name__)
+                            logger.warning(f"❌ WORK EXP REJECTED: {exp}")
+
             data["work_experience"] = validated_experience[:10]  # Limit to 10 entries
 
         # Validate education structure
         if isinstance(data.get("education"), list):
             validated_education = []
             for edu in data["education"]:
-                if isinstance(edu, dict) and "institution" in edu and "degree" in edu:
-                    validated_edu = {
-                        "institution": str(
-                            edu.get("institution", "Unknown Institution")
-                        ),
-                        "degree": str(edu.get("degree", "Unknown Degree")),
-                        "field": (
-                            str(edu.get("field", "")) if edu.get("field") else None
-                        ),
-                        "year": str(edu.get("year", "")) if edu.get("year") else None,
-                    }
-                    validated_education.append(validated_edu)
+                if isinstance(edu, dict):
+                    # More flexible validation - accept if we have basic education info
+                    institution = str(edu.get("institution", "")).strip()
+                    degree = str(edu.get("degree", "")).strip()
+
+                    # Accept entry if we have at least institution OR degree
+                    if institution or degree:
+                        validated_edu = {
+                            "institution": institution or "Institution not specified",
+                            "degree": degree or "Degree not specified",
+                            "field": (
+                                str(edu.get("field", "")).strip()
+                                if edu.get("field")
+                                else None
+                            ),
+                            "year": (
+                                str(edu.get("year", "")).strip()
+                                if edu.get("year")
+                                else None
+                            ),
+                        }
+                        validated_education.append(validated_edu)
+
+                        # 🚀 DEBUG: Log successful validation
+                        from app.core.config import settings
+
+                        if settings.app_verbose_extraction:
+                            import logging
+
+                            logger = logging.getLogger(__name__)
+                            logger.info(f"✅ EDUCATION VALIDATED: {validated_edu}")
+                    else:
+                        # 🚨 DEBUG: Log rejected entries
+                        from app.core.config import settings
+
+                        if settings.app_verbose_extraction:
+                            import logging
+
+                            logger = logging.getLogger(__name__)
+                            logger.warning(f"❌ EDUCATION REJECTED: {edu}")
+
             data["education"] = validated_education[:5]  # Limit to 5 entries
 
         # Ensure confidence is a valid float
@@ -799,6 +921,84 @@ IMPORTANT RULES:
             data["extraction_confidence"] = 0.5
 
         return data
+
+    def _should_use_fast_path_fallback(self, structured_data: Dict[str, Any]) -> bool:
+        """Check if we should use fast-path data as fallback for enhanced extraction."""
+        work_exp_empty = (
+            not structured_data.get("work_experience")
+            or len(structured_data.get("work_experience", [])) == 0
+        )
+        education_empty = (
+            not structured_data.get("education")
+            or len(structured_data.get("education", [])) == 0
+        )
+
+        # Use fallback if both work experience and education are empty
+        return work_exp_empty and education_empty
+
+    def _merge_with_fast_path_data(
+        self, enhanced_data: Dict[str, Any], fast_path_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Merge enhanced extraction with fast-path data as fallback."""
+        merged_data = enhanced_data.copy()
+
+        # Use fast-path work experience if enhanced is empty
+        if not merged_data.get("work_experience"):
+            fast_work_exp = fast_path_data.get("work_experience", [])
+            if fast_work_exp:
+                # Convert fast-path format to enhanced format
+                enhanced_work_exp = []
+                for exp in fast_work_exp:
+                    enhanced_exp = {
+                        "company": exp.get("company", ""),
+                        "position": exp.get(
+                            "title", exp.get("position", "")
+                        ),  # Handle both field names
+                        "duration": exp.get("duration", ""),
+                        "description": f"Professional role at {exp.get('company', 'company')}",
+                        "technologies": exp.get("technologies", []),
+                    }
+                    enhanced_work_exp.append(enhanced_exp)
+                merged_data["work_experience"] = enhanced_work_exp
+                logger.info(
+                    f"🚀 FALLBACK: Added {len(enhanced_work_exp)} work experience entries from fast-path"
+                )
+
+        # Use fast-path education if enhanced is empty
+        if not merged_data.get("education"):
+            fast_education = fast_path_data.get("education", [])
+            if fast_education:
+                # Convert fast-path format to enhanced format
+                enhanced_education = []
+                for edu in fast_education:
+                    enhanced_edu = {
+                        "institution": edu.get(
+                            "school", edu.get("institution", "")
+                        ),  # Handle both field names
+                        "degree": edu.get("degree", ""),
+                        "field": edu.get("field"),
+                        "year": edu.get("graduation_year", edu.get("year")),
+                    }
+                    enhanced_education.append(enhanced_edu)
+                merged_data["education"] = enhanced_education
+                logger.info(
+                    f"🚀 FALLBACK: Added {len(enhanced_education)} education entries from fast-path"
+                )
+
+        # Update confidence if we used fallback data
+        if fast_path_data.get("confidence"):
+            # Boost confidence since we have real extracted data
+            original_confidence = merged_data.get("extraction_confidence", 0.5)
+            fast_path_confidence = fast_path_data.get("confidence", 0.9)
+            merged_confidence = max(
+                original_confidence, fast_path_confidence * 0.9
+            )  # Slightly lower than original fast-path
+            merged_data["extraction_confidence"] = merged_confidence
+            logger.info(
+                f"🚀 FALLBACK: Updated confidence from {original_confidence:.2f} to {merged_confidence:.2f}"
+            )
+
+        return merged_data
 
     def _get_fallback_structured_data(
         self, candidate_name: str, raw_resume_text: str

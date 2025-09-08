@@ -26,6 +26,8 @@ class AppSettings(BaseSettings):
     app_environment: str = "development"
     app_debug: bool = True
     app_log_level: str = "INFO"
+    # Verbose resume extraction diagnostics (toggle via env: APP_VERBOSE_EXTRACTION=true)
+    app_verbose_extraction: bool = Field(default=False, env="APP_VERBOSE_EXTRACTION")
 
     # Data Configuration
     app_candidate_data_path: str = "app/data/candidate_profiles.json"

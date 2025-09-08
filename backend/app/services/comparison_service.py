@@ -186,18 +186,27 @@ class ComparisonService:
 
         # Try AI-powered insights first
         try:
+            # Get rich candidate data for better AI analysis
+            candidate_summary = await self._get_rich_candidate_summary(
+                candidate_id, metadata
+            )
+
             insights_prompt = f"""
-Analyze this candidate profile and provide recruitment insights:
+Analyze this candidate profile and provide detailed recruitment insights:
 
-Name: {candidate_id}
-Experience: {years_exp} years
-Skills: {', '.join(skills)}
-{f"Raw resume excerpt: {metadata.get('summary_text', '')[:300]}..." if metadata and metadata.get('summary_text') else ""}
+{candidate_summary}
 
-Provide a JSON response with:
-1. fit_score: A score from 60-95 for a general software engineering role
-2. strengths: Exactly 3 unique professional strengths
-3. interview_questions: Exactly 3 thoughtful technical/behavioral questions
+Provide a comprehensive JSON response with:
+1. fit_score: A score from 60-95 based on technical skills, experience level, and career trajectory
+2. strengths: Exactly 3 unique professional strengths based on actual achievements and skills
+3. interview_questions: Exactly 3 thoughtful questions tailored to this candidate's background
+
+Consider:
+- Technical skill depth and breadth
+- Career progression and growth
+- Project complexity and impact
+- Leadership and communication indicators
+- Specialization areas and market value
 
 Format as JSON:
 {{
@@ -284,10 +293,14 @@ Format as JSON:
         Use AI to discover hidden insights about candidates that aren't obvious from their profiles.
         """
         try:
-            # Prepare candidate summaries for AI analysis
+            # Prepare rich candidate summaries for AI analysis
             candidate_summaries = []
             for insight in candidate_insights:
-                summary = f"ID: {insight.candidate_id}, Score: {insight.fit_score}, Strengths: {', '.join(insight.strengths)}"
+                # Get rich summary for each candidate
+                rich_summary = await self._get_rich_candidate_summary(
+                    insight.candidate_id
+                )
+                summary = f"=== CANDIDATE ANALYSIS ===\n{rich_summary}\nFit Score: {insight.fit_score}%\nKey Strengths: {', '.join(insight.strengths)}\n"
                 candidate_summaries.append(summary)
 
             job_context = f"Job: {job_role_title}" + (
@@ -388,13 +401,80 @@ Return a JSON array of insights:
 
         return insights
 
+    async def _get_rich_candidate_summary(
+        self, candidate_id: str, metadata: Optional[Dict] = None
+    ) -> str:
+        """Get a rich summary of candidate data for AI analysis."""
+        try:
+            # Try to get full candidate details
+            candidate = await self.rag_service.get_candidate_details_by_id(candidate_id)
+
+            summary_parts = [
+                f"Candidate ID: {candidate_id}",
+                f"Name: {candidate.name}",
+                f"Location: {candidate.location}",
+                f"Experience: {candidate.experience_years} years",
+                f"Current Title: {getattr(candidate, 'current_title', 'Not specified')}",
+                f"Skills ({len(candidate.skills)}): {', '.join(candidate.skills[:20])}{'...' if len(candidate.skills) > 20 else ''}",
+            ]
+
+            # Add work experience details
+            if hasattr(candidate, "work_experience") and candidate.work_experience:
+                summary_parts.append("\nWork Experience:")
+                for i, exp in enumerate(candidate.work_experience[:3]):  # Show top 3
+                    summary_parts.append(
+                        f"  {i+1}. {exp.get('title', 'N/A')} at {exp.get('company', 'N/A')} ({exp.get('duration', 'N/A')})"
+                    )
+                    if exp.get("description"):
+                        summary_parts.append(f"     - {exp['description'][:150]}...")
+
+            # Add education details
+            if hasattr(candidate, "education") and candidate.education:
+                summary_parts.append("\nEducation:")
+                for edu in candidate.education:
+                    degree = edu.get("degree", "N/A")
+                    field = edu.get("field", "")
+                    school = edu.get("school") or edu.get("institution", "N/A")
+                    summary_parts.append(
+                        f"  - {degree}{f' in {field}' if field else ''} from {school}"
+                    )
+                    if edu.get("description"):
+                        summary_parts.append(
+                            f"    Details: {edu['description'][:100]}..."
+                        )
+
+            return "\n".join(summary_parts)
+
+        except Exception as e:
+            logger.warning(f"Failed to get rich candidate data for {candidate_id}: {e}")
+
+            # Fallback to metadata-based summary
+            if metadata:
+                summary_parts = [
+                    f"Candidate ID: {candidate_id}",
+                    f"Name: {metadata.get('name', 'Unknown')}",
+                    f"Experience: {metadata.get('experience_years', 0)} years",
+                    f"Skills: {metadata.get('skills', 'Not specified')}",
+                    f"Location: {metadata.get('location', 'Not specified')}",
+                ]
+
+                if metadata.get("summary_text"):
+                    summary_parts.append(
+                        f"\nResume Summary: {metadata['summary_text'][:300]}..."
+                    )
+
+                return "\n".join(summary_parts)
+
+            # Basic fallback
+            return f"Candidate ID: {candidate_id}\nLimited data available - manual review recommended"
+
     def _build_comparison_matrix(
         self,
         candidate_insights: List[CandidateInsightsResponse],
         request: ComparisonRequest,
     ) -> ComparisonMatrix:
         """
-        Build a comparison matrix showing how candidates rank across different criteria.
+        Build a comparison matrix showing how candidates rank across different criteria using actual candidate data.
         """
         matrix = ComparisonMatrix(
             technical_match={}, culture_fit={}, retention_risk={}, growth_potential={}
@@ -406,25 +486,163 @@ Return a JSON array of insights:
             # Technical match is based on fit score
             matrix.technical_match[candidate_id] = insight.fit_score
 
-            # Culture fit: derived from fit score with some variation
-            culture_base = insight.fit_score * 0.9  # Slightly lower than technical
-            matrix.culture_fit[candidate_id] = max(
-                40, min(95, culture_base + hash(candidate_id) % 20 - 10)
-            )
+            # Get actual candidate data for realistic scoring
+            try:
+                candidate = asyncio.get_event_loop().run_until_complete(
+                    asyncio.to_thread(
+                        self.rag_service.get_candidate_details_by_id, candidate_id
+                    )
+                )
 
-            # Retention risk: inverse relationship with fit score
-            retention_base = 100 - insight.fit_score
-            matrix.retention_risk[candidate_id] = max(
-                10, min(80, retention_base + hash(candidate_id + "retention") % 15 - 7)
-            )
+                # Culture fit: based on soft skills, education, and experience diversity
+                culture_score = self._calculate_culture_fit(candidate, insight)
+                matrix.culture_fit[candidate_id] = culture_score
 
-            # Growth potential: based on fit score with upward bias
-            growth_base = insight.fit_score * 1.1  # Slightly higher than technical
-            matrix.growth_potential[candidate_id] = max(
-                50, min(100, growth_base + hash(candidate_id + "growth") % 15 - 5)
-            )
+                # Retention risk: based on job history, experience level, and market factors
+                retention_score = self._calculate_retention_risk(candidate, insight)
+                matrix.retention_risk[candidate_id] = retention_score
+
+                # Growth potential: based on learning trajectory, skills breadth, and career progression
+                growth_score = self._calculate_growth_potential(candidate, insight)
+                matrix.growth_potential[candidate_id] = growth_score
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to get candidate data for matrix calculation {candidate_id}: {e}"
+                )
+                # Fallback to basic calculation if candidate data unavailable
+                matrix.culture_fit[candidate_id] = min(
+                    85, max(60, insight.fit_score * 0.9)
+                )
+                matrix.retention_risk[candidate_id] = min(
+                    40, max(15, 45 - (insight.fit_score * 0.3))
+                )
+                matrix.growth_potential[candidate_id] = min(
+                    90, max(65, insight.fit_score * 0.95)
+                )
 
         return matrix
+
+    def _calculate_culture_fit(self, candidate, insight) -> float:
+        """Calculate culture fit based on actual candidate characteristics."""
+        base_score = 70
+
+        # Education diversity bonus (different fields/levels)
+        if hasattr(candidate, "education") and len(candidate.education) > 1:
+            base_score += 5
+
+        # Experience diversity (different companies/roles)
+        if hasattr(candidate, "work_experience") and len(candidate.work_experience) > 1:
+            base_score += 5
+
+        # Communication skills (inferred from role types)
+        communication_roles = ["lead", "senior", "manager", "architect", "consultant"]
+        if any(
+            role in str(candidate.current_title).lower() for role in communication_roles
+        ):
+            base_score += 8
+
+        # Soft skills from strengths
+        soft_skills = [
+            "communication",
+            "collaboration",
+            "leadership",
+            "mentoring",
+            "teamwork",
+        ]
+        soft_skill_count = sum(
+            1
+            for strength in insight.strengths
+            for skill in soft_skills
+            if skill.lower() in strength.lower()
+        )
+        base_score += soft_skill_count * 3
+
+        # Location stability (local candidates may fit better)
+        if hasattr(candidate, "location") and "boston" in candidate.location.lower():
+            base_score += 3
+
+        return min(95, max(45, base_score))
+
+    def _calculate_retention_risk(self, candidate, insight) -> float:
+        """Calculate retention risk based on actual candidate characteristics."""
+        base_risk = 30  # Start with low risk
+
+        # Job hopping pattern (high frequency = higher risk)
+        if hasattr(candidate, "work_experience") and len(candidate.work_experience) > 2:
+            # If more than 2 jobs and less than 2 years each on average
+            if candidate.experience_years / len(candidate.work_experience) < 2:
+                base_risk += 15
+
+        # Overqualification risk (very senior for potential role level)
+        if candidate.experience_years > 8 and insight.fit_score > 90:
+            base_risk += 10
+
+        # Underqualification risk (may leave for better opportunities)
+        if candidate.experience_years < 2 and insight.fit_score < 75:
+            base_risk += 8
+
+        # Skills mismatch (may not enjoy the work)
+        if insight.fit_score < 70:
+            base_risk += 12
+
+        # High performers in competitive fields (AI/ML) have higher market demand
+        ai_skills = ["ai", "ml", "machine learning", "tensorflow", "pytorch", "openai"]
+        if any(
+            skill.lower() in " ".join(candidate.skills).lower() for skill in ai_skills
+        ):
+            base_risk += 8
+
+        return min(80, max(10, base_risk))
+
+    def _calculate_growth_potential(self, candidate, insight) -> float:
+        """Calculate growth potential based on actual candidate characteristics."""
+        base_potential = 75
+
+        # Learning trajectory (diverse skills = learning mindset)
+        if len(candidate.skills) > 15:
+            base_potential += 8
+
+        # Modern technology adoption
+        modern_tech = [
+            "react",
+            "typescript",
+            "docker",
+            "kubernetes",
+            "aws",
+            "microservices",
+        ]
+        modern_count = sum(
+            1
+            for skill in candidate.skills
+            for tech in modern_tech
+            if tech.lower() in skill.lower()
+        )
+        base_potential += min(10, modern_count * 2)
+
+        # Educational background (advanced degrees show learning capacity)
+        if hasattr(candidate, "education"):
+            for edu in candidate.education:
+                if (
+                    "master" in edu.get("degree", "").lower()
+                    or "phd" in edu.get("degree", "").lower()
+                ):
+                    base_potential += 5
+                    break
+
+        # Career progression (title advancement)
+        if hasattr(candidate, "work_experience") and len(candidate.work_experience) > 1:
+            # Look for progression indicators in titles
+            progression_terms = ["junior", "senior", "lead", "principal", "staff"]
+            titles = [exp.get("title", "") for exp in candidate.work_experience]
+            if any(term in " ".join(titles).lower() for term in progression_terms):
+                base_potential += 6
+
+        # High technical fit suggests growth alignment
+        if insight.fit_score > 85:
+            base_potential += 5
+
+        return min(100, max(50, base_potential))
 
     async def _determine_winner(
         self,
@@ -439,13 +657,20 @@ Return a JSON array of insights:
             raise ValueError("No candidate insights available for winner determination")
 
         try:
-            # Prepare data for AI analysis
+            # Prepare rich data for AI analysis
             candidates_summary = []
             for insight in candidate_insights:
+                rich_summary = await self._get_rich_candidate_summary(
+                    insight.candidate_id
+                )
                 summary = f"""
-Candidate: {insight.candidate_id}
-Fit Score: {insight.fit_score}%
-Strengths: {', '.join(insight.strengths)}
+=== CANDIDATE PROFILE ===
+{rich_summary}
+
+ASSESSMENT RESULTS:
+- Fit Score: {insight.fit_score}%
+- Key Strengths: {', '.join(insight.strengths)}
+- Recommended Interview Questions: {', '.join(insight.interview_questions)}
 """
                 candidates_summary.append(summary)
 
@@ -504,12 +729,30 @@ Recommend the best candidate with detailed reasoning. Return JSON:
             winner_id = winner_data["candidate_id"]
             candidate_name = winner_data.get("candidate_name", winner_id)
 
-            # Try to get actual name from insights
-            for insight in candidate_insights:
-                if insight.candidate_id == winner_id:
-                    # Use a cleaner name format if possible
+            # Try to get actual candidate name from RAG service
+            try:
+                candidate = await self.rag_service.get_candidate_details_by_id(
+                    winner_id
+                )
+                candidate_name = candidate.name
+            except Exception:
+                # Fallback: try to get name from ChromaDB metadata
+                try:
+                    result = await asyncio.to_thread(
+                        self.rag_service.collection.get,
+                        ids=[winner_id],
+                        include=["metadatas"],
+                    )
+                    meta_list = result.get("metadatas", [])
+                    if meta_list and meta_list[0]:
+                        metadata = meta_list[0]
+                        candidate_name = metadata.get(
+                            "name", winner_id.replace("_", " ").title()
+                        )
+                    else:
+                        candidate_name = winner_id.replace("_", " ").title()
+                except Exception:
                     candidate_name = winner_id.replace("_", " ").title()
-                    break
 
             return ComparisonWinner(
                 candidate_id=winner_id,

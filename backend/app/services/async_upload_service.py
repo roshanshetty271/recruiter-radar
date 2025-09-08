@@ -299,6 +299,16 @@ class AsyncUploadService:
             if not extracted_data:
                 raise Exception("AI extraction failed to return data")
 
+            # Apply post-processing to improve quality and consistency with single-upload
+            try:
+                extracted_data = (
+                    self.resume_parser.ai_extractor._post_process_extraction(
+                        extracted_data, text
+                    )
+                )
+            except Exception:
+                pass
+
             file_task.extracted_data = extracted_data
 
             logger.info(
@@ -337,7 +347,7 @@ class AsyncUploadService:
             candidate_id = f"uploaded_{uuid.uuid4().hex[:8]}"
             file_task.candidate_id = candidate_id
 
-            # Prepare metadata
+            # Prepare metadata (preserve counts and current title)
             metadata = {
                 "candidate_id": candidate_id,
                 "name": extracted_data.name or "Unknown",
@@ -349,9 +359,43 @@ class AsyncUploadService:
                 "experience_years": extracted_data.total_experience_years or 0.0,
                 "skills": ",".join(extracted_data.technical_skills),
                 "location": extracted_data.location or "Not Specified",
+                "current_title": extracted_data.current_title or "",
+                "work_exp_count": len(extracted_data.work_experience or []),
+                "education_count": len(extracted_data.education or []),
+                "certs_count": len(extracted_data.certifications or []),
                 "source": "async_upload",
                 "upload_timestamp": datetime.utcnow().isoformat(),
                 "original_filename": file_data["filename"],
+                # 🚀 ENHANCED: Store fast-path extraction data for fallback in profile view
+                "fast_path_extraction": {
+                    "work_experience": [
+                        {
+                            "title": exp.title,  # Fixed: Use correct attribute name
+                            "company": exp.company,
+                            "duration": exp.duration,
+                            "location": getattr(exp, "location", ""),
+                            "technologies": getattr(exp, "technologies", []),
+                            "description": getattr(exp, "description", None),
+                        }
+                        for exp in (extracted_data.work_experience or [])
+                    ],
+                    "education": [
+                        {
+                            "degree": edu.degree,
+                            "field": getattr(edu, "field", ""),
+                            "school": edu.school,  # Fixed: Use correct attribute name
+                            "graduation_year": getattr(edu, "graduation_year", None),
+                        }
+                        for edu in (extracted_data.education or [])
+                    ],
+                    "professional_summary": extracted_data.professional_summary or "",
+                    "certifications": extracted_data.certifications or [],
+                    "key_achievements": extracted_data.key_achievements or [],
+                    "languages": extracted_data.languages or ["English"],
+                    "confidence": extracted_data.extraction_confidence,
+                    "extraction_timestamp": datetime.utcnow().isoformat(),
+                    "raw_resume_text": text,  # Store original text for detailed parsing
+                },
             }
 
             # Create document text
@@ -374,8 +418,8 @@ class AsyncUploadService:
             GitHub: {extracted_data.github_url or 'Not provided'}
             """.strip()
 
-            # Store in ChromaDB
-            await self.rag_service.add_candidate_to_collection(
+            # Store in ChromaDB (capture canonical id returned by upsert)
+            final_id = await self.rag_service.add_candidate_to_collection(
                 candidate_id=candidate_id,
                 embedding=embedding,
                 metadata=metadata,
@@ -385,8 +429,11 @@ class AsyncUploadService:
             logger.info(
                 "Candidate stored successfully",
                 file_id=file_task.file_id,
-                candidate_id=candidate_id,
+                candidate_id=final_id,
             )
+            # Update task and metadata with canonical id
+            file_task.candidate_id = final_id
+            metadata["candidate_id"] = final_id
 
             # Step 5: Complete
             file_task.status = FileStatus.COMPLETED

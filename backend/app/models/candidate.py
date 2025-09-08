@@ -5,7 +5,7 @@ This module defines the core CandidateProfile model used throughout the Recruite
 for representing candidate information, skills, and resume data.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, HttpUrl, validator, EmailStr
 
 
@@ -67,6 +67,12 @@ class CandidateProfile(BaseModel):
         None, description="Optional URL to the candidate's LinkedIn profile."
     )
 
+    # NEW: Store metadata from ChromaDB (including fast_path_extraction data)
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Additional metadata from ChromaDB, including extracted resume data",
+    )
+
     @validator("skills")
     def validate_skills_not_empty_strings(cls, v):
         """Ensure skills list doesn't contain empty strings."""
@@ -94,6 +100,13 @@ class CandidateProfile(BaseModel):
                 "location": "San Francisco, CA",
                 "github_url": "https://github.com/alexchen",
                 "linkedin_url": "https://linkedin.com/in/alex-chen-dev",
+                "metadata": {
+                    "fast_path_extraction": {
+                        "work_experience": [],
+                        "education": [],
+                        "confidence": 0.9,
+                    }
+                },
             }
         }
         # If we want to allow arbitrary user data (not recommended for strict models)

@@ -232,17 +232,22 @@ export interface ComparisonRequest {
 // Enhanced candidate profile data from backend AI extraction
 export interface WorkExperienceItem {
   company: string;
-  position: string;
+  title?: string; // Backend provides 'title'
+  position?: string; // Frontend legacy field
   duration: string;
-  description: string;
-  technologies: string[];
+  location?: string; // Backend provides 'location'
+  description?: string; // Optional field
+  technologies?: string[]; // Optional field
 }
 
 export interface EducationItem {
-  institution: string;
+  school?: string; // Backend provides 'school'
+  institution?: string; // Frontend legacy field
   degree: string;
   field?: string;
-  year?: string;
+  graduation_year?: string | null; // Backend provides 'graduation_year'
+  year?: string; // Frontend legacy field
+  description?: string; // Detailed education information (coursework, internships, activities)
 }
 
 export interface EnhancedCandidateProfile {

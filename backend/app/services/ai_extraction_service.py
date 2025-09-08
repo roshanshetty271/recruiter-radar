@@ -8,6 +8,15 @@ from collections import defaultdict, Counter
 import random
 
 from app.services.llm_service import LLMService
+from app.services.extraction_utils import (
+    try_fast_extraction,
+    derive_name_from_email,
+    extract_skills_section,
+    extract_work_experience,
+    extract_education,
+    extract_certifications,
+    extract_headline,
+)
 from app.models.extraction_models import ExtractedResumeData
 from app.core.prompts import RESUME_EXTRACTION_PROMPT_V6
 from app.core.config import settings
@@ -223,6 +232,103 @@ class AIExtractionService:
         """
         start_time = datetime.utcnow()
 
+        # ⚡ Fast path: deterministic extraction first (no LLM)
+        if settings.app_verbose_extraction:
+            logger.info("🚀 ATTEMPTING FAST-PATH EXTRACTION")
+
+        try:
+            fast = try_fast_extraction(resume_text)
+            if settings.app_verbose_extraction:
+                logger.info(f"🧪 FAST-PATH RESULT: {fast}")
+        except Exception as e:
+            if settings.app_verbose_extraction:
+                logger.warning(f"🚨 FAST-PATH ERROR: {str(e)}")
+            fast = None
+
+        if fast and fast.get("name") and fast.get("email"):
+            if settings.app_verbose_extraction:
+                logger.info("✅ FAST-PATH SUCCESS - Using fast extraction results")
+            # Enrich fast-path with section-level parsing for better recall
+            fast_skills_section = extract_skills_section(resume_text)
+            enriched_skills = list(
+                dict.fromkeys([*fast.get("skills", []), *fast_skills_section])
+            )
+            # Use fast-path structured data if available, otherwise re-parse
+            work_entries = fast.get("work_experience") or extract_work_experience(
+                resume_text
+            )
+            education_entries = fast.get("education") or extract_education(resume_text)
+            certs = fast.get("certifications") or extract_certifications(resume_text)
+            headline = extract_headline(resume_text, fast["name"]) or None
+
+            result = ExtractedResumeData(
+                name=fast["name"],
+                email=fast.get("email"),
+                phone=fast.get("phone"),
+                location=fast.get("location"),
+                current_title=fast.get("current_title") or headline,
+                technical_skills=enriched_skills,
+                total_experience_years=fast.get("total_experience_years"),
+                extraction_confidence=float(fast.get("confidence", 0.8)),
+            )
+
+            # Map work experience (preserve all entries parsed)
+            if work_entries:
+                from app.models.extraction_models import WorkExperience
+
+                result.work_experience = [
+                    WorkExperience(
+                        company=e["company"],
+                        title=e["title"],
+                        duration=e["duration"],
+                        description=None,
+                    )
+                    for e in work_entries
+                ]
+
+                # If current_title is still empty, set from most recent role
+                if not result.current_title and result.work_experience:
+                    result.current_title = result.work_experience[0].title
+
+            # Map education (preserve all entries parsed)
+            if education_entries:
+                from app.models.extraction_models import Education
+
+                result.education = [
+                    Education(
+                        degree=ed.get("degree", ""),
+                        field=ed.get("field", ""),
+                        school=ed.get("school", ""),
+                        graduation_year=(
+                            str(ed.get("graduation_year"))
+                            if ed.get("graduation_year")
+                            else None
+                        ),
+                    )
+                    for ed in education_entries
+                ]
+
+            if certs:
+                result.certifications = certs
+
+            cache_key = self._generate_cache_key(resume_text)
+            self._add_to_cache(cache_key, result)
+
+            extraction_time = (datetime.utcnow() - start_time).total_seconds()
+            logger.info(
+                f"✅ Fast-path resume extraction succeeded in {extraction_time:.2f}s"
+            )
+
+            # Record analytics for fast path
+            self.analytics.record_extraction(
+                success=True,
+                extraction_time=extraction_time,
+                extracted_data=result,
+                cache_hit=False,
+            )
+
+            return result
+
         # Generate cache key (first 100 chars + last 100 chars)
         cache_key = self._generate_cache_key(resume_text)
 
@@ -244,16 +350,20 @@ class AIExtractionService:
 
         # Calculate adaptive timeout if not provided
         if timeout_seconds is None:
-            timeout_seconds = self.timeout_config.calculate_timeout(resume_text)
+            timeout_seconds = min(
+                12.0,  # hard cap for MVP latency
+                self.timeout_config.calculate_timeout(resume_text),
+            )
 
-        # 🚨 NUCLEAR EXTRACTION DEBUGGING
+        # 🚨 Conditional extraction debugging (can be very verbose)
         text_length = len(resume_text)
-        text_preview = (
-            resume_text[:400] + "..." if len(resume_text) > 400 else resume_text
-        )
-        logger.info("=" * 80)
-        logger.info("🚨 STARTING ROBUST AI EXTRACTION WITH RETRY LOGIC")
-        logger.info("=" * 80)
+        if settings.app_verbose_extraction:
+            text_preview = (
+                resume_text[:400] + "..." if len(resume_text) > 400 else resume_text
+            )
+            logger.info("=" * 80)
+            logger.info("🧪 VERBOSE: STARTING RESUME EXTRACTION")
+            logger.info("=" * 80)
         logger.info(f"📏 Original text length: {text_length} characters")
         logger.info(f"⏰ Adaptive timeout: {timeout_seconds:.1f} seconds")
         logger.info(f"🔄 Max retries: {self.retry_config.max_retries}")
@@ -265,8 +375,9 @@ class AIExtractionService:
         # 🚀 SMART CHUNKING: Instead of truncating, use full content intelligently
         processed_text = self._prepare_text_for_extraction(resume_text)
 
-        # Log text processing results
-        logger.info(f"🧠 Text processing complete:")
+        if settings.app_verbose_extraction:
+            # Log text processing results
+            logger.info(f"🧠 VERBOSE: Text processing complete")
         logger.info(f"   Original: {len(resume_text)} chars")
         logger.info(f"   Processed: {len(processed_text)} chars")
         logger.info(
@@ -275,13 +386,14 @@ class AIExtractionService:
 
         # Prepare prompt with processed text
         prompt = RESUME_EXTRACTION_PROMPT_V6.format(resume_text=processed_text)
-        logger.info(f"📝 Final prompt length: {len(prompt)} characters")
+        if settings.app_verbose_extraction:
+            logger.info(f"📝 VERBOSE: Final prompt length: {len(prompt)} characters")
 
         # Retry logic with exponential backoff
         last_exception = None
         for attempt in range(
-            self.retry_config.max_retries + 1
-        ):  # +1 for initial attempt
+            min(self.retry_config.max_retries, 0) + 1
+        ):  # single attempt for MVP
             try:
                 logger.info(
                     f"🎯 Extraction attempt {attempt + 1}/{self.retry_config.max_retries + 1}"
@@ -752,7 +864,126 @@ class AIExtractionService:
                     f"(within {threshold:.1f} year threshold)"
                 )
 
-        # 🎯 FIX #2: Extract additional skills from original text if AI missed obvious ones
+        # 🎯 FIX #2: If experience is missing, estimate from raw text (years/ranges)
+        if (
+            not extracted_data.total_experience_years
+            or extracted_data.total_experience_years == 0
+        ):
+            try:
+                text_lower = original_text.lower()
+                # Strategy A: direct years mentions
+                direct_patterns = [
+                    r"(\d+)\+?\s*years?\s+(?:of\s+)?experience",
+                    r"experience[:\s]+(\d+)\+?\s*years?",
+                    r"over\s+(\d+)\+?\s*years?",
+                ]
+                found_years: float = 0.0
+                for pat in direct_patterns:
+                    m = re.search(pat, text_lower)
+                    if m:
+                        found_years = float(m.group(1))
+                        break
+                # Strategy B: year ranges
+                if found_years == 0.0:
+                    from datetime import datetime
+
+                    current_year = datetime.utcnow().year
+                    year_ranges = re.findall(
+                        r"(20\d{2}|19\d{2})\s*[-–]\s*(?:(20\d{2}|19\d{2})|present|current)",
+                        text_lower,
+                    )
+                    total_months = 0
+                    for start_str, end_str in year_ranges:
+                        try:
+                            start_year = int(start_str)
+                            if end_str and end_str.isdigit():
+                                end_year = int(end_str)
+                            else:
+                                end_year = current_year
+                            if 1990 <= start_year <= end_year <= current_year:
+                                total_months += (end_year - start_year) * 12
+                        except Exception:
+                            continue
+                    if total_months > 0:
+                        found_years = round(total_months / 12, 1)
+
+                if found_years > 0:
+                    extracted_data.total_experience_years = found_years
+                    logger.info(f"🧮 Filled missing experience: {found_years} years")
+            except Exception:
+                pass
+
+        # 🎯 FIX #2b: Prefer experience derived from structured work entries if present
+        try:
+            if extracted_data.work_experience:
+                from datetime import datetime
+                import re as _re
+
+                current_year = datetime.utcnow().year
+                total_months = 0
+                for w in extracted_data.work_experience:
+                    dur = (w.duration or "").lower()
+                    m = _re.search(
+                        r"(20\d{2}|19\d{2})\s*[-–]\s*(?:(20\d{2}|19\d{2})|present|current)",
+                        dur,
+                    )
+                    if m:
+                        start = int(m.group(1))
+                        end = (
+                            int(m.group(2))
+                            if m.group(2) and m.group(2).isdigit()
+                            else current_year
+                        )
+                        if 1990 <= start <= end <= current_year:
+                            total_months += (end - start) * 12
+                if total_months > 0:
+                    years_from_roles = round(total_months / 12, 1)
+                    # Override if significant mismatch
+                    if (
+                        not extracted_data.total_experience_years
+                        or abs(years_from_roles - extracted_data.total_experience_years)
+                        > 0.6
+                    ):
+                        logger.info(
+                            f"🧮 Using experience from roles: {years_from_roles} years (overrode {extracted_data.total_experience_years})"
+                        )
+                        extracted_data.total_experience_years = years_from_roles
+                elif settings.app_verbose_extraction:
+                    # Enhanced scan across the full text to compute approximate years if durations were embedded differently
+                    mlines = [ln.strip() for ln in original_text.splitlines()]
+                    months = 0
+                    current_year = datetime.utcnow().year
+                    for ln in mlines:
+                        md = _re.search(
+                            r"(20\d{2}|19\d{2})\s*[-–]\s*(?:(20\d{2}|19\d{2})|present|current)",
+                            ln.lower(),
+                        )
+                        if md:
+                            s = int(md.group(1))
+                            e = (
+                                int(md.group(2))
+                                if (md.group(2) and md.group(2).isdigit())
+                                else current_year
+                            )
+                            if 1990 <= s <= e <= current_year:
+                                months += (e - s) * 12
+                    if months > 0:
+                        y = round(months / 12, 1)
+                        logger.info(
+                            f"🧪 VERBOSE: Enhanced scan computed {y} years from date ranges in text"
+                        )
+                        if (not extracted_data.total_experience_years) or (
+                            abs(y - extracted_data.total_experience_years) > 0.6
+                        ):
+                            extracted_data.total_experience_years = y
+                    else:
+                        logger.info(
+                            "🧪 VERBOSE: No computable date ranges found in work_experience durations"
+                        )
+        except Exception:
+            pass
+
+        # 🎯 FIX #3: Extract additional skills from original text if AI missed obvious ones
         additional_skills = self._extract_obvious_skills(
             original_text, extracted_data.technical_skills
         )
@@ -770,7 +1001,38 @@ class AIExtractionService:
                     unique_skills.append(skill)
             extracted_data.technical_skills = unique_skills
 
-        # 🎯 FIX #3: Boost confidence if we made improvements
+        # 🎯 FIX #4: Preserve all skills but reorder: SKILLS section first, then body hits (no exclusion)
+        try:
+            priority_skills = extract_skills_section(original_text)
+            seen = set()
+            ordered: List[str] = []
+            for s in [*priority_skills, *extracted_data.technical_skills]:
+                sl = s.strip()
+                if not sl:
+                    continue
+                key = sl.lower()
+                if key not in seen:
+                    seen.add(key)
+                    ordered.append(sl)
+            extracted_data.technical_skills = ordered
+        except Exception:
+            pass
+
+        # 🎯 FIX #5: Normalize name from email if malformed
+        try:
+            if extracted_data.email and extracted_data.name:
+                # If single token or contains no space, derive from email
+                if len(extracted_data.name.split()) == 1:
+                    derived = derive_name_from_email(str(extracted_data.email))
+                    if derived:
+                        extracted_data.name = derived
+                # If ALL CAPS with spaces, convert to Title Case
+                elif extracted_data.name.isupper():
+                    extracted_data.name = extracted_data.name.title()
+        except Exception:
+            pass
+
+        # 🎯 FIX #6: Boost confidence if we made improvements
         improvements_made = (calculated_years > 0) or bool(additional_skills)
         if improvements_made and extracted_data.extraction_confidence < 0.8:
             old_confidence = extracted_data.extraction_confidence
@@ -1195,22 +1457,56 @@ class AIExtractionService:
                     # Additional validation for name-like patterns
                     likely_name = True
 
+                    # Check if this looks like a section header
+                    section_keywords = [
+                        "experience",
+                        "education",
+                        "skills",
+                        "projects",
+                        "certifications",
+                        "qualifications",
+                        "background",
+                        "summary",
+                        "profile",
+                        "contact",
+                        "professional",
+                        "work",
+                        "employment",
+                        "career",
+                        "technical",
+                        "accomplishments",
+                        "achievements",
+                        "languages",
+                        "interests",
+                    ]
+
+                    line_lower = line.lower()
+                    if any(keyword in line_lower for keyword in section_keywords):
+                        likely_name = False
+
                     # Check if words look like name parts (not technical terms, companies, etc.)
-                    for word in words:
-                        if (
-                            len(word) > 15  # Too long for typical names
-                            or word.lower()
-                            in [
-                                "technologies",
-                                "engineering",
-                                "development",
-                                "software",
-                            ]
-                            or any(char.isdigit() for char in word)  # Contains numbers
-                            or word.lower().endswith((".com", ".org", ".net"))
-                        ):  # URLs
-                            likely_name = False
-                            break
+                    if likely_name:
+                        for word in words:
+                            if (
+                                len(word) > 15  # Too long for typical names
+                                or word.lower()
+                                in [
+                                    "technologies",
+                                    "engineering",
+                                    "development",
+                                    "software",
+                                    "experience",
+                                    "professional",
+                                    "education",
+                                    "background",
+                                ]
+                                or any(
+                                    char.isdigit() for char in word
+                                )  # Contains numbers
+                                or word.lower().endswith((".com", ".org", ".net"))
+                            ):  # URLs
+                                likely_name = False
+                                break
 
                     if likely_name:
                         name = line
